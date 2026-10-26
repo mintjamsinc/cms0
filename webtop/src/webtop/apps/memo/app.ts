@@ -538,7 +538,7 @@ export const App = {
 			const name = picker.action === 'gdoc' ? stem : `${stem}.html`;
 			vm.cloudResult = { visible: true, title: vm.t('app.memo.cloud.exporting', { name: picker.providerName }, 'Exporting to {name}…'), entry: null, error: '', busy: true };
 			try {
-				const entry = await cloud.exportContent(picker.provider, name, 'text/html', html, { folderId: folder.id, convert: picker.action === 'gdoc' });
+				const entry = await cloud.exportContent(picker.provider, name, 'text/html', html, { driveId: folder.driveId, folderId: folder.id, convert: picker.action === 'gdoc' });
 				vm.showCloudResult(vm.t('app.memo.cloud.exportedTo', { name: picker.providerName, folder: folder.name }, 'Exported to {name}: {folder}'), entry, '');
 			} catch (e: any) {
 				vm.showCloudResult(vm.t('app.memo.cloud.exportFailed', { name: picker.providerName }, 'The memo could not be exported to {name}.'), null, e?.message || String(e));

@@ -26,24 +26,31 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.jcr.Node;
+import javax.jcr.NodeIterator;
 import javax.jcr.RepositoryException;
 import javax.jcr.Session;
 
 import org.mintjams.jcr.util.JCRs;
+import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.connections.ConnectionClients;
 import org.mintjams.rt.cms.internal.connections.ConnectionProviders;
 import org.mintjams.rt.cms.internal.connections.ConnectionTokens;
+import org.mintjams.rt.cms.internal.connections.LinkedAccounts;
 import org.mintjams.rt.cms.internal.script.resource.JcrAction;
 import org.mintjams.script.ConsentRequiredException;
 
 import com.google.gson.JsonObject;
 
 /**
- * The files bundle at work: copying a file of the user's Google Drive or
- * OneDrive into the repository, a repository file or some content out to it,
- * and a reference to a cloud file kept as a small file in the repository.
+ * The files bundle at work: the user's drives read and written through
+ * {@link CloudProvider}, copies between them and the repository, and
+ * references to cloud files kept as small files in the repository.
  *
  * <p>Every repository read and write here runs in the session handed in, the
  * caller's: what the caller cannot read is not exported, where the caller
@@ -51,11 +58,24 @@ import com.google.gson.JsonObject;
  * ({@link ConnectionTokens}); an account that is not linked, or has not
  * granted the files bundle, is reported as {@link ConsentRequiredException}
  * for the app to open the grant page.
+ *
+ * <p>A folder is copied by walking it: one GraphQL call, up to
+ * {@value #FOLDER_LIMIT} entries per folder. A larger folder is refused and
+ * what was copied so far is left, so the user can split the work.
  */
 public final class CloudFiles {
 
-	/** The type of a reference to a cloud file: {@code {provider, id, name, mimeType, webUrl}}. */
+	/** The type of a reference to a cloud file: {@code {provider, driveId, id, name, mimeType, folder, webUrl}}. */
 	public static final String LINK_TYPE = "application/vnd.mintjams.webtop.cloud-link+json";
+
+	/** How many entries one folder may hold to be copied in one call. */
+	public static final int FOLDER_LIMIT = 1000;
+
+	/** How long an entry read on the way up a hierarchy is remembered. */
+	private static final long ANCESTOR_CACHE_MILLIS = 60_000;
+	private static final int ANCESTOR_CACHE_SIZE = 20_000;
+
+	private static final Map<String, Cached> fAncestorCache = new ConcurrentHashMap<>();
 
 	/** What to do when the folder already has a file of the name. */
 	public enum Conflict {
@@ -104,7 +124,24 @@ public final class CloudFiles {
 		}
 	}
 
+	/** A call against the provider with the user's token. */
+	public interface Call<T> {
+		T run(String token) throws IOException, RepositoryException;
+	}
+
+	private static final class Cached {
+		final CloudEntry entry;
+		final long expiresAt;
+
+		Cached(CloudEntry entry, long expiresAt) {
+			this.entry = entry;
+			this.expiresAt = expiresAt;
+		}
+	}
+
 	private CloudFiles() {}
+
+	// ---- the provider and the token ----------------------------------------------
 
 	/** The provider's client, as configured; null when the administrator did not configure it. */
 	public static CloudProvider provider(String providerId) {
@@ -141,23 +178,229 @@ public final class CloudFiles {
 	}
 
 	/**
-	 * Copies a cloud file into a folder of the repository. A Google native
-	 * document is exported ({@code exportMimeType}, or the usual Office type of
-	 * its kind) and named with the matching extension. Returns what was written.
+	 * Runs a call with the user's token. A token the provider no longer
+	 * accepts (401) is thrown away and the call made once more with a fresh
+	 * one; refused again, the account is reported as needing a new link.
 	 */
-	public static Imported importFile(Session session, String providerId, String fileId, String folderPath,
-			String name, String exportMimeType, Conflict conflict) throws IOException, RepositoryException {
+	public static <T> T call(String userId, String providerId, Call<T> call) throws IOException, RepositoryException {
+		String token = token(userId, providerId);
+		try {
+			return call.run(token);
+		} catch (CloudProvider.CloudException first) {
+			if (first.getStatus() != 401) {
+				throw first;
+			}
+			ConnectionTokens.invalidate(userId, providerId);
+			String fresh = token(userId, providerId);
+			if (fresh.equals(token)) {
+				// Nothing new to try with.
+				throw first;
+			}
+			try {
+				return call.run(fresh);
+			} catch (CloudProvider.CloudException second) {
+				if (second.getStatus() != 401) {
+					throw second;
+				}
+				ConnectionTokens.invalidate(userId, providerId);
+				CmsService.getLogger(CloudFiles.class).info(
+						"{} does not accept the tokens of {} for the files bundle; the account needs a new link.",
+						providerId, userId);
+				throw new ConsentRequiredException(providerId, ConnectionProviders.BUNDLE_FILES,
+						ConsentRequiredException.REAUTHORIZE);
+			}
+		}
+	}
+
+	/** Whether the user's account of the provider has the files bundle, with every scope it takes today. */
+	public static boolean isGranted(String userId, String providerId) {
+		try {
+			ConnectionProviders.Provider provider = ConnectionProviders.get(providerId);
+			LinkedAccounts.Account account = LinkedAccounts.get(userId, providerId);
+			return provider != null && account != null && !account.isNeedsReauth()
+					&& account.getBundles().contains(ConnectionProviders.BUNDLE_FILES)
+					&& account.covers(provider.getBundleScopes(ConnectionProviders.BUNDLE_FILES));
+		} catch (RepositoryException ex) {
+			return false;
+		}
+	}
+
+	// ---- reading -----------------------------------------------------------------
+
+	/** The cache of entries read on the way up a hierarchy, for one user and provider. */
+	public static CloudProvider.EntryCache ancestorCache(String userId, String providerId) {
+		String prefix = userId + "|" + providerId + "|";
+		return (driveId, id, loader) -> {
+			String key = prefix + driveId + "|" + id;
+			long now = System.currentTimeMillis();
+			Cached cached = fAncestorCache.get(key);
+			if (cached != null && cached.expiresAt > now) {
+				return cached.entry;
+			}
+			CloudEntry entry = loader.load();
+			if (entry != null) {
+				if (fAncestorCache.size() > ANCESTOR_CACHE_SIZE) {
+					fAncestorCache.entrySet().removeIf(e -> e.getValue().expiresAt <= now);
+				}
+				fAncestorCache.put(key, new Cached(entry, now + ANCESTOR_CACHE_MILLIS));
+			}
+			return entry;
+		};
+	}
+
+	/** Forgets what the cache holds for a drive: after a rename or a move in it. */
+	public static void forgetAncestors(String userId, String providerId, String driveId) {
+		String prefix = userId + "|" + providerId + "|" + driveId + "|";
+		fAncestorCache.keySet().removeIf(key -> key.startsWith(prefix));
+	}
+
+	/** The folders above an entry, from the first below the root to its parent. */
+	public static List<CloudEntry> ancestors(String userId, String providerId, String driveId, String id)
+			throws IOException, RepositoryException {
 		CloudProvider provider = requireProvider(providerId);
-		String token = token(session.getUserID(), providerId);
-		CloudEntry entry = provider.get(token, fileId);
-		if (entry == null) {
-			throw new IllegalArgumentException("The file was not found on " + displayName(providerId) + ".");
+		CloudProvider.EntryCache cache = ancestorCache(userId, providerId);
+		return call(userId, providerId, token -> provider.ancestors(token, driveId, id, cache));
+	}
+
+	// ---- writing to a drive ----------------------------------------------------------
+
+	/**
+	 * Writes content as a file of a folder of a drive, resolving a name the
+	 * folder already has as {@code conflict} says: refused, replaced
+	 * (the existing file's content), or written under {@code name (2)}. The
+	 * providers' own conflict handling is not relied on, because Drive lets two
+	 * files share a name.
+	 */
+	public static CloudEntry upload(String token, CloudProvider provider, String driveId, String folderId, String name,
+			String mimeType, InputStream content, long length, boolean convert, Conflict conflict) throws IOException {
+		if (name == null || name.isBlank()) {
+			throw new IllegalArgumentException("name is required.");
 		}
-		if (entry.isFolder()) {
-			throw new IllegalArgumentException(entry.getName() + " is a folder; only files are imported.");
+		String uploadName = (convert && provider.getId().equals(GoogleDrive.ID)) ? stripExtension(name) : name;
+		CloudEntry existing = provider.child(token, driveId, folderId, uploadName);
+		if (existing != null) {
+			if (conflict == Conflict.REPLACE && !convert) {
+				if (existing.isFolder()) {
+					throw new IllegalArgumentException(existing.getName() + " is a folder and cannot be replaced.");
+				}
+				return provider.update(token, driveId, existing.getId(), mimeType, content, length, null);
+			}
+			if (conflict == Conflict.FAIL) {
+				throw new IllegalArgumentException("The folder already has " + uploadName + ".");
+			}
+			uploadName = freeName(token, provider, driveId, folderId, uploadName);
 		}
+		return provider.upload(token, driveId, folderId, uploadName, mimeType, content, length, convert);
+	}
+
+	/** {@code name (2)}, {@code name (3)}, ... the first the folder does not have. */
+	private static String freeName(String token, CloudProvider provider, String driveId, String folderId, String name)
+			throws IOException {
+		int dot = name.lastIndexOf('.');
+		String stem = (dot > 0) ? name.substring(0, dot) : name;
+		String extension = (dot > 0) ? name.substring(dot) : "";
+		for (int i = 2; i < 100; i++) {
+			String candidate = stem + " (" + i + ")" + extension;
+			if (provider.child(token, driveId, folderId, candidate) == null) {
+				return candidate;
+			}
+		}
+		throw new IllegalArgumentException("The folder already has too many files named " + name + ".");
+	}
+
+	/**
+	 * A new folder of the name in a folder; a name the folder already has (a
+	 * file or a folder) gets a number, as a file's would, so that a copy never
+	 * lands inside something that was already there.
+	 */
+	private static CloudEntry folderFor(String token, CloudProvider provider, String driveId, String parentId,
+			String name) throws IOException {
+		String folderName = (provider.child(token, driveId, parentId, name) == null) ? name
+				: freeName(token, provider, driveId, parentId, name);
+		return provider.createFolder(token, driveId, parentId, folderName);
+	}
+
+	/**
+	 * Copies an entry to a folder of a drive of the same provider. A folder
+	 * the provider cannot copy itself is walked: a folder of the name is made
+	 * and its entries copied one by one, up to {@value #FOLDER_LIMIT} each.
+	 */
+	public static CloudEntry copy(String userId, String providerId, String driveId, String id, String toDriveId,
+			String toFolderId, String name) throws IOException, RepositoryException {
+		CloudProvider provider = requireProvider(providerId);
+		return call(userId, providerId, token -> {
+			CloudEntry entry = provider.get(token, driveId, id);
+			if (entry == null) {
+				throw new CloudProvider.NotFoundException("the file was not found");
+			}
+			if (entry.isFolder() && !provider.canCopyFolder()) {
+				String folderName = (name == null || name.isBlank()) ? entry.getName() : name;
+				CloudEntry made = folderFor(token, provider, toDriveId, toFolderId, folderName);
+				copyChildren(token, provider, entry, made, 0);
+				return made;
+			}
+			return provider.copy(token, driveId, id, toDriveId, toFolderId, name);
+		});
+	}
+
+	private static void copyChildren(String token, CloudProvider provider, CloudEntry from, CloudEntry to, int depth)
+			throws IOException {
+		if (depth > 32) {
+			throw new IllegalArgumentException("The folder is nested too deeply to be copied.");
+		}
+		int count = 0;
+		String cursor = null;
+		do {
+			CloudPage page = provider.children(token, from.getDriveId(), from.getId(), cursor, 200,
+					CloudProvider.Order.NAME);
+			for (CloudEntry child : page.getEntries()) {
+				if (++count > FOLDER_LIMIT) {
+					throw new IllegalArgumentException("The folder " + from.getName() + " holds more than "
+							+ FOLDER_LIMIT + " entries; it is too large to copy in one go.");
+				}
+				if (child.isFolder()) {
+					CloudEntry made = folderFor(token, provider, to.getDriveId(), to.getId(), child.getName());
+					copyChildren(token, provider, child, made, depth + 1);
+				} else {
+					provider.copy(token, child.getDriveId(), child.getId(), to.getDriveId(), to.getId(), null);
+				}
+			}
+			cursor = page.getNextCursor();
+		} while (cursor != null);
+	}
+
+	// ---- drive → repository ----------------------------------------------------------
+
+	/**
+	 * Copies a cloud entry into a folder of the repository. A file is written
+	 * as a file (a Google native document exported as {@code exportMimeType},
+	 * or the usual Office type of its kind, and named with the matching
+	 * extension); a folder becomes a folder with everything in it. Returns
+	 * what was written at the top.
+	 */
+	public static Imported importEntry(Session session, String providerId, String driveId, String id,
+			String folderPath, String name, String exportMimeType, Conflict conflict)
+			throws IOException, RepositoryException {
+		CloudProvider provider = requireProvider(providerId);
 		Node folder = folder(session, folderPath);
-		try (CloudProvider.Download download = provider.download(token, entry, exportMimeType)) {
+		return call(session.getUserID(), providerId, token -> {
+			CloudEntry entry = provider.get(token, driveId, id);
+			if (entry == null) {
+				throw new IllegalArgumentException("The file was not found on " + displayName(providerId) + ".");
+			}
+			if (entry.isFolder()) {
+				String folderName = safeName((name == null || name.isBlank()) ? entry.getName() : name);
+				Node made = folderFor(session, folder, folderName, conflict);
+				importChildren(session, token, provider, entry, made, 0);
+				return new Imported(made.getPath(), made.getName(), null, -1, entry);
+			}
+			return importFile(session, token, provider, entry, folder, name, exportMimeType, conflict);
+		});
+	}
+
+	private static Imported importFile(Session session, String token, CloudProvider provider, CloudEntry entry,
+			Node folder, String name, String exportMimeType, Conflict conflict) throws IOException, RepositoryException {
+		try (CloudProvider.Download download = provider.download(token, entry, exportMimeType, null)) {
 			String mimeType = download.getMimeType();
 			if (mimeType != null && mimeType.indexOf(';') > 0) {
 				mimeType = mimeType.substring(0, mimeType.indexOf(';')).trim();
@@ -178,72 +421,134 @@ public final class CloudFiles {
 		}
 	}
 
+	private static void importChildren(Session session, String token, CloudProvider provider, CloudEntry from,
+			Node to, int depth) throws IOException, RepositoryException {
+		if (depth > 32) {
+			throw new IllegalArgumentException("The folder is nested too deeply to be imported.");
+		}
+		int count = 0;
+		String cursor = null;
+		do {
+			CloudPage page = provider.children(token, from.getDriveId(), from.getId(), cursor, 200,
+					CloudProvider.Order.NAME);
+			for (CloudEntry child : page.getEntries()) {
+				if (++count > FOLDER_LIMIT) {
+					throw new IllegalArgumentException("The folder " + from.getName() + " holds more than "
+							+ FOLDER_LIMIT + " entries; it is too large to import in one go.");
+				}
+				if (child.isFolder()) {
+					Node made = folderFor(session, to, safeName(child.getName()), Conflict.REPLACE);
+					importChildren(session, token, provider, child, made, depth + 1);
+				} else {
+					importFile(session, token, provider, child, to, null, null, Conflict.RENAME);
+				}
+			}
+			cursor = page.getNextCursor();
+		} while (cursor != null);
+	}
+
+	// ---- repository → drive ----------------------------------------------------------
+
 	/**
-	 * Uploads a repository file to a folder of the user's drive (the drive's
+	 * Uploads a repository file or folder to a folder of a drive (the drive's
 	 * root when {@code folderId} is null), under its own name unless
-	 * {@code name} says otherwise. With {@code convert}, Google turns it into a
-	 * native document.
+	 * {@code name} says otherwise. With {@code convert}, Google turns a file
+	 * into a native document. A folder is walked, {@value #FOLDER_LIMIT}
+	 * entries per folder at most.
 	 */
-	public static CloudEntry exportFile(Session session, String providerId, String path, String folderId, String name,
-			boolean convert) throws IOException, RepositoryException {
+	public static CloudEntry exportNode(Session session, String providerId, String path, String driveId,
+			String folderId, String name, boolean convert) throws IOException, RepositoryException {
 		CloudProvider provider = requireProvider(providerId);
 		if (path == null || !path.startsWith("/") || !session.nodeExists(path)) {
 			throw new IllegalArgumentException("The file " + path + " does not exist.");
 		}
-		Node file = session.getNode(path);
-		if (!JCRs.isFile(file)) {
-			throw new IllegalArgumentException(path + " is not a file.");
+		Node node = session.getNode(path);
+		if (!JCRs.isFile(node) && !JCRs.isFolder(node)) {
+			throw new IllegalArgumentException(path + " is neither a file nor a folder.");
 		}
-		String token = token(session.getUserID(), providerId);
+		return call(session.getUserID(), providerId, token -> {
+			if (JCRs.isFolder(node)) {
+				String folderName = (name == null || name.isBlank()) ? node.getName() : name;
+				CloudEntry made = folderFor(token, provider, driveId, folderId, folderName);
+				exportChildren(token, provider, node, made, 0);
+				return made;
+			}
+			return exportFile(token, provider, node, driveId, folderId, name, convert);
+		});
+	}
+
+	private static CloudEntry exportFile(String token, CloudProvider provider, Node file, String driveId,
+			String folderId, String name, boolean convert) throws IOException, RepositoryException {
 		String mimeType = JCRs.getMimeType(file);
 		String uploadName = (name == null || name.isBlank()) ? file.getName() : name;
-		if (convert && providerId.equals(GoogleDrive.ID)) {
-			// A Google document has no extension of its own.
-			uploadName = stripExtension(uploadName);
-		}
 		try (InputStream in = JCRs.getContentAsStream(file)) {
-			return provider.upload(token, folderId, uploadName, mimeType, in, JCRs.getContentLength(file), convert);
+			return upload(token, provider, driveId, folderId, uploadName, mimeType, in, JCRs.getContentLength(file),
+					convert, Conflict.RENAME);
 		}
 	}
 
-	/** Uploads content handed in directly (a memo's HTML, say) as a new file of the user's drive. */
-	public static CloudEntry exportContent(Session session, String providerId, String folderId, String name,
-			String mimeType, byte[] content, boolean convert) throws IOException, RepositoryException {
+	private static void exportChildren(String token, CloudProvider provider, Node from, CloudEntry to, int depth)
+			throws IOException, RepositoryException {
+		if (depth > 32) {
+			throw new IllegalArgumentException("The folder is nested too deeply to be exported.");
+		}
+		int count = 0;
+		for (NodeIterator it = from.getNodes(); it.hasNext();) {
+			Node child = it.nextNode();
+			if (!JCRs.isFile(child) && !JCRs.isFolder(child)) {
+				continue;
+			}
+			if (++count > FOLDER_LIMIT) {
+				throw new IllegalArgumentException("The folder " + from.getName() + " holds more than " + FOLDER_LIMIT
+						+ " entries; it is too large to export in one go.");
+			}
+			if (JCRs.isFolder(child)) {
+				CloudEntry made = folderFor(token, provider, to.getDriveId(), to.getId(), child.getName());
+				exportChildren(token, provider, child, made, depth + 1);
+			} else {
+				exportFile(token, provider, child, to.getDriveId(), to.getId(), null, false);
+			}
+		}
+	}
+
+	/** Uploads content handed in directly (a memo's HTML, say) as a new file of a drive. */
+	public static CloudEntry exportContent(Session session, String providerId, String driveId, String folderId,
+			String name, String mimeType, byte[] content, boolean convert) throws IOException, RepositoryException {
 		CloudProvider provider = requireProvider(providerId);
 		if (name == null || name.isBlank()) {
 			throw new IllegalArgumentException("name is required.");
 		}
-		String token = token(session.getUserID(), providerId);
-		String uploadName = (convert && providerId.equals(GoogleDrive.ID)) ? stripExtension(name) : name;
-		return provider.upload(token, folderId, uploadName, mimeType, new ByteArrayInputStream(content),
-				content.length, convert);
+		return call(session.getUserID(), providerId, token -> upload(token, provider, driveId, folderId, name,
+				mimeType, new ByteArrayInputStream(content), content.length, convert, Conflict.RENAME));
 	}
 
 	/**
 	 * Writes a reference to a cloud file into a folder: a small JSON file of
 	 * type {@link #LINK_TYPE} that an app opens by following its {@code webUrl}.
 	 */
-	public static Imported createLink(Session session, String providerId, String fileId, String folderPath,
-			String name, Conflict conflict) throws IOException, RepositoryException {
+	public static Imported createLink(Session session, String providerId, String driveId, String fileId,
+			String folderPath, String name, Conflict conflict) throws IOException, RepositoryException {
 		CloudProvider provider = requireProvider(providerId);
-		String token = token(session.getUserID(), providerId);
-		CloudEntry entry = provider.get(token, fileId);
-		if (entry == null) {
-			throw new IllegalArgumentException("The file was not found on " + displayName(providerId) + ".");
-		}
 		Node folder = folder(session, folderPath);
-		JsonObject link = new JsonObject();
-		link.addProperty("provider", providerId);
-		link.addProperty("id", entry.getId());
-		link.addProperty("name", entry.getName());
-		link.addProperty("mimeType", entry.getMimeType());
-		link.addProperty("folder", entry.isFolder());
-		link.addProperty("webUrl", entry.getWebUrl());
-		byte[] bytes = link.toString().getBytes(StandardCharsets.UTF_8);
-		String fileName = (name == null || name.isBlank()) ? entry.getName() : name;
-		Node file = write(session, folder, safeName(fileName), LINK_TYPE, "UTF-8", new ByteArrayInputStream(bytes),
-				conflict);
-		return new Imported(file.getPath(), file.getName(), LINK_TYPE, bytes.length, entry);
+		return call(session.getUserID(), providerId, token -> {
+			CloudEntry entry = provider.get(token, driveId, fileId);
+			if (entry == null) {
+				throw new IllegalArgumentException("The file was not found on " + displayName(providerId) + ".");
+			}
+			JsonObject link = new JsonObject();
+			link.addProperty("provider", providerId);
+			link.addProperty("driveId", entry.getDriveId());
+			link.addProperty("id", entry.getId());
+			link.addProperty("name", entry.getName());
+			link.addProperty("mimeType", entry.getMimeType());
+			link.addProperty("folder", entry.isFolder());
+			link.addProperty("webUrl", entry.getWebUrl());
+			byte[] bytes = link.toString().getBytes(StandardCharsets.UTF_8);
+			String fileName = (name == null || name.isBlank()) ? entry.getName() : name;
+			Node file = write(session, folder, safeName(fileName), LINK_TYPE, "UTF-8", new ByteArrayInputStream(bytes),
+					conflict);
+			return new Imported(file.getPath(), file.getName(), LINK_TYPE, bytes.length, entry);
+		});
 	}
 
 	// ---- repository helpers ------------------------------------------------------
@@ -260,6 +565,25 @@ public final class CloudFiles {
 			throw new IllegalArgumentException(path + " is not a folder.");
 		}
 		return node;
+	}
+
+	/** A folder of the name in a folder: as {@code conflict} says when the name is taken. */
+	private static Node folderFor(Session session, Node parent, String name, Conflict conflict)
+			throws RepositoryException {
+		if (JCRs.exists(parent, name)) {
+			Node existing = parent.getNode(name);
+			if (conflict == Conflict.REPLACE && JCRs.isFolder(existing)) {
+				return existing;
+			}
+			if (conflict == Conflict.FAIL) {
+				throw new IllegalArgumentException(parent.getPath() + " already has " + name + ".");
+			}
+			name = freeName(parent, name);
+		}
+		JcrAction.create(parent).addLockToken().checkLock();
+		Node made = JCRs.createFolder(parent, name);
+		session.save();
+		return made;
 	}
 
 	/**
@@ -327,14 +651,23 @@ public final class CloudFiles {
 		return clean;
 	}
 
-	private static String stripExtension(String name) {
+	static String stripExtension(String name) {
 		int dot = name.lastIndexOf('.');
 		return (dot > 0 && name.length() - dot <= 6) ? name.substring(0, dot) : name;
 	}
 
-	private static String displayName(String providerId) {
+	public static String displayName(String providerId) {
 		ConnectionProviders.Provider provider = ConnectionProviders.get(providerId);
 		return (provider != null) ? provider.getDisplayName() : providerId;
+	}
+
+	/** For diagnostics: the entries kept for walking up hierarchies. */
+	static int cachedAncestors() {
+		return fAncestorCache.size();
+	}
+
+	static List<String> cachedAncestorKeys() {
+		return new ArrayList<>(fAncestorCache.keySet());
 	}
 
 }

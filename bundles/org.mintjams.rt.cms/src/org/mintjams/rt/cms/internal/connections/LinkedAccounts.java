@@ -25,6 +25,7 @@ package org.mintjams.rt.cms.internal.connections;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -95,17 +96,25 @@ public final class LinkedAccounts {
 		private final String fEmail;
 		private final String fDisplayName;
 		private final Set<String> fBundles;
+		private final Set<String> fScopes;
 		private final long fLinkedAtMillis;
 		private final long fLastUsedMillis;
 		private final boolean fNeedsReauth;
 
 		public Account(String provider, String subject, String email, String displayName, Set<String> bundles,
 				long linkedAtMillis, long lastUsedMillis, boolean needsReauth) {
+			this(provider, subject, email, displayName, bundles, Collections.emptySet(), linkedAtMillis,
+					lastUsedMillis, needsReauth);
+		}
+
+		public Account(String provider, String subject, String email, String displayName, Set<String> bundles,
+				Set<String> scopes, long linkedAtMillis, long lastUsedMillis, boolean needsReauth) {
 			fProvider = provider;
 			fSubject = subject;
 			fEmail = email;
 			fDisplayName = displayName;
 			fBundles = new LinkedHashSet<>(bundles);
+			fScopes = new LinkedHashSet<>(scopes);
 			fLinkedAtMillis = linkedAtMillis;
 			fLastUsedMillis = lastUsedMillis;
 			fNeedsReauth = needsReauth;
@@ -143,19 +152,50 @@ public final class LinkedAccounts {
 			return fNeedsReauth;
 		}
 
+		/**
+		 * The scopes the provider granted this client for the account, as the
+		 * token responses reported them and as the bundles were defined when
+		 * they were granted. A bundle whose scopes grew since has to be allowed
+		 * again ({@link #bundlesNeedingGrant(ConnectionProviders.Provider)}).
+		 */
+		public Set<String> getScopes() {
+			return fScopes;
+		}
+
+		/** Whether every scope of {@code wanted} was granted. */
+		public boolean covers(java.util.Collection<String> wanted) {
+			return ConnectionProviders.Provider.covers(fScopes, wanted);
+		}
+
+		/** The bundles of this account whose present scopes are not all granted: they have to be allowed again. */
+		public List<String> bundlesNeedingGrant(ConnectionProviders.Provider provider) {
+			List<String> needing = new ArrayList<>();
+			for (String bundle : fBundles) {
+				if (!covers(provider.getBundleScopes(bundle))) {
+					needing.add(bundle);
+				}
+			}
+			return needing;
+		}
+
 		public Account withBundles(Set<String> bundles) {
-			return new Account(fProvider, fSubject, fEmail, fDisplayName, bundles, fLinkedAtMillis, fLastUsedMillis,
-					fNeedsReauth);
+			return new Account(fProvider, fSubject, fEmail, fDisplayName, bundles, fScopes, fLinkedAtMillis,
+					fLastUsedMillis, fNeedsReauth);
+		}
+
+		public Account withScopes(Set<String> scopes) {
+			return new Account(fProvider, fSubject, fEmail, fDisplayName, fBundles, scopes, fLinkedAtMillis,
+					fLastUsedMillis, fNeedsReauth);
 		}
 
 		public Account withNeedsReauth(boolean needsReauth) {
-			return new Account(fProvider, fSubject, fEmail, fDisplayName, fBundles, fLinkedAtMillis, fLastUsedMillis,
-					needsReauth);
+			return new Account(fProvider, fSubject, fEmail, fDisplayName, fBundles, fScopes, fLinkedAtMillis,
+					fLastUsedMillis, needsReauth);
 		}
 
 		public Account withLastUsed(long lastUsedMillis) {
-			return new Account(fProvider, fSubject, fEmail, fDisplayName, fBundles, fLinkedAtMillis, lastUsedMillis,
-					fNeedsReauth);
+			return new Account(fProvider, fSubject, fEmail, fDisplayName, fBundles, fScopes, fLinkedAtMillis,
+					lastUsedMillis, fNeedsReauth);
 		}
 	}
 
@@ -233,8 +273,24 @@ public final class LinkedAccounts {
 					bundles.add(e.getAsString());
 				}
 			}
+			Set<String> scopes = new LinkedHashSet<>();
+			if (json.has("scopes")) {
+				for (JsonElement e : json.getAsJsonArray("scopes")) {
+					scopes.add(e.getAsString());
+				}
+			} else {
+				// A record from before the scopes were kept: the bundles were granted
+				// with the scopes they had then. A bundle whose scopes grew since is
+				// reported as needing a new grant; the others are unaffected.
+				ConnectionProviders.Provider p = ConnectionProviders.get(provider);
+				if (p != null) {
+					for (String bundle : bundles) {
+						scopes.addAll(p.getLegacyBundleScopes(bundle));
+					}
+				}
+			}
 			return new Account(provider, string(json, "subject"), string(json, "email"), string(json, "displayName"),
-					bundles, json.has("linkedAt") ? json.get("linkedAt").getAsLong() : 0,
+					bundles, scopes, json.has("linkedAt") ? json.get("linkedAt").getAsLong() : 0,
 					json.has("lastUsed") ? json.get("lastUsed").getAsLong() : 0,
 					json.has("needsReauth") && json.get("needsReauth").getAsBoolean());
 		} catch (Throwable ex) {
@@ -347,6 +403,11 @@ public final class LinkedAccounts {
 			bundles.add(bundle);
 		}
 		json.add("bundles", bundles);
+		JsonArray scopes = new JsonArray();
+		for (String scope : account.getScopes()) {
+			scopes.add(scope);
+		}
+		json.add("scopes", scopes);
 		json.addProperty("linkedAt", account.getLinkedAtMillis());
 		json.addProperty("lastUsed", account.getLastUsedMillis());
 		json.addProperty("needsReauth", account.isNeedsReauth());

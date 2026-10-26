@@ -1604,7 +1604,13 @@ const App = {
 
 		hasBundle(providerId: string, bundle: string): boolean {
 			const account = this.accountOf(providerId);
-			return !!account && !account.needsReauth && account.bundles.includes(bundle);
+			return !!account && !account.needsReauth && account.bundles.includes(bundle) && !this.needsGrant(providerId, bundle);
+		},
+
+		/** The bundle was granted, but has gained a scope since: it has to be allowed again. */
+		needsGrant(providerId: string, bundle: string): boolean {
+			const account = this.accountOf(providerId);
+			return !!account && !account.needsReauth && (account.bundlesNeedingGrant || []).includes(bundle);
 		},
 
 		providerIcon(providerId: string): string {

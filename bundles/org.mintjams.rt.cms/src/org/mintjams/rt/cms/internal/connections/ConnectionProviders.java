@@ -23,6 +23,7 @@
 package org.mintjams.rt.cms.internal.connections;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -75,7 +76,10 @@ public final class ConnectionProviders {
 
 		Map<String, List<Audience>> googleBundles = new LinkedHashMap<>();
 		googleBundles.put(BUNDLE_MAIL, List.of(new Audience(AUDIENCE_GOOGLE, "https://mail.google.com/")));
-		googleBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/drive.file")));
+		// The whole drive, not drive.file: with drive.file only what the app created
+		// or the user picked is listed, and a file browser cannot be built on that.
+		// It is a restricted scope, as the mail bundle's already is.
+		googleBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/drive")));
 		googleBundles.put(BUNDLE_CONTACTS, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/contacts.readonly")));
 		googleBundles.put(BUNDLE_CALENDAR, List.of(new Audience(AUDIENCE_GOOGLE, "https://www.googleapis.com/auth/calendar.events")));
 		Map<String, String> googleAuthorize = new LinkedHashMap<>();
@@ -102,7 +106,11 @@ public final class ConnectionProviders {
 						"https://outlook.office.com/SMTP.Send"),
 				new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Mail.Send",
 						"https://graph.microsoft.com/User.Read")));
-		microsoftBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Files.ReadWrite")));
+		// Files.ReadWrite reaches the user's own OneDrive only; the document
+		// libraries of the sites the user follows are other drives (.All), and
+		// listing the followed sites takes Sites.Read.All.
+		microsoftBundles.put(BUNDLE_FILES, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Files.ReadWrite.All",
+				"https://graph.microsoft.com/Sites.Read.All")));
 		microsoftBundles.put(BUNDLE_CONTACTS, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Contacts.Read")));
 		microsoftBundles.put(BUNDLE_CALENDAR, List.of(new Audience(AUDIENCE_GRAPH, "https://graph.microsoft.com/Calendars.ReadWrite")));
 		providers.put(MICROSOFT, new Provider(MICROSOFT, "Microsoft",
@@ -238,15 +246,53 @@ public final class ConnectionProviders {
 		}
 
 		/** The bundles whose scopes are all among {@code granted}. */
-		public List<String> bundlesGrantedBy(List<String> granted) {
+		public List<String> bundlesGrantedBy(Collection<String> granted) {
 			List<String> bundles = new ArrayList<>();
 			for (String bundle : fBundles.keySet()) {
 				List<String> scopes = getBundleScopes(bundle);
-				if (!scopes.isEmpty() && granted.containsAll(scopes)) {
+				if (!scopes.isEmpty() && covers(granted, scopes)) {
 					bundles.add(bundle);
 				}
 			}
 			return bundles;
+		}
+
+		/**
+		 * The scopes a bundle had before the account records what was granted
+		 * ({@code scopes} in the record): what a record without that list is taken
+		 * to have been granted. Only the bundles whose scopes changed since differ
+		 * from {@link #getBundleScopes(String)}.
+		 */
+		public List<String> getLegacyBundleScopes(String bundle) {
+			if (BUNDLE_FILES.equals(bundle)) {
+				if (GOOGLE.equals(fId)) {
+					return List.of("https://www.googleapis.com/auth/drive.file");
+				}
+				if (MICROSOFT.equals(fId)) {
+					return List.of("https://graph.microsoft.com/Files.ReadWrite");
+				}
+			}
+			return getBundleScopes(bundle);
+		}
+
+		/**
+		 * Whether every scope of {@code wanted} is among {@code granted}. A
+		 * provider may report a scope in its short form ({@code Files.ReadWrite.All}
+		 * for {@code https://graph.microsoft.com/Files.ReadWrite.All}); either
+		 * spelling counts.
+		 */
+		public static boolean covers(Collection<String> granted, Collection<String> wanted) {
+			for (String scope : wanted) {
+				if (!granted.contains(scope) && !granted.contains(shortName(scope))) {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		private static String shortName(String scope) {
+			int slash = scope.lastIndexOf('/');
+			return (slash >= 0 && slash < scope.length() - 1) ? scope.substring(slash + 1) : scope;
 		}
 
 		/**

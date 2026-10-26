@@ -50,9 +50,10 @@ consent screen, listing the added scope).
      OAuth client ID › Web application. A Google Workspace organization
      registers the app as *Internal*; then no verification is needed. An app
      open to any Google account has to be published and verified, because the
-     `mail` bundle uses a restricted scope (`https://mail.google.com/`). An app
-     left in *Testing* issues refresh tokens that expire after seven days, so
-     users would be asked to link again every week.
+     `mail` and `files` bundles use restricted scopes (`https://mail.google.com/`
+     and `https://www.googleapis.com/auth/drive`). An app left in *Testing*
+     issues refresh tokens that expire after seven days, so users would be
+     asked to link again every week.
    - **Microsoft**: Entra admin center › App registrations › New registration,
      platform *Web*. Set *Supported account types* to match the `tenant` you
      configure: `organizations` (work or school accounts of any organization,
@@ -61,7 +62,12 @@ consent screen, listing the added scope).
      on the registration: the scopes of a bundle are asked for in the
      authorization request, and the user consents to them there. A tenant
      that does not let users consent needs an administrator to grant them
-     (list the permissions on the registration and grant admin consent).
+     (list the permissions on the registration and grant admin consent). The
+     `files` bundle asks for `Files.ReadWrite.All` and `Sites.Read.All`
+     (delegated): the libraries of the sites the user follows are other
+     drives, and listing those sites takes the second one. Both are granted
+     by the user in the default tenant policy, but the consent screen says
+     *needs admin approval* in a tenant that restricts user consent.
      Sending over SMTP needs SMTP AUTH to be enabled for the mailbox; a tenant
      that keeps it off can send through Microsoft Graph instead (the Mail
      account's *Send through* setting, see `documents/webtop-mail.md`).
@@ -93,14 +99,9 @@ consent screen, listing the added scope).
    for Microsoft) to go through a proxy or a test double; normally it is left
    out.
 
-   For the `files` bundle with Google, add two more values from the same
-   project to the `google` section: `apiKey`, an API key (Credentials › Create
-   credentials › API key; restrict it to the Google Picker API and to the
-   server's origin), and `appId`, the project number (project settings). The
-   Google Picker, which runs in the browser, needs both. Neither is a secret;
-   they are the only values of the file a browser ever receives. Without them
-   the Drive features still work, but the user can reach only the files this
-   server created on their Drive, never pick one of their own (next section).
+   Nothing of the file reaches a browser. (Earlier versions took `apiKey` and
+   `appId` in the `google` section for the Google Picker; the Picker is gone,
+   and the two values are ignored when still present.)
 
 3. Check *Preferences › Linked accounts* as any user: the provider is listed.
    A mistake in the file is shown there as a configuration error, without the
@@ -153,27 +154,34 @@ workspace's home, which holds no links (see `documents/graphql.md`,
 
 ## Files: Google Drive and OneDrive
 
-The `files` bundle lets apps copy files between the user's drive and the
-workspace, with the user's own grant. Nothing is synchronized or mounted:
-every copy is an action of the user, and what it produces is an ordinary file.
+The `files` bundle lets the Webtop read and write the user's drives with the
+user's own grant, and copy files between them and the workspace. Nothing is
+synchronized or mounted: every read is made when the user looks, every copy
+is an action of the user, and what a copy produces is an ordinary file.
 
-- **Content Browser**: the cloud button in the toolbar offers, per provider,
-  *Import files*, *Import as links* and *Export selected files*. An import
-  copies the picked files into the folder being browsed; an export uploads the
-  selected files to a folder of the drive the user picks.
-- **Mail**: the compose pane attaches a file of the drive (it is copied into
-  the draft like an uploaded file) or inserts a link to one into the body.
-- **Memo**: a memo is exported as a Google document (Drive converts the HTML)
-  or as an HTML file.
+**What the bundle reaches.** With Google, the whole of My Drive and the
+shared drives the user is a member of (the `drive` scope; the earlier
+`drive.file` scope showed only what the app had created or the user had
+picked, which no file browser can be built on, and the Google Picker it
+needed is gone). With Microsoft, the user's OneDrive and the document
+libraries of the SharePoint sites the user follows (`Files.ReadWrite.All`,
+`Sites.Read.All`). A user who granted the bundle before these scopes changed
+sees *Allow again* on the bundle in Preferences, and an app that needs it
+opens the grant page once; Google keeps the earlier grants, so one consent
+screen covers it.
 
-**Choosing a file differs per provider.** Google grants the app access only
-to the files the user picks for it, and to the files the app created (the
-`drive.file` scope). So with Google the user picks in the **Google Picker**,
-Google's own dialog, which runs in the browser with the user's token and the
-`apiKey` / `appId` from `clients.yml`; without those two values the dialog
-cannot run, and the Webtop's own list shows only what this server created.
-Microsoft's `Files.ReadWrite` reaches the whole OneDrive, so there the Webtop
-lists the drive itself, a folder at a time.
+**Drives.** Each provider offers the user's own drive (id `me`) and the
+shared drives or libraries by name. A shared drive looks the same to every
+member, under the same ids, so a location in one can be passed from one
+person to another; a location in someone's own drive cannot.
+
+**Where the apps use it.** The Content Browser's cloud button offers, per
+provider, *Import files*, *Import as links* and *Export selected files*; the
+picker starts with the drives and goes down a folder at a time. Mail attaches
+a file of a drive to a draft or inserts a link to one; Memo exports a memo as
+a Google document or an HTML file. (Browsing a drive as a location of the
+Content Browser, beside the repository's folders, is the next step and is
+described in `documents/webtop-cloud-storage.md` once it ships.)
 
 **Google documents** (Docs, Sheets, Slides, ...) have no bytes of their own.
 An import exports one as an Office file (`.docx`, `.xlsx`, `.pptx`; other
@@ -181,23 +189,53 @@ kinds as PDF) and adds the extension to the name. Exporting HTML, text or an
 Office file *as a Google document* does the reverse. OneDrive stores files as
 they are.
 
+**Folders** are copied with everything in them, in both directions and
+between drives of one provider, up to 1,000 entries per folder; a larger
+folder is refused and what was copied so far is left, so the user can split
+the work. A deleted entry goes to the provider's trash and is restored there.
+
 **Cloud links** are small files of type
 `application/vnd.mintjams.webtop.cloud-link+json` holding
-`{provider, id, name, mimeType, folder, webUrl}`. Opening one in the Content
-Browser opens the file where the provider shows it, in a new tab. Nothing is
-copied, and the link grants nothing: whoever opens it needs their own access
-at the provider.
+`{provider, driveId, id, name, mimeType, folder, webUrl}` (`driveId` is
+absent in links written before drives were told apart: the user's own drive
+then). Opening one in the Content Browser opens the file where the provider
+shows it, in a new tab. Nothing is copied, and the link grants nothing:
+whoever opens it needs their own access at the provider.
 
-**Names that collide** with a file of the folder get a number appended
-(`report (2).pdf`) unless the caller asks otherwise; the providers rename on
-their side the same way.
+**Names that collide** with an entry of the folder get a number appended
+(`report (2).pdf`, `Documents (2)`) unless the caller asks otherwise. The
+Webtop resolves the name itself before writing, because Google lets two
+files share a name.
 
-The GraphQL fields behind this (`cloudPicker`, `cloudChildren`, `cloudFile`,
-`importCloudFile`, `exportCloudFile`, `exportCloudContent`,
-`createCloudLink`) are part of the platform schema of every workspace and run
-as the caller; the token is the caller's, the repository reads and writes
-are the caller's. A call made without the grant fails with the error code
-`CONSENT_REQUIRED`, and the app opens the grant popup and tries again.
+**The bytes of a cloud file** are served at the same origin by
+`/bin/cloud.cgi/<provider>/<driveId>/<id>/<name>` (`CloudEntry.contentUrl`),
+to the signed-in user with their own token: an `<img>`, a media player or an
+app's `fetch` reaches a cloud file the way it reaches a repository file
+through `download.cgi`. `Range` is passed on to the provider, `ETag` is the
+provider's change tag (`If-None-Match` costs one metadata request and
+answers 304), `?attachment` downloads, `?export=<mime>` chooses the export
+type of a Google document, `?thumbnail=small|medium|large` relays a
+thumbnail (404 when there is none). `PUT` with `If-Match` replaces the
+content and answers 412 when the file changed elsewhere (Google ignores
+`If-Match`, so its version is compared just before writing); a multipart
+`POST` to `.../<folderId>/children` (`file` parts, `conflict` = `FAIL`,
+`REPLACE` or `RENAME`) uploads new files.
+
+The GraphQL fields behind this are part of the platform schema of every
+workspace and run as the caller; the token is the caller's, the repository
+reads and writes are the caller's. Reading: `cloudStorages` (the configured
+providers and whether the caller granted each), `cloudDrives`, `cloudFolder`
+(a folder with its drive and the folders above it), `cloudChildren` and
+`cloudSearch` (paged by a cursor), `cloudFile`, `cloudPreview` (Microsoft's
+embedded viewer). Writing: `createCloudFolder`, `renameCloudEntry`,
+`deleteCloudEntry`, `moveCloudEntry` (within a drive), `copyCloudEntry`
+(between drives of one provider), `importCloudFile`, `exportCloudFile`,
+`exportCloudContent`, `createCloudLink`. A call made without the grant fails
+with the error code `CONSENT_REQUIRED`, and the app opens the grant popup
+and tries again; a provider that is throttling answers `RATE_LIMITED` (one
+wait of the length it asked for is made first); an entry that is gone,
+`NOT_FOUND`. A token the provider stops accepting is thrown away and the
+call made once more with a fresh one.
 
 ## For scripts: the `Connections` binding
 

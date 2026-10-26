@@ -318,6 +318,19 @@ public class ConnectionsServlet extends HttpServlet {
 		if (!granted.isEmpty()) {
 			bundles.addAll(provider.bundlesGrantedBy(granted));
 		}
+		// What the account is known to have granted: what was recorded before,
+		// what this token response lists, and every scope of the bundle just
+		// consented to (a provider that issues a token per resource lists only
+		// that resource's scopes). A bundle whose scopes grow later is told
+		// apart from this record and asked for again.
+		Set<String> scopes = new LinkedHashSet<>();
+		if (existing != null) {
+			scopes.addAll(existing.getScopes());
+		}
+		scopes.addAll(granted);
+		if (bundle != null) {
+			scopes.addAll(provider.getBundleScopes(bundle));
+		}
 
 		String refreshToken = tokens.getRefreshToken();
 		if (refreshToken == null && existing == null) {
@@ -330,7 +343,7 @@ public class ConnectionsServlet extends HttpServlet {
 
 		long now = System.currentTimeMillis();
 		LinkedAccounts.Account account = new LinkedAccounts.Account(providerId, subject, email,
-				displayName, bundles, (existing != null) ? existing.getLinkedAtMillis() : now,
+				displayName, bundles, scopes, (existing != null) ? existing.getLinkedAtMillis() : now,
 				(existing != null) ? existing.getLastUsedMillis() : 0, false);
 		LinkedAccounts.save(userId, account, refreshToken);
 		ConnectionTokens.invalidate(userId, providerId);

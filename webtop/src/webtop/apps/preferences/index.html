@@ -572,16 +572,17 @@
 									<div class="pref-linked-bundles">
 										<div v-for="b in linked.bundles" :key="p.id + '|' + b" class="pref-factor-row pref-factor-sub">
 											<div class="pref-factor-status" :class="{ on: hasBundle(p.id, b) }">
-												<i :class="['bi', hasBundle(p.id, b) ? 'bi-check-circle-fill' : 'bi-circle']"></i>
+												<i :class="['bi', hasBundle(p.id, b) ? 'bi-check-circle-fill' : needsGrant(p.id, b) ? 'bi-exclamation-circle' : 'bi-circle']"></i>
 												<span>{{ bundleLabel(b) }}</span>
+												<span v-if="needsGrant(p.id, b)" class="pref-passkey-badge pref-linked-badge-warn">{{ t('app.preferences.linked.needsGrant') }}</span>
 											</div>
 											<div class="pref-linked-bundle-desc text-muted fs-small">{{ bundleDesc(b) }}</div>
 											<div class="pref-factor-actions">
 												<button v-if="hasBundle(p.id, b)" class="wt wt-outlined" @click="askRevokeBundle(p, b)" :disabled="!!linkedBusy">
 													{{ t('app.preferences.linked.revoke') }}
 												</button>
-												<button v-else class="wt" @click="grantBundle(p.id, b)" :disabled="!!linkedBusy || accountOf(p.id).needsReauth">
-													{{ t('app.preferences.linked.grant') }}
+												<button v-else class="wt" :class="{ 'wt-primary': needsGrant(p.id, b) }" @click="grantBundle(p.id, b)" :disabled="!!linkedBusy || accountOf(p.id).needsReauth">
+													{{ t(needsGrant(p.id, b) ? 'app.preferences.linked.grantAgain' : 'app.preferences.linked.grant') }}
 												</button>
 											</div>
 										</div>

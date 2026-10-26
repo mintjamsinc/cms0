@@ -23,21 +23,15 @@
 # Google Cloud console › APIs & Services › Credentials › OAuth client ID
 # (type: Web application). A Google Workspace organization registers the app
 # as "Internal" and needs no verification; an app open to any Google account
-# has to be published and verified, because the mail bundle uses a restricted
-# scope. An app left in "Testing" issues refresh tokens that expire after
-# seven days.
+# has to be published and verified, because the mail and files bundles use
+# restricted scopes (https://mail.google.com/ and .../auth/drive). An app
+# left in "Testing" issues refresh tokens that expire after seven days.
 #
-# The files bundle (Google Drive) chooses files with the Google Picker, which
-# runs in the browser and needs two more values from the same project:
-# apiKey, an API key (Credentials › API key; restrict it to the Google Picker
-# API and to this server's origin), and appId, the project number (Cloud
-# console › project settings). Neither is a secret. Without them the Drive
-# features show only the files this app created.
+# The files bundle reaches the whole of the user's Drive and the shared
+# drives they are a member of; nothing else is needed from the project.
 google:
   clientID: ""
   clientSecret: ""
-  apiKey: ""
-  appId: ""
 
 # Microsoft Entra admin center › App registrations (platform: Web). Set
 # "Supported account types" to match `tenant`:

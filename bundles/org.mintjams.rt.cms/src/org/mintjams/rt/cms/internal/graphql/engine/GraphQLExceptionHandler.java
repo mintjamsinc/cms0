@@ -38,6 +38,7 @@ import javax.jcr.lock.LockException;
 import javax.script.ScriptException;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.connections.cloud.CloudProvider;
 import org.mintjams.rt.cms.internal.graphql.resolver.AppResolverException;
 import org.mintjams.script.ConsentRequiredException;
 
@@ -157,8 +158,14 @@ final class GraphQLExceptionHandler implements DataFetcherExceptionHandler {
 				|| exception instanceof javax.jcr.security.AccessControlException) {
 			return "FORBIDDEN";
 		}
-		if (exception instanceof PathNotFoundException || exception instanceof ItemNotFoundException) {
+		if (exception instanceof PathNotFoundException || exception instanceof ItemNotFoundException
+				|| exception instanceof CloudProvider.NotFoundException) {
 			return "NOT_FOUND";
+		}
+		// The cloud provider is throttling the caller: try again later, nothing
+		// is wrong on the server.
+		if (exception instanceof CloudProvider.RateLimitedException) {
+			return "RATE_LIMITED";
 		}
 		// A write refused because someone else holds a lock: the caller is told
 		// what is locked, not that the server failed.

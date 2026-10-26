@@ -161,6 +161,8 @@ public final class PlatformConnectionsWiringContributor implements WiringContrib
 		a.put("lastUsed", account.getLastUsedMillis() > 0
 				? ISO8601.format(Instant.ofEpochMilli(account.getLastUsedMillis())) : null);
 		a.put("needsReauth", account.isNeedsReauth());
+		ConnectionProviders.Provider provider = ConnectionProviders.get(account.getProvider());
+		a.put("bundlesNeedingGrant", (provider != null) ? account.bundlesNeedingGrant(provider) : new ArrayList<>());
 		return a;
 	}
 

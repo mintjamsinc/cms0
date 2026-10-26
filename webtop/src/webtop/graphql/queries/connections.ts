@@ -17,6 +17,7 @@ const LINKED_ACCOUNT_FIELDS = `
   linkedAt
   lastUsed
   needsReauth
+  bundlesNeedingGrant
 `;
 
 export const CONNECTIONS_QUERIES = {

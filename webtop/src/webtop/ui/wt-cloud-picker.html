@@ -8,7 +8,7 @@
 						<i class="bi bi-arrow-90deg-up"></i>
 					</button>
 					<nav class="wt-cloud-picker-crumbs">
-						<template v-for="(p, i) in path" :key="p.id || '__root'">
+						<template v-for="(p, i) in path" :key="i">
 							<i v-if="i > 0" class="bi bi-chevron-right wt-cloud-picker-crumb-sep"></i>
 							<button type="button" class="wt-cloud-picker-crumb" :class="{ current: i === path.length - 1 }"
 								@click="navigate(p)" :disabled="loading">{{ p.name }}</button>
@@ -19,7 +19,7 @@
 					<div v-if="loading" class="wt-cloud-picker-status"><wt-spinner size="sm" class="me-2"></wt-spinner>{{ text('loading', 'Loading…') }}</div>
 					<div v-else-if="!rows.length && !error" class="wt-cloud-picker-status">{{ text('empty', 'This folder is empty.') }}</div>
 					<template v-else>
-						<div v-for="e in rows" :key="e.id" class="wt-cloud-picker-row"
+						<div v-for="e in rows" :key="key(e)" class="wt-cloud-picker-row"
 							:class="{ selected: isSelected(e), folder: e.folder }"
 							@click="onRowClick(e, $event)" @dblclick="onRowDoubleClick(e)">
 							<i :class="iconFor(e)"></i>

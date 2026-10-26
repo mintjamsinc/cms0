@@ -2023,7 +2023,7 @@ const App = {
 				for (const entry of entries) {
 					try {
 						const key = randomKey();
-						const imported = await cloud.importFile(provider, entry.id, `/home/users/${userId}/mail/drafts/${id}`, { name: key, conflict: 'REPLACE' });
+						const imported = await cloud.importFile(provider, entry.id, `/home/users/${userId}/mail/drafts/${id}`, { driveId: entry.driveId, name: key, conflict: 'REPLACE' });
 						if (epoch !== composeEpoch) return;
 						c.attachments = [...c.attachments, { key, name: cloudAttachmentName(entry, imported.mimeType), mimeType: imported.mimeType, size: imported.size }];
 						c.dirty = true;

@@ -113,7 +113,7 @@ export class ConnectionsServiceGraphQL {
       return false;
     }
     const account = linked.accounts.find((a) => a.provider === provider);
-    if (account && !account.needsReauth && account.bundles.includes(bundle)) {
+    if (account && !account.needsReauth && account.bundles.includes(bundle) && !(account.bundlesNeedingGrant || []).includes(bundle)) {
       return true;
     }
     const result = await this.grant(provider, bundle, linked.authorizePath);

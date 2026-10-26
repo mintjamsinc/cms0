@@ -10,21 +10,25 @@
 # own grant, and files copied between it and the workspace this endpoint
 # serves. Every repository read and write runs as the caller.
 #
-# Google's drive.file scope reaches only the files the app created and the
-# files the user picked in the Google Picker, so for Google the browser runs
-# the Picker (cloudPicker hands it what it needs) and cloudChildren lists
-# little; OneDrive's Files.ReadWrite reaches the whole drive, so there
-# cloudChildren is the way to browse.
+# A drive is named by a drive id: "me" for the caller's own drive (My Drive,
+# OneDrive), else the provider's id of a shared drive (Google) or of a
+# document library of a site the caller follows (Microsoft). Within a drive,
+# folders and files are named by the provider's ids; null for a folder means
+# the drive's root. The bytes of a file are served at the same origin by
+# /bin/cloud.cgi/<provider>/<driveId>/<id>/<name> (CloudEntry.contentUrl).
 #
 # A call that needs a grant the caller has not given fails with the error code
 # CONSENT_REQUIRED; the client then opens the grant page for the provider and
-# the bundle `files` and calls again.
+# the bundle `files` and calls again. A provider that is throttling answers
+# RATE_LIMITED (try again later); an item that is gone, NOT_FOUND.
 # =============================================================================
 
-"""A file or folder of the caller's drive."""
+"""A file or folder of a drive the caller reaches through a linked account."""
 type CloudEntry {
   """google or microsoft."""
   provider: String!
+  """The drive the entry is in: "me", or a shared drive / library id."""
+  driveId: String!
   """The provider's id of the file; what every other operation takes."""
   id: String!
   name: String!
@@ -33,35 +37,130 @@ type CloudEntry {
   """Bytes; null for a folder and for a Google native document, which has no bytes until exported."""
   size: Long
   folder: Boolean!
-  """Where the file opens in the provider's own editor or viewer."""
+  """Where the file opens in the provider's own editor or viewer: what to hand to someone else."""
   webUrl: String
   modified: DateTime
+  created: DateTime
   """For a Google native document, its kind: document, spreadsheet, presentation, drawing, ... Null for an ordinary file."""
   nativeType: String
+  """The folder the entry is in; null at the root of the drive, or when the provider does not say."""
+  parentId: String
+  """Changes whenever the content does; what a PUT to contentUrl is conditioned on (If-Match)."""
+  etag: String
+  """The owner's name, when the provider says."""
+  owner: String
+  """Whether the provider reports the entry as shared with others."""
+  shared: Boolean!
+  """Whether contentUrl?thumbnail= answers for this entry."""
+  hasThumbnail: Boolean!
+  """A display path within the drive (/a/b/name), when the provider gives one (Microsoft)."""
+  path: String
+  """/bin/cloud.cgi/<provider>/<driveId>/<id>/<name>: the content (Range honoured, ?attachment to download, ?export=<mime> for a Google native document); ?thumbnail=small|medium|large for a thumbnail."""
+  contentUrl: String!
 }
 
-"""What the browser needs to open the provider's own picker for the caller."""
-type CloudPicker {
+"""A drive the caller can open."""
+type CloudDrive {
   provider: String!
-  """Whether the provider has a picker of its own the browser can run (Google). Otherwise the client browses with cloudChildren."""
-  available: Boolean!
-  """The caller's access token for the files bundle, for the picker to list the caller's files. Short-lived; never stored by the client."""
-  accessToken: String!
-  """The browser API key the picker needs (google.apiKey in clients.yml), when the administrator set one."""
-  apiKey: String
-  """The application id the picker needs (google.appId in clients.yml): the files the user picks are made reachable to this app."""
-  appId: String
+  """"me" for the caller's own drive, else the provider's id of the shared drive or library."""
+  id: String!
+  """The drive's name. For a library, "Site › Library" (the site's name alone for its default library)."""
+  name: String!
+  kind: CloudDriveKind!
+  """Where the drive opens in the provider's own interface."""
+  webUrl: String
 }
 
-"""A file written into the workspace from a cloud file."""
-type CloudImport {
-  """The repository path of the file written."""
-  path: String!
-  """Its name, which differs from the cloud file's when an extension was added or a number appended."""
+enum CloudDriveKind {
+  """The caller's own drive (My Drive, OneDrive); its id is "me"."""
+  MINE
+  """A shared drive (Google) or a document library of a site the caller follows (Microsoft): every member sees it under the same id."""
+  SHARED
+}
+
+"""One page of entries."""
+type CloudEntries {
+  entries: [CloudEntry!]!
+  """Pass as `after` for the next page; null on the last."""
+  nextCursor: String
+}
+
+"""Where a folder sits: its drive, the folder itself (null for the drive's root) and the folders above it."""
+type CloudFolder {
+  drive: CloudDrive!
+  entry: CloudEntry
+  """From the first folder below the root down to the folder's parent; empty for a folder at the root."""
+  ancestors: [CloudEntry!]!
+}
+
+"""A provider an administrator configured, and what it can do for the caller."""
+type CloudStorage {
+  provider: String!
+  """The provider's name as shown to the user."""
   name: String!
-  mimeType: String!
-  size: Long!
-  """The cloud file it was made from."""
+  """Whether the caller's linked account has the files bundle with every scope it takes today. Otherwise the client asks for the grant (Preferences, or connections.ensure)."""
+  granted: Boolean!
+  """What a search covers: the folder being browsed (Microsoft) or the whole drive it is in (Google, whose API has no "below this folder" condition)."""
+  searchScope: CloudSearchScope!
+  """The conditions a search can be narrowed by, in display order. No counts are available."""
+  facets: [CloudFacet!]!
+  """Whether cloudPreview answers (Microsoft's embedded viewer)."""
+  canPreview: Boolean!
+}
+
+enum CloudSearchScope {
+  FOLDER
+  DRIVE
+}
+
+enum CloudFacet {
+  """Image, video, audio, document or folder."""
+  KIND
+  """A modification window."""
+  MODIFIED
+  """Only what the caller owns (Google)."""
+  OWNER
+}
+
+enum CloudKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  """Anything that is not an image, a video, an audio file or a folder."""
+  DOCUMENT
+  FOLDER
+}
+
+"""How a listing is ordered, by the provider."""
+enum CloudOrder {
+  """Folders first, then by name."""
+  NAME
+  """Newest first."""
+  MODIFIED_DESC
+}
+
+"""What a search asks for. Every condition is optional; an empty query lists the scope."""
+input CloudQuery {
+  """Words to look for, in names and (where the provider indexes it) content."""
+  text: String
+  kinds: [CloudKind!]
+  modifiedAfter: DateTime
+  modifiedBefore: DateTime
+  """Only what the caller owns (the OWNER facet; ignored by Microsoft)."""
+  ownedByMe: Boolean
+}
+
+"""A file written into the workspace from a cloud entry."""
+type CloudImport {
+  """The repository path of the file or folder written."""
+  path: String!
+  """Its name, which differs from the cloud entry's when an extension was added or a number appended."""
+  name: String!
+  """Null for a folder."""
+  mimeType: String
+  """Null for a folder."""
+  size: Long
+  """The cloud entry it was made from."""
   entry: CloudEntry!
 }
 
@@ -76,21 +175,38 @@ enum CloudConflict {
 }
 
 extend type Query {
-  """What the browser needs to run the provider's own file picker as the caller: the access token for the files bundle, and the browser key and application id the administrator configured. Fails with CONSENT_REQUIRED until the account is linked and the files bundle granted."""
-  cloudPicker(provider: String!): CloudPicker!
-  """The files and folders in a folder of the caller's drive, folders first; the drive's root when folderId is null. For Google only what the app created or the user picked is visible. At most 1000 entries."""
-  cloudChildren(provider: String!, folderId: String): [CloudEntry!]!
-  """One file or folder of the caller's drive by id, or null when there is none."""
-  cloudFile(provider: String!, id: String!): CloudEntry
+  """Every provider an administrator configured, granted or not, in catalogue order. Empty when cloud storage is not enabled on this server."""
+  cloudStorages: [CloudStorage!]!
+  """The caller's drives of a provider: their own first, then the shared drives / libraries by name. Asked of the provider each time."""
+  cloudDrives(provider: String!): [CloudDrive!]!
+  """Where a folder sits: the drive, the folder (null = the root) and the folders above it. For a cold landing (a favourite, a restored session); when browsing, the client builds the breadcrumbs from what it clicked. NOT_FOUND when the folder or the drive is gone."""
+  cloudFolder(provider: String!, driveId: String!, folderId: String): CloudFolder!
+  """One page of the files and folders in a folder (the drive's root when folderId is null), in the provider's order. `after` is the previous page's nextCursor."""
+  cloudChildren(provider: String!, driveId: String!, folderId: String, after: String, first: Int = 200, order: CloudOrder = NAME): CloudEntries!
+  """One page of a search: in the folder (Microsoft), or in the whole drive (Google; see CloudStorage.searchScope). Conditions the provider cannot take are applied to the answers here. No counts."""
+  cloudSearch(provider: String!, driveId: String!, folderId: String, query: CloudQuery!, after: String, first: Int = 100): CloudEntries!
+  """One file or folder by id, or null when there is none."""
+  cloudFile(provider: String!, driveId: String!, id: String!): CloudEntry
+  """A URL that embeds the provider's viewer of the file (Microsoft, Office documents and more), or null when the provider has none. Short-lived; ask again each time."""
+  cloudPreview(provider: String!, driveId: String!, id: String!): String
 }
 
 extend type Mutation {
-  """Copies a cloud file into a folder of this workspace. A Google native document is exported — as exportMimeType, or as the usual Office type of its kind (Docs → .docx, Sheets → .xlsx, Slides → .pptx, others → PDF) — and the matching extension is added to its name. `name` replaces the cloud file's name. The folder must exist and be writable by the caller."""
-  importCloudFile(provider: String!, id: String!, folder: String!, name: String, exportMimeType: String, conflict: CloudConflict = RENAME): CloudImport!
-  """Uploads a file of this workspace to a folder of the caller's drive (the root when folderId is null), under its own name unless `name` says otherwise. With `convert`, Google turns HTML, text or an Office file into a Google document, spreadsheet or presentation; OneDrive ignores it. A file the drive already has under the name is kept: the new one is renamed by the provider."""
-  exportCloudFile(provider: String!, path: String!, folderId: String, name: String, convert: Boolean = false): CloudEntry!
-  """Uploads text content handed in directly — a memo's HTML, say — as a new file of the caller's drive; `convert` as for exportCloudFile. The content is written as UTF-8."""
-  exportCloudContent(provider: String!, folderId: String, name: String!, mimeType: String!, content: String!, convert: Boolean = false): CloudEntry!
-  """Writes a reference to a cloud file into a folder of this workspace: a file of type application/vnd.mintjams.webtop.cloud-link+json holding {provider, id, name, mimeType, folder, webUrl}, which an app opens by following webUrl. Nothing is copied."""
-  createCloudLink(provider: String!, id: String!, folder: String!, name: String, conflict: CloudConflict = RENAME): CloudImport!
+  """Makes a folder in a folder (the root when parentId is null). A name the folder already has gets a number."""
+  createCloudFolder(provider: String!, driveId: String!, parentId: String, name: String!): CloudEntry!
+  renameCloudEntry(provider: String!, driveId: String!, id: String!, name: String!): CloudEntry!
+  """Moves the entry to the provider's trash; restoring is done at the provider. Returns false when it was already gone."""
+  deleteCloudEntry(provider: String!, driveId: String!, id: String!): Boolean!
+  """Moves the entry to another folder of the same drive (the root when toFolderId is null). Between drives, copy instead."""
+  moveCloudEntry(provider: String!, driveId: String!, id: String!, toFolderId: String): CloudEntry!
+  """Copies the entry into a folder of a drive of the same provider (the root when toFolderId is null), under `name` or its own. A folder is copied with everything in it, up to 1,000 entries per folder; a larger one is refused with BAD_REQUEST, and what was copied so far is left."""
+  copyCloudEntry(provider: String!, driveId: String!, id: String!, toDriveId: String!, toFolderId: String, name: String): CloudEntry!
+  """Copies a cloud entry into a folder of this workspace. A file is written as a file: a Google native document is exported — as exportMimeType, or as the usual Office type of its kind (Docs → .docx, Sheets → .xlsx, Slides → .pptx, others → PDF) — and the matching extension is added to its name. A folder becomes a folder with everything in it (1,000 entries per folder at most). `name` replaces the cloud entry's name. The folder must exist and be writable by the caller."""
+  importCloudFile(provider: String!, driveId: String = "me", id: String!, folder: String!, name: String, exportMimeType: String, conflict: CloudConflict = RENAME): CloudImport!
+  """Uploads a file or folder of this workspace to a folder of a drive (the root when folderId is null), under its own name unless `name` says otherwise. With `convert`, Google turns HTML, text or an Office file into a Google document, spreadsheet or presentation; OneDrive ignores it. A folder is uploaded with everything in it (1,000 entries per folder at most). A name the drive folder already has gets a number."""
+  exportCloudFile(provider: String!, path: String!, driveId: String = "me", folderId: String, name: String, convert: Boolean = false): CloudEntry!
+  """Uploads text content handed in directly — a memo's HTML, say — as a new file of a drive; `convert` as for exportCloudFile. The content is written as UTF-8."""
+  exportCloudContent(provider: String!, driveId: String = "me", folderId: String, name: String!, mimeType: String!, content: String!, convert: Boolean = false): CloudEntry!
+  """Writes a reference to a cloud file into a folder of this workspace: a file of type application/vnd.mintjams.webtop.cloud-link+json holding {provider, driveId, id, name, mimeType, folder, webUrl}, which an app opens by following webUrl. Nothing is copied."""
+  createCloudLink(provider: String!, driveId: String = "me", id: String!, folder: String!, name: String, conflict: CloudConflict = RENAME): CloudImport!
 }

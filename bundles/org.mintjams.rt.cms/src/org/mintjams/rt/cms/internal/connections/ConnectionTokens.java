@@ -220,6 +220,11 @@ public final class ConnectionTokens {
 		if (!account.getBundles().contains(bundle)) {
 			throw new ConsentRequiredException(provider, bundle, ConsentRequiredException.BUNDLE_NOT_GRANTED);
 		}
+		if (!account.covers(p.getBundleScopes(bundle))) {
+			// The bundle gained a scope since it was granted: it has to be allowed
+			// again (one consent screen; Google keeps the earlier grants with it).
+			throw new ConsentRequiredException(provider, bundle, ConsentRequiredException.BUNDLE_NOT_GRANTED);
+		}
 
 		String key = userId + "|" + provider + "|" + (p.isAudiencePerBundle() ? bundle + ":" + a.getName() : "");
 		long now = System.currentTimeMillis();

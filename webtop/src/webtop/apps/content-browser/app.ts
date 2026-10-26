@@ -2008,9 +2008,9 @@ export const App = {
 					vm.uploadMonitor.target.progressPercent = Math.round((done / entries.length) * 100);
 					try {
 						if (asLink) {
-							await cloud.createLink(provider, entry.id, folder);
+							await cloud.createLink(provider, entry.id, folder, { driveId: entry.driveId });
 						} else {
-							await cloud.importFile(provider, entry.id, folder);
+							await cloud.importFile(provider, entry.id, folder, { driveId: entry.driveId });
 						}
 					} catch (e: any) {
 						errors.push(`${entry.name}: ${e?.message || String(e)}`);
@@ -2049,7 +2049,7 @@ export const App = {
 					vm.uploadMonitor.target.currentFile = file.name;
 					vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
 					try {
-						exported.push(await cloud.exportFile(provider, file.path, { folderId: folder.id }));
+						exported.push(await cloud.exportFile(provider, file.path, { driveId: folder.driveId, folderId: folder.id }));
 					} catch (e: any) {
 						errors.push(`${file.name}: ${e?.message || String(e)}`);
 					}

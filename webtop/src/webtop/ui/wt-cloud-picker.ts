@@ -1,29 +1,29 @@
-// <wt-cloud-picker> — picks files, or a folder, of the user's Google Drive or
-// OneDrive (the files bundle of a linked account).
+// <wt-cloud-picker> — picks files, or a folder, of the user's drives at Google
+// or Microsoft (the files bundle of a linked account).
 //
 //     <wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance.api.cloud"
 //         :provider="cloudPicker.provider" :provider-name="cloudPicker.providerName"
 //         :mode="cloudPicker.mode" :multiple="true" :title="t('...')" :labels="cloudPickerLabels"
 //         @select="onCloudPicked($event.detail)"></wt-cloud-picker>
 //
-// Google reaches only what the user picks for the app (the drive.file scope),
-// so for Google the provider's own picker is run in the browser: `service`
-// hands over the token and keys (getPicker) and the Google Picker script is
-// loaded on first use. When it cannot run (no API key configured) the
-// component falls back to browsing with listChildren, which then shows only
-// the files this app created. OneDrive is always browsed here: the list is
-// read a folder at a time with listChildren.
+// The list starts with the user's drives (their own, then the shared drives
+// or libraries they are a member of), and goes down a folder at a time with
+// listChildren. Everything is read through the service; no provider script
+// runs in the browser.
 //
 // `mode` is `files` (pick one or more files) or `folder` (pick a destination
-// folder; the drive's root counts). `select` carries an array of entries
-// ({provider, id, name, mimeType, size, folder, webUrl}); in folder mode one
-// entry, whose id is null for the root. `labels` keys (all optional, English
-// fallbacks): select, cancel, loading, empty, root, openingPicker, up.
+// folder; a drive's root counts). `select` carries an array of entries
+// ({provider, driveId, id, name, mimeType, size, folder, webUrl}); in folder
+// mode one entry, whose id is null for a drive's root. `labels` keys (all
+// optional, English fallbacks): select, selectFolder, cancel, loading, empty,
+// root, up, myDrive, sharedDrives.
 
 import { defineComponent } from '@mintjamsinc/ichigojs';
 
 interface Entry {
 	provider: string;
+	/** The drive the entry is in; null for the row that lists the drives. */
+	driveId: string | null;
 	id: string | null;
 	name: string;
 	mimeType: string | null;
@@ -31,46 +31,16 @@ interface Entry {
 	folder: boolean;
 	webUrl: string | null;
 	nativeType?: string | null;
+	/** A drive row (its id is the drive's id, and it opens the drive's root). */
+	drive?: boolean;
 }
 
-const GOOGLE_API_SCRIPT = 'https://apis.google.com/js/api.js';
 const GOOGLE_NATIVE_PREFIX = 'application/vnd.google-apps.';
-const GOOGLE_FOLDER = 'application/vnd.google-apps.folder';
-
-let googleApiLoading: Promise<void> | null = null;
-
-/** Loads the Google API loader and its picker module once per document. */
-function loadGooglePicker(): Promise<void> {
-	if (googleApiLoading) {
-		return googleApiLoading;
-	}
-	googleApiLoading = new Promise<void>((resolve, reject) => {
-		const w = window as any;
-		const whenLoaded = () => {
-			if (!w.gapi) {
-				reject(new Error('The Google API loader did not load.'));
-				return;
-			}
-			w.gapi.load('picker', { callback: () => resolve(), onerror: () => reject(new Error('The Google Picker did not load.')) });
-		};
-		if (w.gapi) {
-			whenLoaded();
-			return;
-		}
-		const script = document.createElement('script');
-		script.src = GOOGLE_API_SCRIPT;
-		script.async = true;
-		script.onload = whenLoaded;
-		script.onerror = () => {
-			googleApiLoading = null;
-			reject(new Error('The Google API loader could not be loaded.'));
-		};
-		document.head.appendChild(script);
-	});
-	return googleApiLoading;
-}
+/** How many entries of a folder are read into the list at most. */
+const LIST_LIMIT = 1000;
 
 function iconFor(entry: Entry): string {
+	if (entry.drive) return 'bi-hdd';
 	if (entry.folder) return 'bi-folder';
 	const type = entry.mimeType || '';
 	if (type.startsWith(GOOGLE_NATIVE_PREFIX)) {
@@ -106,7 +76,7 @@ defineComponent('wt-cloud-picker', {
 	props: {
 		/** Visibility (v-model:open). */
 		open: { type: Boolean, default: false },
-		/** A CloudServiceGraphQL: getPicker, listChildren. */
+		/** A CloudServiceGraphQL: getDrives, listChildren. */
 		service: { type: Object, default: null },
 		/** google or microsoft. */
 		provider: { type: String, default: '' },
@@ -131,15 +101,14 @@ defineComponent('wt-cloud-picker', {
 			self.$markRaw(self.service);
 		}
 		return {
-			/** Whether the dialog's own list is shown (false while the provider's picker runs). */
+			/** Whether the dialog's own list is shown. */
 			browsing: false,
-			/** The folders from the root down to the one listed; the root has a null id. */
+			/** The folders from the drives row down to the one listed; the drives row has a null driveId. */
 			path: [] as Entry[],
 			entries: [] as Entry[],
 			selected: [] as string[],
 			loading: false,
 			error: '',
-			openingPicker: false,
 		};
 	},
 	computed: {
@@ -153,8 +122,11 @@ defineComponent('wt-cloud-picker', {
 			return this.entries;
 		},
 		canSelect(this: any): boolean {
-			if (this.loading || this.openingPicker) return false;
-			if (this.mode === 'folder') return this.path.length > 0;
+			if (this.loading) return false;
+			if (this.mode === 'folder') {
+				const node: Entry | null = this.selectedFolder();
+				return !!node && !!node.driveId;
+			}
 			return this.selected.length > 0;
 		},
 		selectLabel(this: any): string {
@@ -183,104 +155,31 @@ defineComponent('wt-cloud-picker', {
 		formatSize(size: number | null): string {
 			return formatSize(size);
 		},
+		/** The row above the drives: the provider itself. */
 		rootEntry(this: any): Entry {
-			return { provider: this.provider, id: null, name: this.text('root', this.providerName || this.provider), mimeType: null, size: null, folder: true, webUrl: null };
+			return { provider: this.provider, driveId: null, id: null, name: this.text('root', this.providerName || this.provider), mimeType: null, size: null, folder: true, webUrl: null };
 		},
 		/** In folder mode: the selected folder row, or the folder being listed. */
 		selectedFolder(this: any): Entry | null {
 			if (this.selected.length === 1) {
-				const row = (this.entries as Entry[]).find((e) => e.id === this.selected[0]);
+				const row = (this.entries as Entry[]).find((e) => this.key(e) === this.selected[0]);
 				if (row && row.folder) return row;
 			}
 			return this.current;
+		},
+		key(entry: Entry): string {
+			return `${entry.driveId || ''}|${entry.id || ''}`;
 		},
 		async start(this: any): Promise<void> {
 			this.error = '';
 			this.entries = [];
 			this.selected = [];
 			this.path = [];
-			this.browsing = false;
-			this.openingPicker = false;
+			this.browsing = true;
 			if (!this.service || !this.provider) {
-				this.browsing = true;
 				return;
 			}
-			if (this.provider === 'google') {
-				this.openingPicker = true;
-				try {
-					const picker = await this.service.getPicker(this.provider);
-					if (picker && picker.available && picker.apiKey) {
-						await this.runGooglePicker(picker);
-						return;
-					}
-				} catch (e) {
-					this.error = this.errorText(e);
-					this.openingPicker = false;
-					this.browsing = true;
-					return;
-				}
-				this.openingPicker = false;
-			}
-			this.browsing = true;
 			await this.navigate(this.rootEntry());
-		},
-		/** Runs the Google Picker; resolves when the user picked or cancelled. */
-		async runGooglePicker(this: any, picker: { accessToken: string; apiKey: string; appId: string | null }): Promise<void> {
-			await loadGooglePicker();
-			const g = (window as any).google;
-			const builder = new g.picker.PickerBuilder()
-				.setOAuthToken(picker.accessToken)
-				.setDeveloperKey(picker.apiKey)
-				.setOrigin(`${window.location.protocol}//${window.location.host}`)
-				.setLocale((document.documentElement.lang || navigator.language || 'en').substring(0, 2));
-			if (picker.appId) {
-				builder.setAppId(picker.appId);
-			}
-			if (this.mode === 'folder') {
-				const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
-					.setSelectFolderEnabled(true)
-					.setIncludeFolders(true)
-					.setMimeTypes(GOOGLE_FOLDER);
-				builder.addView(view);
-			} else {
-				builder.addView(new g.picker.DocsView().setIncludeFolders(true));
-				builder.addView(g.picker.ViewId.DOCS);
-				if (this.multiple) {
-					builder.enableFeature(g.picker.Feature.MULTISELECT_ENABLED);
-				}
-			}
-			builder.enableFeature(g.picker.Feature.SUPPORT_DRIVES);
-			if (this.title) {
-				builder.setTitle(this.title);
-			}
-			await new Promise<void>((resolve) => {
-				builder.setCallback((data: any) => {
-					const action = data && data.action;
-					if (action === g.picker.Action.PICKED) {
-						const docs: any[] = data.docs || [];
-						const entries: Entry[] = docs.map((d) => ({
-							provider: 'google',
-							id: d.id,
-							name: d.name,
-							mimeType: d.mimeType || null,
-							size: typeof d.sizeBytes === 'number' ? d.sizeBytes : null,
-							folder: d.mimeType === GOOGLE_FOLDER,
-							webUrl: d.url || null,
-							nativeType: d.mimeType && d.mimeType.startsWith(GOOGLE_NATIVE_PREFIX) && d.mimeType !== GOOGLE_FOLDER
-								? d.mimeType.substring(GOOGLE_NATIVE_PREFIX.length) : null,
-						}));
-						this.openingPicker = false;
-						this.setOpen(false);
-						this.$emit('select', entries);
-						resolve();
-					} else if (action === g.picker.Action.CANCEL) {
-						this.openingPicker = false;
-						this.setOpen(false);
-						resolve();
-					}
-				});
-				builder.build().setVisible(true);
-			});
 		},
 		async navigate(this: any, folder: Entry): Promise<void> {
 			if (!this.service) return;
@@ -288,9 +187,35 @@ defineComponent('wt-cloud-picker', {
 			this.error = '';
 			this.selected = [];
 			try {
-				const entries: Entry[] = await this.service.listChildren(this.provider, folder.id);
-				const at = (this.path as Entry[]).findIndex((p) => p.id === folder.id);
-				this.path = at >= 0 ? this.path.slice(0, at + 1) : [...this.path, folder];
+				let entries: Entry[];
+				if (!folder.driveId) {
+					// The provider's drives: the user's own first, then the shared ones.
+					const drives: any[] = await this.service.getDrives(this.provider);
+					entries = drives.map((d) => ({
+						provider: this.provider,
+						driveId: d.id,
+						id: d.id,
+						name: d.kind === 'MINE' ? this.text('myDrive', d.name) : d.name,
+						mimeType: null,
+						size: null,
+						folder: true,
+						webUrl: d.webUrl || null,
+						drive: true,
+					}));
+				} else {
+					entries = [];
+					let after: string | null = null;
+					do {
+						const page: any = await this.service.listChildren(this.provider, folder.driveId, folder.drive ? null : folder.id, { after, first: 200 });
+						for (const e of page.entries as any[]) {
+							entries.push({ provider: e.provider, driveId: e.driveId, id: e.id, name: e.name, mimeType: e.mimeType, size: e.size, folder: e.folder, webUrl: e.webUrl, nativeType: e.nativeType });
+						}
+						after = page.nextCursor;
+					} while (after && entries.length < LIST_LIMIT);
+				}
+				const target: Entry = folder.drive ? { ...folder, id: null, drive: false } : folder;
+				const at = (this.path as Entry[]).findIndex((p) => this.key(p) === this.key(target));
+				this.path = at >= 0 ? this.path.slice(0, at + 1) : [...this.path, target];
 				this.entries = entries;
 			} catch (e) {
 				this.error = this.errorText(e);
@@ -303,18 +228,23 @@ defineComponent('wt-cloud-picker', {
 			this.navigate(this.path[this.path.length - 2]);
 		},
 		onRowClick(this: any, entry: Entry, event: MouseEvent): void {
+			if (entry.drive) {
+				this.navigate(entry);
+				return;
+			}
 			if (!entry.id) return;
 			if (entry.folder && this.mode !== 'folder') {
 				this.navigate(entry);
 				return;
 			}
+			const key = this.key(entry);
 			if (this.mode === 'files' && this.multiple && (event.ctrlKey || event.metaKey)) {
-				this.selected = this.selected.includes(entry.id)
-					? this.selected.filter((id: string) => id !== entry.id)
-					: [...this.selected, entry.id];
+				this.selected = this.selected.includes(key)
+					? this.selected.filter((k: string) => k !== key)
+					: [...this.selected, key];
 				return;
 			}
-			this.selected = [entry.id];
+			this.selected = [key];
 		},
 		onRowDoubleClick(this: any, entry: Entry): void {
 			if (entry.folder) {
@@ -322,12 +252,12 @@ defineComponent('wt-cloud-picker', {
 				return;
 			}
 			if (this.mode === 'files' && entry.id) {
-				this.selected = [entry.id];
+				this.selected = [this.key(entry)];
 				this.confirm();
 			}
 		},
 		isSelected(this: any, entry: Entry): boolean {
-			return !!entry.id && this.selected.includes(entry.id);
+			return !!entry.id && this.selected.includes(this.key(entry));
 		},
 		confirm(this: any): void {
 			if (!this.canSelect) return;
@@ -336,7 +266,7 @@ defineComponent('wt-cloud-picker', {
 				const folder = this.selectedFolder();
 				picked = folder ? [folder] : [];
 			} else {
-				picked = (this.entries as Entry[]).filter((e) => e.id && this.selected.includes(e.id) && !e.folder);
+				picked = (this.entries as Entry[]).filter((e) => e.id && this.selected.includes(this.key(e)) && !e.folder);
 			}
 			if (!picked.length) return;
 			this.setOpen(false);

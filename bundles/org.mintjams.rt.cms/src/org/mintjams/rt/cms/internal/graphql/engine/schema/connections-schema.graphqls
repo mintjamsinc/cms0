@@ -58,4 +58,6 @@ type LinkedAccount {
   lastUsed: DateTime
   """True when the provider stopped accepting the stored grant; the account has to be linked again."""
   needsReauth: Boolean!
+  """The granted bundles whose scopes grew since they were granted, so they have to be allowed again before an app can use them (the provider shows one consent screen for the missing scopes)."""
+  bundlesNeedingGrant: [String!]!
 }

@@ -1842,6 +1842,8 @@ export interface LinkedAccount {
   lastUsed: string | null;
   /** The provider stopped accepting the grant; the account has to be linked again. */
   needsReauth: boolean;
+  /** Granted bundles whose scopes grew since: they have to be allowed again before an app can use them. */
+  bundlesNeedingGrant: string[];
 }
 
 export interface LinkedAccounts {
@@ -1865,10 +1867,15 @@ export interface ConnectionEvent {
 
 // ---- Cloud files (the files bundle of a linked account) ----------------------
 
-/** A file or folder of the user's Google Drive or OneDrive. */
+/** The drive id of the user's own drive (My Drive, OneDrive). */
+export const CLOUD_MY_DRIVE = 'me';
+
+/** A file or folder of a drive the user reaches through a linked account. */
 export interface CloudEntry {
   /** google or microsoft. */
   provider: string;
+  /** The drive the entry is in: "me", or a shared drive / library id. */
+  driveId: string;
   /** The provider's id of the file; what every other operation takes. */
   id: string;
   name: string;
@@ -1877,30 +1884,84 @@ export interface CloudEntry {
   /** Bytes; null for a folder and for a Google native document. */
   size: number | null;
   folder: boolean;
-  /** Where the file opens in the provider's own editor or viewer. */
+  /** Where the file opens in the provider's own editor or viewer: what to hand to someone else. */
   webUrl: string | null;
   modified: string | null;
+  created: string | null;
   /** For a Google native document, its kind: document, spreadsheet, presentation, ... */
   nativeType: string | null;
+  /** The folder the entry is in; null at the root, or when the provider does not say. */
+  parentId: string | null;
+  /** Changes whenever the content does; what a PUT to contentUrl is conditioned on (If-Match). */
+  etag: string | null;
+  owner: string | null;
+  shared: boolean;
+  /** Whether `contentUrl?thumbnail=` answers. */
+  hasThumbnail: boolean;
+  /** A display path within the drive, when the provider gives one (Microsoft). */
+  path: string | null;
+  /** The same-origin URL of the bytes: /bin/cloud.cgi/<provider>/<driveId>/<id>/<name>. */
+  contentUrl: string;
 }
 
-/** What the browser needs to run the provider's own picker (Google Picker). */
-export interface CloudPicker {
+export type CloudDriveKind = 'MINE' | 'SHARED';
+
+/** A drive the user can open: their own ("me"), or a shared drive / library. */
+export interface CloudDrive {
   provider: string;
-  /** Whether the provider's own picker can be run: Google with an API key configured. */
-  available: boolean;
-  /** The user's short-lived access token for the files bundle; never stored. */
-  accessToken: string;
-  apiKey: string | null;
-  appId: string | null;
+  id: string;
+  name: string;
+  kind: CloudDriveKind;
+  webUrl: string | null;
 }
 
-/** A file written into the workspace from a cloud file. */
+/** One page of entries. */
+export interface CloudEntries {
+  entries: CloudEntry[];
+  /** Pass as `after` for the next page; null on the last. */
+  nextCursor: string | null;
+}
+
+/** Where a folder sits: its drive, the folder itself (null for the root) and the folders above it. */
+export interface CloudFolder {
+  drive: CloudDrive;
+  entry: CloudEntry | null;
+  ancestors: CloudEntry[];
+}
+
+export type CloudSearchScope = 'FOLDER' | 'DRIVE';
+export type CloudFacet = 'KIND' | 'MODIFIED' | 'OWNER';
+export type CloudKind = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'FOLDER';
+export type CloudOrder = 'NAME' | 'MODIFIED_DESC';
+
+/** A provider an administrator configured, and what it can do for the user. */
+export interface CloudStorage {
+  provider: string;
+  name: string;
+  /** Whether the user's linked account has the files bundle with every scope it takes today. */
+  granted: boolean;
+  searchScope: CloudSearchScope;
+  facets: CloudFacet[];
+  canPreview: boolean;
+}
+
+/** What a search asks for; every condition is optional. */
+export interface CloudQuery {
+  text?: string | null;
+  kinds?: CloudKind[] | null;
+  modifiedAfter?: string | null;
+  modifiedBefore?: string | null;
+  ownedByMe?: boolean | null;
+}
+
+/** A file or folder written into the workspace from a cloud entry. */
 export interface CloudImport {
   path: string;
   name: string;
-  mimeType: string;
-  size: number;
+  /** Null for a folder. */
+  mimeType: string | null;
+  /** Null for a folder. */
+  size: number | null;
   entry: CloudEntry;
 }
 
@@ -1912,6 +1973,8 @@ export const CLOUD_LINK_MIME_TYPE = 'application/vnd.mintjams.webtop.cloud-link+
 /** What a cloud-link file holds. */
 export interface CloudLink {
   provider: string;
+  /** Absent in links written before drives were told apart: the user's own drive then. */
+  driveId?: string | null;
   id: string;
   name: string;
   mimeType: string | null;
