@@ -119,9 +119,9 @@
 				<wt-property-row :name="t('webtop.inspector.field.type')" :readonly="!mimeTypeEditing">
 					<template v-slot:value="p">
 						<span class="mime-type-clickable"
-							:class="{ 'mime-type-disabled': singleTarget.isCollection }"
+							:class="{ 'mime-type-disabled': singleTarget.isCollection || singleTarget.cloud }"
 							@click="startMimeTypeEdit"
-							:title="singleTarget.isCollection ? '' : t('webtop.inspector.mimeType.editHint')">{{ displayType(singleTarget) }}</span>
+							:title="(singleTarget.isCollection || singleTarget.cloud) ? '' : t('webtop.inspector.mimeType.editHint')">{{ displayType(singleTarget) }}</span>
 					</template>
 					<template v-slot:editor="p">
 						<div class="mime-type-editor">
@@ -148,7 +148,7 @@
 				</wt-property-row>
 
 				<!-- Encoding: same clickable-value + editor-slot pattern -->
-				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.encoding')" :readonly="!encodingEditing">
+				<wt-property-row v-if="!singleTarget.isCollection && !singleTarget.cloud" :name="t('webtop.inspector.field.encoding')" :readonly="!encodingEditing">
 					<template v-slot:value="p">
 						<span class="mime-type-clickable"
 							@click="startEncodingEdit"
@@ -184,7 +184,7 @@
 				<!-- Color (mi:color): one click on a swatch sets it, a click on the
 				     current swatch or on the "none" dot clears it. Files only: the
 				     property lives on jcr:content, which a folder has none of. -->
-				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.color')">
+				<wt-property-row v-if="!singleTarget.isCollection && !singleTarget.cloud" :name="t('webtop.inspector.field.color')">
 					<template v-slot:value="p">
 						<div class="insp-color-dots" :class="{ 'insp-labels-saving': labelsSaving }">
 							<button v-for="c in swatchColors" :key="c.key" type="button" class="insp-color-dot"
@@ -205,7 +205,7 @@
 				<!-- Tags (mi:tags): chips with a remove button and an input that
 				     adds on Enter; the suggestion popup lists the tags already in
 				     use across the files the user can read. -->
-				<wt-property-row v-if="!singleTarget.isCollection" :name="t('webtop.inspector.field.tags')">
+				<wt-property-row v-if="!singleTarget.isCollection && !singleTarget.cloud" :name="t('webtop.inspector.field.tags')">
 					<template v-slot:value="p">
 						<div class="insp-tags" :class="{ 'insp-labels-saving': labelsSaving }">
 							<span v-for="tag in singleTarget.tags" :key="tag" class="insp-tag">
@@ -256,7 +256,9 @@
 					:model-value="singleTarget.isCollection ? '—' : displaySize(singleTarget)"
 					:muted="singleTarget.isCollection"></wt-property-row>
 
-				<wt-property-row :name="t('webtop.inspector.field.path')">
+				<!-- A repository node's path; a cloud entry's location as names
+				     (its path is made of ids), with the provider's link beside. -->
+				<wt-property-row v-if="!singleTarget.cloud" :name="t('webtop.inspector.field.path')">
 					<template v-slot:value="p">
 						<div class="d-flex align-items-start" style="word-break: break-all;">
 							<span class="flex-grow-1">{{ singleTarget.path }}</span>
@@ -266,6 +268,20 @@
 						</div>
 					</template>
 				</wt-property-row>
+				<wt-property-row v-else :name="t('webtop.inspector.field.location', undefined, 'Location')">
+					<template v-slot:value="p">
+						<div class="d-flex align-items-start" style="word-break: break-all;">
+							<span class="flex-grow-1">{{ singleTarget.cloud.location }}</span>
+							<button class="detail-inline-btn ms-1 flex-shrink-0" @click="copyPathToClipboard(event)" :title="t('webtop.inspector.location.copy', undefined, 'Copy location')">
+								<i class="bi bi-clipboard"></i>
+							</button>
+						</div>
+					</template>
+				</wt-property-row>
+				<wt-property-row v-if="singleTarget.cloud && singleTarget.cloud.owner" :name="t('webtop.inspector.field.owner', undefined, 'Owner')"
+					:model-value="singleTarget.cloud.owner"></wt-property-row>
+				<wt-property-row v-if="singleTarget.cloud && !singleTarget.cloud.virtual" :name="t('webtop.inspector.field.shared', undefined, 'Shared')"
+					:model-value="singleTarget.cloud.shared ? t('common.yes') : t('common.no')"></wt-property-row>
 
 				<wt-property-row :name="t('webtop.inspector.field.created')">
 					<template v-slot:value="p">
@@ -281,7 +297,7 @@
 					</template>
 				</wt-property-row>
 
-				<wt-property-row :name="t('webtop.inspector.field.lockStatus')">
+				<wt-property-row v-if="!singleTarget.cloud" :name="t('webtop.inspector.field.lockStatus')">
 					<template v-slot:value="p">
 						<span v-if="singleTarget.isLocked" class="lock-chip"
 							:class="singleTarget.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'">
@@ -305,7 +321,7 @@
 					</template>
 				</wt-property-row>
 
-				<wt-property-row :name="t('webtop.inspector.field.referenceable')">
+				<wt-property-row v-if="!singleTarget.cloud" :name="t('webtop.inspector.field.referenceable')">
 					<template v-slot:value="p">
 						<span v-if="singleTarget.isReferenceable">{{ t('common.yes') }} <small class="text-muted ms-1">{{ t('webtop.inspector.referenceable.uuid', { id: singleTarget.id }) }}</small></span>
 						<span v-else class="text-muted">{{ t('common.no') }}</span>
@@ -313,6 +329,10 @@
 				</wt-property-row>
 			</div>
 
+			<!-- Sections 3 and 5 (properties, access control) and the lock /
+			     version actions belong to a repository node; a cloud entry has
+			     none of them. -->
+			<template v-if="!singleTarget.cloud">
 			<!-- Section 3: Properties. One list for reading and editing: a row's
 			     "…" menu opens the property in a dialog, and what the dialog
 			     hands back with "Change" / "Add" waits here, unsaved, until the
@@ -532,6 +552,7 @@
 					</div>
 				</template>
 			</div>
+			</template>
 
 			<!-- Section 4: Quick Actions -->
 			<div class="detail-section-header">{{ t('webtop.inspector.section.actions') }}</div>
@@ -553,6 +574,13 @@
 				<!-- Lock / version control quick actions. Visibility conditions
 				     mirror the content-browser context menu; state refresh flows
 				     back through the SSE node update stream. -->
+				<div v-if="singleTarget.cloud && singleTarget.cloud.webUrl" class="detail-section">
+					<button class="wt w-100" @click="openAtProvider">
+						<i class="bi bi-box-arrow-up-right me-1"></i>
+						{{ t('webtop.inspector.action.openAtProvider', undefined, 'Open at provider') }}
+					</button>
+				</div>
+				<template v-if="!singleTarget.cloud">
 				<div v-if="!singleTarget.isLocked" class="detail-section">
 					<button class="wt w-100" @click="actionLock" :disabled="actionBusy">
 						<i class="bi bi-lock me-1"></i>
@@ -595,6 +623,7 @@
 						{{ t('webtop.inspector.action.cancelCheckout') }}
 					</button>
 				</div>
+				</template>
 				<div v-if="actionErrorMessage" class="detail-section text-danger small">
 					<i class="bi bi-exclamation-circle me-1"></i>{{ actionErrorMessage }}
 				</div>
@@ -603,9 +632,9 @@
 			<!-- Section 5: Access Control. The item's own entries come first and
 			     are edited in a dialog; the folders it inherits from follow,
 			     each with a way to go there. -->
-			<div class="detail-section-header">{{ t('webtop.inspector.section.accessControl') }}</div>
+			<div v-if="!singleTarget.cloud" class="detail-section-header">{{ t('webtop.inspector.section.accessControl') }}</div>
 
-			<div class="detail-section-body">
+			<div v-if="!singleTarget.cloud" class="detail-section-body">
 				<div v-if="detailACLLoading && detailACL.length === 0" class="detail-section text-center py-3">
 					<span class="spinner-border spinner-border-sm"></span>
 				</div>

@@ -284,21 +284,13 @@ their own keys (`mailAttachments`).
 
 ## Cloud storage
 
-The cloud button in the toolbar lists, for each provider an administrator
-enabled (see `linked-accounts.md`), three actions on the user's own Google
-Drive or OneDrive:
-
-| Action | What happens |
-| --- | --- |
-| Import files… | The picked files are copied into the folder being browsed. A Google document is copied as its Office export (`.docx`, `.xlsx`, `.pptx`, otherwise PDF). A name the folder already has gets a number appended. |
-| Import as links… | A small file per picked item, of type `application/vnd.mintjams.webtop.cloud-link+json`, is written into the folder. Opening it opens the item where the provider shows it, in a new tab. Nothing is copied. |
-| Export selected files… | The selected files are uploaded to a folder of the drive the user picks. The outcome is shown in a dialog, with a link to each uploaded file. Folders are not exported. |
-
-The first use of a provider asks the user to link the account and allow the
-*files* bundle, in a popup; after that the picker opens at once. With Google
-the picker is Google's own dialog; with Microsoft it is the Webtop's, reading
-the drive a folder at a time. Imports run on the server in the user's own
-session: a folder the user cannot write to refuses them, and the copies carry
-the user as creator like an upload. The button is disabled while the list is
-loading, and the two imports while a search result is shown, since there is
-no folder to import into.
+The user's Google Drive and OneDrive open as locations of the list, beside the
+repository's folders: a **Cloud storage** section of the sidebar lists the
+providers whose *files* bundle the user allowed, and a provider opens at its
+drives (the user's own, then the shared drives or libraries). Folders,
+breadcrumbs, favourites, history, the grid's thumbnails and the Inspector
+work as in the repository; the context menu copies in both directions
+(*Copy to repository…*, *Put a link in the repository…* on a cloud item,
+*Copy to cloud storage…* on a repository item). See
+`webtop-cloud-storage.md` for what cloud storage offers and what it does
+not yet (drops, search).

@@ -42,13 +42,13 @@
 			     the same list and the loser would clobber the winner's results. -->
 			<div class="cb-searchbar">
 				<div class="input-group" :class="{invalid: fullTextCompiled.error}">
-					<input type="search" v-model="fullTextKeyword" :disabled="listLoading"
+					<input type="search" v-model="fullTextKeyword" :disabled="listLoading || isCloudLocation"
 						:placeholder="t('app.content-browser.search.fullTextPlaceholder')"
-						:title="fullTextCompiled.error || t('app.content-browser.search.fullTextHint')"
+						:title="isCloudLocation ? t('app.content-browser.cloud.searchUnavailable', undefined, 'Search is not available here yet.') : (fullTextCompiled.error || t('app.content-browser.search.fullTextHint'))"
 						@keydown.enter.prevent="xpathExecuteSearch">
 					<div class="input-group-actions">
 						<button class="input-group-btn" @click="xpathExecuteSearch"
-							:disabled="listLoading"
+							:disabled="listLoading || isCloudLocation"
 							:title="t('app.content-browser.search.search')">
 							<i class="bi bi-search"></i>
 						</button>
@@ -57,14 +57,6 @@
 			</div>
 
 			<span class="nav-spacer"></span>
-
-			<!-- Cloud files: import from, or export to, the user's Google Drive / OneDrive -->
-			<div class="toolbar-group">
-				<button class="btn-icon" @click="openCloudMenu(event)" :disabled="listLoading"
-					:title="t('app.content-browser.toolbar.cloud', undefined, 'Cloud storage')">
-					<i class="bi bi-cloud"></i>
-				</button>
-			</div>
 
 			<!-- Sort, for the grid view, which has no column headers to click -->
 			<div v-if="listViewMode === 'grid'" class="toolbar-group">
@@ -188,6 +180,30 @@
 					</div>
 				</div>
 
+				<!-- Cloud storage: the providers whose files bundle the user allowed,
+				     each a location the list opens at its drives (see
+				     sources/cloud-source.ts). Shown only when an administrator
+				     enabled a provider; one not yet allowed is hinted at below. -->
+				<div v-if="!xpathSearchActive && cloudStorages.length > 0" class="sidebar-section sidebar-cloud-section">
+					<div class="sidebar-section-header" @click="toggleSidebarSection('cloud')">
+						<i class="bi" :class="sidebarSectionExpanded.cloud ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+						<span>{{ t('app.content-browser.sidebar.cloud', undefined, 'Cloud storage') }}</span>
+					</div>
+					<div v-show="sidebarSectionExpanded.cloud" class="sidebar-section-body sidebar-section-body-list">
+						<div v-for="s in grantedStorages" :key="'sb-cloud-' + s.provider"
+							class="sidebar-fav-item sidebar-cloud-item" :class="{ 'sidebar-fav-item-active': isCloudStorageActive(s) }"
+							@click="openCloudStorage(s)" :title="cloudProviderLabel(s.provider)">
+							<i class="bi sidebar-fav-icon" :class="s.provider === 'google' ? 'bi-google' : s.provider === 'microsoft' ? 'bi-microsoft' : 'bi-cloud'"></i>
+							<div class="sidebar-fav-content">
+								<span class="sidebar-fav-name">{{ cloudProviderLabel(s.provider) }}</span>
+							</div>
+						</div>
+						<div v-if="ungrantedStorages.length > 0" class="sidebar-cloud-hint" @click="openPreferencesLinked">
+							<i class="bi bi-info-circle me-1"></i>{{ t('app.content-browser.sidebar.cloudHint', undefined, 'Allow Files for a linked account in Preferences to see it here.') }}
+						</div>
+					</div>
+				</div>
+
 				<!-- Favorites section (hidden while a search result is listed: the
 				     facets and the search section take the place of this and the
 				     next section) -->
@@ -200,12 +216,13 @@
 					<div v-show="sidebarSectionExpanded.favorites" class="sidebar-section-body sidebar-section-body-list">
 						<div v-if="pinnedPaths.length === 0" class="sidebar-placeholder ps-3">{{ t('app.content-browser.sidebar.noFavorites') }}</div>
 						<div v-for="pin in pinnedPaths" :key="'sb-pin-' + pin.path"
-							class="sidebar-fav-item" :class="{ 'sidebar-fav-item-active': currentPath === pin.path }"
-							@click="navigateToPath(pin.path)" :title="pin.path">
-							<i class="bi bi-folder-symlink sidebar-fav-icon"></i>
+							class="sidebar-fav-item" :class="{ 'sidebar-fav-item-active': currentPath === pin.path, 'sidebar-fav-item-disabled': !isCloudPathGranted(pin.path) }"
+							@click="openPinnedPath(pin)"
+							:title="isCloudPathGranted(pin.path) ? pinDisplayPath(pin) : t('app.content-browser.cloud.notGranted', undefined, 'Allow Files for this account in Preferences to open it.')">
+							<i class="bi sidebar-fav-icon" :class="!isCloudPathGranted(pin.path) ? 'bi-lock' : pin.display ? 'bi-cloud' : 'bi-folder-symlink'"></i>
 							<div class="sidebar-fav-content">
 								<span class="sidebar-fav-name">{{ pin.name }}</span>
-								<span class="sidebar-fav-path">{{ pin.path }}</span>
+								<span class="sidebar-fav-path">{{ pinDisplayPath(pin) }}</span>
 							</div>
 							<button class="sidebar-fav-unpin" @click.stop="unpinPath(pin.path)" :title="t('app.content-browser.sidebar.unpin')">
 								<i class="bi bi-x"></i>
@@ -545,9 +562,10 @@
 
 			<!-- Breadcrumb View -->
 			<div v-if="!xpathSearchActive && !navEditMode" class="nav-breadcrumb" @click="enterEditMode">
-				<!-- Home icon -->
+				<!-- Home icon; in cloud storage, the provider's name -->
 				<span v-if="smartBreadcrumb.home" class="nav-item c-pointer" @click.stop="navigateToPath(smartBreadcrumb.home.path)">
-					<i class="bi bi-folder"></i>
+					<i v-if="!isCloudLocation" class="bi bi-folder"></i>
+					<template v-else><i class="bi bi-cloud me-1"></i>{{ smartBreadcrumb.home.name }}</template>
 				</span>
 
 				<!-- Collapsed segments with ellipsis dropdown -->
@@ -589,7 +607,7 @@
 				</template>
 
 				<span class="nav-spacer"></span>
-				<span class="nav-edit-hint"><i class="bi bi-pencil"></i></span>
+				<span v-if="!isCloudLocation" class="nav-edit-hint"><i class="bi bi-pencil"></i></span>
 			</div>
 
 			<!-- Edit Path View -->
@@ -652,37 +670,37 @@
 				<thead>
 					<tr>
 						<th></th>
-						<th class="c-pointer text-start" @click="sortItems('name')">{{ t('app.content-browser.column.name') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('name'), 'th-inert': !canSortColumn('name') }" @click="sortHeader('name')">{{ t('app.content-browser.column.name') }}
 							<span v-if="sortColumn == 'name'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('date')">{{ t('app.content-browser.column.dateModified') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('date'), 'th-inert': !canSortColumn('date') }" @click="sortHeader('date')">{{ t('app.content-browser.column.dateModified') }}
 							<span v-if="sortColumn == 'date'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('modifiedBy'), 'th-inert': !canSortColumn('modifiedBy') }" @click="sortHeader('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
 							<span v-if="sortColumn == 'modifiedBy'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('lockOwner'), 'th-inert': !canSortColumn('lockOwner') }" @click="sortHeader('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
 							<span v-if="sortColumn == 'lockOwner'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('version')">{{ t('app.content-browser.column.version') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('version'), 'th-inert': !canSortColumn('version') }" @click="sortHeader('version')">{{ t('app.content-browser.column.version') }}
 							<span v-if="sortColumn == 'version'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('kind')">{{ t('app.content-browser.column.kind') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('kind'), 'th-inert': !canSortColumn('kind') }" @click="sortHeader('kind')">{{ t('app.content-browser.column.kind') }}
 							<span v-if="sortColumn == 'kind'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="c-pointer text-start" @click="sortItems('size')">{{ t('app.content-browser.column.size') }}
+						<th class="text-start" :class="{ 'c-pointer': canSortColumn('size'), 'th-inert': !canSortColumn('size') }" @click="sortHeader('size')">{{ t('app.content-browser.column.size') }}
 							<span v-if="sortColumn == 'size'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
@@ -768,7 +786,7 @@
 			</div>
 			<!-- Search paging: the next page is fetched as the list is scrolled
 			     to its end (onContentListScroll); this row shows while it loads. -->
-			<div v-if="xpathSearchActive && xpathSearchLoadingMore" class="xpath-search-more">
+			<div v-if="(xpathSearchActive && xpathSearchLoadingMore) || cloudLoadingMore" class="xpath-search-more">
 				<span class="spinner-border spinner-border-sm me-2"></span>{{ t('app.content-browser.search.loadingMore') }}
 			</div>
 			<!-- Drag selection rectangle -->
@@ -1107,6 +1125,9 @@
 								{{ t('app.content-browser.dialog.deleteConfirmMany', { count: deleteDialog.items.length }) }}
 							</span>
 						</div>
+						<div v-if="deleteDialog.items.some(i => i.cloud)" class="text-muted fs-small mb-3">
+							<i class="bi bi-trash me-1"></i>{{ t('app.content-browser.cloud.trashNote', undefined, "It is moved to the provider's trash, where it can be restored.") }}
+						</div>
 						<div v-if="deleteDialog.items.length > 1" class="delete-items-list mb-3">
 							<ul class="list-unstyled my-0">
 								<li v-for="item in deleteDialog.items" :key="item.id" class="text-truncate">
@@ -1270,12 +1291,18 @@
 			</div>
 		</div>
 
-		<!-- Cloud files: what to import, or where to export (the files bundle of a linked account). -->
+		<!-- "Copy to cloud storage…": the drive folder the selected repository items go to. -->
 		<wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance ? instance.api.cloud : null"
 			:provider="cloudPicker.provider" :provider-name="cloudPicker.providerName"
 			:mode="cloudPicker.mode" :multiple="cloudPicker.multiple"
-			:title="cloudPicker.action === 'export' ? t('app.content-browser.cloud.exportTitle', { name: cloudPicker.providerName }, 'Export to {name}') : t('app.content-browser.cloud.importTitle', { name: cloudPicker.providerName }, 'Import from {name}')"
+			:title="t('app.content-browser.cloud.copyTitle', { name: cloudPicker.providerName }, 'Copy to {name}')"
 			:labels="cloudPickerLabels" @select="onCloudPicked($event.detail)"></wt-cloud-picker>
+
+		<!-- "Copy to repository…" / "Put a link in the repository…": the folder the selected cloud items go to. -->
+		<wt-folder-picker v-model:open="folderPicker.visible" :service="instance ? instance.api.content : null"
+			:root-label="instance ? instance.api.workspace : ''" :initial-path="isCloudLocation ? lastRepositoryPath : currentPath"
+			:title="folderPicker.action === 'link' ? t('app.content-browser.cloud.linkInRepositoryTitle', undefined, 'Put a link in the repository') : t('app.content-browser.cloud.copyToRepositoryTitle', undefined, 'Copy to repository')"
+			:labels="folderPickerLabels" @select="onFolderPicked($event.detail)"></wt-folder-picker>
 
 		<!-- The outcome of an export, or a message about a cloud file: there is no status line to carry it. -->
 		<wt-dialog :open="cloudResult.visible" size="sm" :title="cloudResult.title" @close="closeCloudResult">

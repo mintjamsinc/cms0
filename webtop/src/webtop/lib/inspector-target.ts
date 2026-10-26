@@ -42,6 +42,10 @@ export interface InspectorTarget {
 	// which the thumbnail URL carries so a remade picture is fetched anew.
 	// null while there is no thumbnail.
 	thumbnailVersion: number | null;
+	// What only an entry of a cloud drive has (see apps/content-browser/sources/cloud-source.ts);
+	// absent for a repository node. The Inspector reads it to show the cloud rows
+	// and to leave out what a cloud entry does not have (ACL, versions, …).
+	cloud?: Record<string, any> | null;
 }
 
 /** The mi:color property name. */

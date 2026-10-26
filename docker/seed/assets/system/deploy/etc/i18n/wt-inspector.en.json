@@ -32,6 +32,11 @@
 	"webtop.inspector.encoding.placeholder": "e.g. UTF-8",
 	"webtop.inspector.encoding.editHint": "Click to change encoding",
 	"webtop.inspector.path.copy": "Copy path",
+	"webtop.inspector.field.owner": "Owner",
+	"webtop.inspector.field.shared": "Shared",
+	"webtop.inspector.field.location": "Location",
+	"webtop.inspector.location.copy": "Copy location",
+	"webtop.inspector.action.openAtProvider": "Open at provider",
 
 	"webtop.inspector.field.color": "Color",
 	"webtop.inspector.field.tags": "Tags",

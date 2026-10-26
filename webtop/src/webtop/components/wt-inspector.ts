@@ -727,7 +727,8 @@ defineComponent('wt-inspector', {
 		// Whether the Conversation tab is offered: a single file or folder, no
 		// host pane, and the host did not turn it off.
 		conversationAvailable(this: any): boolean {
-			return !!this.singleTarget?.id && !this.paneActive && !this.detailVersionHistoryVisible &&
+			// A cloud entry is not a node of the repository: no conversation hangs off it.
+			return !!this.singleTarget?.id && !this.singleTarget?.cloud && !this.paneActive && !this.detailVersionHistoryVisible &&
 				this.viewOptions?.conversation !== false && !!this.api?.eventHub;
 		},
 		conversationShown(this: any): boolean {
@@ -1216,6 +1217,8 @@ defineComponent('wt-inspector', {
 			}
 			const target = vm.singleTarget;
 			if (!target?.path) return;
+			// A cloud entry is not a node: there is nothing to watch.
+			if (target.cloud) return;
 			const eventHub = vm.api?.eventHub;
 			if (!eventHub || typeof eventHub.watchNode !== 'function') return;
 			vm._.nodeWatchUnsubscribe = eventHub.watchNode(target.path, (_event: any) => {
@@ -1329,6 +1332,11 @@ defineComponent('wt-inspector', {
 		emitRevealItem(this: any, target: any) {
 			this._dispatch('reveal-item', target);
 		},
+		// A cloud entry: where the provider shows it, in a new tab.
+		openAtProvider(this: any) {
+			const url = this.singleTarget?.cloud?.webUrl;
+			if (url) window.open(url, '_blank', 'noopener');
+		},
 		emitRequestClose(this: any) {
 			this._dispatch('request-close');
 		},
@@ -1374,7 +1382,9 @@ defineComponent('wt-inspector', {
 		},
 		// Inline clipboard helper — replaces the host's copyToClipboard().
 		async copyPathToClipboard(this: any, event?: MouseEvent) {
-			const path = this.singleTarget?.path;
+			// A cloud entry's path is made of ids; its location as names is what
+			// a person can use.
+			const path = this.singleTarget?.cloud?.location || this.singleTarget?.path;
 			if (!path) return;
 			try {
 				await navigator.clipboard.writeText(path);
@@ -1578,6 +1588,12 @@ defineComponent('wt-inspector', {
 					vm.versionHistoryDialog.versions = [];
 					vm.versionHistoryDialog.isLoading = false;
 				}
+				return;
+			}
+			// A cloud entry has no properties, access control or versions of its
+			// own to load; its rows come from the target itself.
+			if (item.cloud) {
+				vm.resetSectionState();
 				return;
 			}
 			if (!vm.propDialog.visible && vm.propEditorModifiedCount === 0) {
@@ -1829,7 +1845,8 @@ defineComponent('wt-inspector', {
 		startMimeTypeEdit(this: any) {
 			const vm = this;
 			const item = vm.singleTarget;
-			if (!item || item.isCollection) return;
+			// The type of a cloud entry is the provider's to change.
+			if (!item || item.isCollection || item.cloud) return;
 			vm.mimeTypeEditing = true;
 			vm.mimeTypeInput = item.mimeType || '';
 			vm.mimeTypeSaving = false;

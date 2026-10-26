@@ -1755,3 +1755,31 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+
+/* Cloud storage: the sidebar section, a favourite that cannot be opened, and
+   the column headers a cloud listing cannot order by. */
+.sidebar-cloud-hint {
+	padding: 0.35rem 0.75rem;
+	font-size: 11px;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	line-height: 1.4;
+}
+
+.sidebar-cloud-hint:hover {
+	color: var(--text-color);
+}
+
+.sidebar-fav-item-disabled {
+	opacity: 0.55;
+	cursor: default;
+}
+
+.sidebar-fav-item-disabled:hover {
+	background-color: transparent;
+}
+
+th.th-inert {
+	color: var(--text-muted-color);
+	cursor: default;
+}

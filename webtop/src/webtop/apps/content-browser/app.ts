@@ -1,5 +1,10 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
-import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
+import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, type CloudStorage, type CloudOrder, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
+import { isCloudPath, parseCloudPath, cloudPath, cloudProviderPath, CLOUD_MY_DRIVE, type CloudLocation } from "../../lib/cloud-location.js";
+import { CloudSource, cloudLocationText, type CloudCrumbs, type CloudItemInfo, type CloudLabels } from "./sources/cloud-source.js";
+import { RepositorySource } from "./sources/repository-source.js";
+import { isConsentRequired } from "../../services/cloud-service-graphql.js";
+import { GraphQLError } from "../../graphql/client.js";
 import { deleteContentItems, type DeleteJobHandle, type DeleteJobProgress } from "../../services/content-delete.js";
 import { downloadContentAsZip, importContentArchive, type ArchiveJobHandle, type ArchiveJobProgress, type ImportArchiveProgress } from "../../services/content-archive.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
@@ -78,8 +83,15 @@ function nodeToContentItem(node: Node): ContentItem {
 		hasChildren: node.hasChildren || false,
 		folderSize: null,
 		attributes: {},
+		cloud: null,
 	};
 }
+
+/** The Preferences app, where linked accounts are allowed. */
+const PREFERENCES_APP_ID = 'ddae3624-7926-436f-b474-931bed669328';
+
+/** A cloud listing is read this many entries at a time; the next page loads as the list is scrolled. */
+const CLOUD_PAGE_SIZE = 200;
 
 /**
  * A folder's total content size in the list: null until requested, 'pending'
@@ -93,6 +105,9 @@ interface ContentItem extends InspectorTarget {
 	hasChildren: boolean;
 	folderSize: FolderSizeState;
 	attributes: Record<string, any>;
+	// Set for an entry of a cloud drive (see sources/cloud-source.ts); null
+	// for a repository node.
+	cloud: CloudItemInfo | null;
 }
 
 /** The server accepts at most this many paths per contentLengths subscription. */
@@ -510,7 +525,8 @@ export const App = {
 				providerName: '',
 				mode: 'files' as 'files' | 'folder',
 				multiple: true,
-				action: '' as '' | 'import' | 'link' | 'export',
+				// 'copy': the selected repository items go to the picked cloud folder.
+				action: '' as '' | 'copy',
 			},
 			cloudResult: {
 				visible: false,
@@ -518,6 +534,40 @@ export const App = {
 				entries: [] as CloudEntry[],
 				errors: [] as string[],
 			},
+			// The repository folder picker: where selected cloud items are copied
+			// to ('import'), or where a link to them is written ('link').
+			folderPicker: {
+				visible: false,
+				action: '' as '' | 'import' | 'link',
+				items: [] as ContentItem[],
+			},
+			// Cloud storage as a location of the list (see sources/cloud-source.ts
+			// and lib/cloud-location.ts). The providers an administrator enabled,
+			// with whether the user allowed the files bundle; the crumbs of the
+			// cloud location being listed (null in the repository); the paging
+			// of the cloud listing, read as the list is scrolled; and a sequence
+			// so a page of an earlier listing is dropped when it arrives late.
+			cloudStorages: [] as CloudStorage[],
+			cloudCrumbs: null as CloudCrumbs | null,
+			cloudCursor: null as string | null,
+			cloudHasMore: false,
+			cloudLoadingMore: false,
+			_cloudSeq: 0,
+			_cloudSource: null as CloudSource | null,
+			_repoSource: null as RepositorySource | null,
+			_connectionsChannel: null as BroadcastChannel | null,
+			// The cloud path a consent popup was already shown for, so a grant
+			// that still does not open it is not asked for again and again.
+			_cloudConsentRetry: '',
+			// The repository items "Copy to cloud storage…" is copying, while
+			// the cloud folder picker is open.
+			_cloudCopyItems: null as ContentItem[] | null,
+			// The repository folder last listed: where "Copy to repository…"
+			// starts its folder picker while a cloud location is shown.
+			lastRepositoryPath: '/content',
+			// Where the last context menu was asked for (iframe-local), for a
+			// popup an action opens without an event of its own.
+			_contextMenuAt: null as { x: number; y: number } | null,
 			conflictDialog: {
 				visible: false,
 				resolve: null as null | ((action: string) => void),
@@ -676,7 +726,9 @@ export const App = {
 			ellipsisDropdownOpen: false,
 			// Path history and pinned locations (persisted to IndexedDB)
 			pathHistory: [] as { path: string; timestamp: number }[],
-			pinnedPaths: [] as { path: string; name: string }[],
+			// A cloud favourite also keeps its location as names (`display`): the
+			// path holds only ids.
+			pinnedPaths: [] as { path: string; name: string; display?: string }[],
 			MAX_HISTORY_ITEMS: 50,
 			navClickOutsideListener: null as ((e: MouseEvent) => void) | null,
 			// Back/forward navigation stack (session-only)
@@ -786,6 +838,7 @@ export const App = {
 			// Sidebar collapsible sections (true = expanded)
 			sidebarSectionExpanded: {
 				filter: true,
+				cloud: true,
 				favorites: false,
 				smartFolders: false,
 				xpathSearch: false,
@@ -1048,6 +1101,9 @@ export const App = {
 			return `${this.xpathBuiltQuery} order by ${field} ${direction}`;
 		},
 		breadcrumb(): { name: string; path: string }[] {
+			if (this.isCloudLocation) {
+				return this.cloudBreadcrumb();
+			}
 			const parts = this.currentPath.split('/').filter(p => p);
 			const result = [] as { name: string; path: string }[];
 			let prefix = '';
@@ -1094,6 +1150,9 @@ export const App = {
 			};
 		},
 		canGoToParent(): boolean {
+			if (this.isCloudLocation) {
+				return !!this.cloudParentPath();
+			}
 			return !this.xpathSearchActive && !!this.currentPath && this.currentPath !== '/';
 		},
 		// Back/forward navigation
@@ -1190,7 +1249,70 @@ export const App = {
 				loading: this.t('app.content-browser.cloud.loading', undefined, 'Loading…'),
 				empty: this.t('app.content-browser.cloud.empty', undefined, 'This folder is empty.'),
 				up: this.t('app.content-browser.toolbar.goToParent', undefined, 'Up'),
+				myDrive: this.cloudLabels.myDrive(this.cloudPicker.provider),
 			};
+		},
+		folderPickerLabels(): Record<string, string> {
+			const link = this.folderPicker.action === 'link';
+			return {
+				select: link
+					? this.t('app.content-browser.folderPicker.selectLink', undefined, 'Put the link here')
+					: this.t('app.content-browser.folderPicker.select', undefined, 'Copy here'),
+				cancel: this.t('app.content-browser.dialog.cancel', undefined, 'Cancel'),
+				newFolder: this.t('app.content-browser.folderPicker.newFolder', undefined, 'New folder'),
+				newFolderName: this.t('app.content-browser.folderPicker.newFolderName', undefined, 'Folder name'),
+				create: this.t('app.content-browser.folderPicker.create', undefined, 'Create'),
+				loading: this.t('app.content-browser.folderPicker.loading', undefined, 'Loading…'),
+				noAccess: this.t('app.content-browser.folderPicker.noAccess', undefined, 'You cannot write here.'),
+				invalidName: this.t('app.content-browser.folderPicker.invalidName', undefined, 'The name cannot contain / \\ : * ? " < > |'),
+			};
+		},
+		// ---- Cloud storage as a location ---------------------------------------
+		// The names the virtual rows and the breadcrumbs use. The provider is
+		// named by what the user keeps there (Google Drive, OneDrive), the own
+		// drive and the shared drives by the provider's own words.
+		cloudLabels(): CloudLabels {
+			const vm = this;
+			return {
+				providerName: (provider: string) => vm.cloudProviderLabel(provider),
+				myDrive: (provider: string) => provider === 'microsoft'
+					? vm.t('app.content-browser.cloud.oneDrive', undefined, 'OneDrive')
+					: vm.t('app.content-browser.cloud.myDrive', undefined, 'My Drive'),
+				sharedDrives: (provider: string) => provider === 'microsoft'
+					? vm.t('app.content-browser.cloud.libraries', undefined, 'Shared libraries')
+					: vm.t('app.content-browser.cloud.sharedDrives', undefined, 'Shared drives'),
+			};
+		},
+		isCloudLocation(): boolean {
+			return isCloudPath(this.currentPath);
+		},
+		cloudLocation(): CloudLocation | null {
+			return parseCloudPath(this.currentPath);
+		},
+		// The listings above the drives: the rows there open drives, take no
+		// drops, and have no folder to make anything in.
+		isCloudVirtualLocation(): boolean {
+			return !!this.cloudLocation?.virtual;
+		},
+		grantedStorages(): CloudStorage[] {
+			return (this.cloudStorages as CloudStorage[]).filter(s => s.granted);
+		},
+		ungrantedStorages(): CloudStorage[] {
+			return (this.cloudStorages as CloudStorage[]).filter(s => !s.granted);
+		},
+		// The current location as one line: the repository path, or the cloud
+		// crumbs as names. What the Dock preview and a favourite show.
+		locationText(): string {
+			if (!this.isCloudLocation) return this.currentPath || '';
+			const crumbs = this.cloudCrumbs as CloudCrumbs | null;
+			if (!crumbs) return this.cloudProviderLabel(this.cloudLocation?.provider || '');
+			return cloudLocationText(crumbs, this.cloudLabels);
+		},
+		// Only the columns the providers can order by; the others are inert
+		// headers in cloud storage (the list is read a page at a time, so a
+		// client-side sort would disagree with the pages still to come).
+		cloudSortableColumns(): string[] {
+			return ['name', 'date'];
 		},
 		// Detail panel: currently selected single item
 		selectedItem(): any {
@@ -1251,8 +1373,13 @@ export const App = {
 		// Push the current folder path to the shell so the Dock hover preview
 		// always reflects the latest location. The shell stores this in its
 		// own reactive state — see ApplicationInstance.setDisplayInfo().
-		currentPath(val: string) {
-			(this as any).instance?.setDisplayInfo({ subtitle: val || '' });
+		currentPath() {
+			(this as any).instance?.setDisplayInfo({ subtitle: (this as any).locationText || '' });
+		},
+		// A cloud location's names arrive after the path (a cold landing looks
+		// them up), so the Dock follows them too.
+		cloudCrumbs() {
+			(this as any).instance?.setDisplayInfo({ subtitle: (this as any).locationText || '' });
 		},
 	},
 	methods: {
@@ -1346,9 +1473,11 @@ export const App = {
 				// Mark instance as raw (non-reactive) to prevent Proxy wrapping
 				// This is necessary because ApplicationInstance has private fields (#id, etc.)
 				vm.instance = this.$markRaw(instance);
-				// Handed to <wt-cloud-picker> as a prop: a class instance with
-				// private fields, which must not be read through a reactive proxy.
+				// Handed to <wt-cloud-picker> / <wt-folder-picker> as props: class
+				// instances with private fields, which must not be read through a
+				// reactive proxy.
 				this.$markRaw(instance.api.cloud);
+				this.$markRaw(instance.api.content);
 				vm.idp = this.$markRaw(new IdpServiceGraphQL());
 				// Build the <wt-inspector> api surface once, marked raw so the
 				// reactive system never Proxy-wraps it. content/eventHub/popup
@@ -1358,9 +1487,21 @@ export const App = {
 					content: instance.api.content,
 					eventHub: instance.api.eventHub,
 					popup: instance.popup,
+					cloud: instance.api.cloud,
 				});
+				// The two sources the list reads from. Marked raw: they hold the
+				// services, whose private fields a reactive proxy cannot reach.
+				vm._repoSource = this.$markRaw(new RepositorySource(instance.api.content));
+				vm._cloudSource = this.$markRaw(new CloudSource(instance.api.cloud, vm.cloudLabels));
 				instance.appState = () => ({ initialPath: vm.currentPath });
-				instance.setDisplayInfo({ subtitle: vm.currentPath || '' });
+				instance.setDisplayInfo({ subtitle: vm.locationText || '' });
+				// The sidebar lists the providers whose files bundle the user
+				// allowed; a grant or a revocation made in Preferences (or by an
+				// app's grant popup) is announced on this channel.
+				try {
+					vm._connectionsChannel = new BroadcastChannel('webtop-connections');
+					vm._connectionsChannel.onmessage = () => { vm.loadCloudStorages(); };
+				} catch (_) { /* no BroadcastChannel */ }
 
 				// Suppress server sync during initialization
 				vm._suppressServerSync = true;
@@ -1404,6 +1545,8 @@ export const App = {
 
 				// Load available schemas (non-blocking)
 				vm.loadAvailableSchemas();
+				// The cloud storage section of the sidebar (non-blocking)
+				vm.loadCloudStorages();
 
 				await vm.load(vm.currentPath);
 
@@ -1462,12 +1605,31 @@ export const App = {
 				vm._parentWatchUnsubscribe = null;
 			}
 			vm._cancelFolderSizes();
+			if (vm._connectionsChannel) {
+				try { vm._connectionsChannel.close(); } catch (_) { /* noop */ }
+				vm._connectionsChannel = null;
+			}
 		},
-		async load(path: string, skipStack: boolean = false) {
+		/**
+		 * Fills the list with a location: a repository folder, or a cloud
+		 * location (lib/cloud-location.ts). `options.crumbs` carries the names
+		 * above a cloud folder from the listing it was clicked in, so no
+		 * request is spent on them; without it (a favourite, a restored
+		 * session, the history) they are looked up after the list is shown.
+		 */
+		async load(path: string, skipStack: boolean = false, options: { crumbs?: CloudCrumbs | null } = {}) {
 			const vm = this;
 			vm.errorMessage = '';
 			vm.loadError = '';
 			vm.currentFolderDeleted = false;
+			vm.cloudCursor = null;
+			vm.cloudHasMore = false;
+			vm.cloudLoadingMore = false;
+			vm._cloudSeq++;
+			if (!isCloudPath(path)) {
+				vm.cloudCrumbs = null;
+				vm.lastRepositoryPath = path;
+			}
 			// This fills the list with a folder's children, so whatever else it
 			// held, it is no longer showing search results. xpathSearchActive says
 			// exactly that about the list, and everything keyed off it — the search
@@ -1517,8 +1679,13 @@ export const App = {
 				if (vm._navSeq === seq && vm.isNavigating) vm.navSpinnerVisible = true;
 			}, NAV_SPINNER_DELAY_MS);
 
+			// Where a cloud load wants the list to go instead (the account was not
+			// allowed, the folder is gone): followed once this load has settled.
+			let redirect: string | null = null;
 			try {
-				// Use GraphQL API to fetch content
+				if (isCloudPath(path)) {
+					redirect = await vm._loadCloud(path, seq, options.crumbs ?? null);
+				} else {
 				const contentService = vm.instance.api.content;
 
 				// Verify the parent node exists
@@ -1550,6 +1717,7 @@ export const App = {
 				if (vm._navSeq === seq) {
 					vm._requestFolderSizes(items.filter(i => i.isCollection).map(i => i.path));
 				}
+				}
 			} catch (error: any) {
 				const message = error?.message || String(error) || vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data');
 				vm.errorMessage = message;
@@ -1568,6 +1736,11 @@ export const App = {
 					vm.isNavigating = false;
 					vm.navSpinnerVisible = false;
 				}
+			}
+
+			if (redirect && vm._navSeq === seq) {
+				await vm.load(redirect, true);
+				return;
 			}
 
 			// Update node watch subscription for new path
@@ -1591,6 +1764,9 @@ export const App = {
 			}
 
 			if (!vm.instance?.api?.eventHub) return;
+			// A cloud listing is read when the user looks and after what the
+			// user does to it; the providers send no events.
+			if (isCloudPath(vm.currentPath)) return;
 
 			const eventHub = vm.instance.api.eventHub;
 			let debounceTimer: number | null = null;
@@ -1886,6 +2062,10 @@ export const App = {
 			// The host no longer needs to relay anything.
 		},
 		async openItem(item: any) {
+			if (item.cloud) {
+				await this.openCloudItem(item);
+				return;
+			}
 			if (item.isCollection) {
 				await this.load(item.path);
 				return;
@@ -1913,86 +2093,363 @@ export const App = {
 		// asked for at that moment (connections.ensure opens the grant popup);
 		// the picker then chooses the files or the destination folder, and the
 		// copies run on the server in the user's own session.
-		async openCloudMenu(event: MouseEvent) {
+		// ---- Cloud storage as a location -------------------------------------
+		//
+		// A cloud location (lib/cloud-location.ts) is listed through the cloud
+		// source (sources/cloud-source.ts): the provider's root offers the own
+		// drive and the shared drives, a drive is read a page at a time as the
+		// list is scrolled. What the user does to it (new folder, rename,
+		// delete) goes through the same source and the list is read again
+		// afterwards; the providers send no events. The sidebar lists the
+		// providers whose files bundle the user allowed.
+		cloudProviderLabel(provider: string): string {
+			if (provider === 'google') return this.t('app.content-browser.cloud.providerGoogle', undefined, 'Google Drive');
+			if (provider === 'microsoft') return this.t('app.content-browser.cloud.providerMicrosoft', undefined, 'OneDrive');
+			const storage = (this.cloudStorages as CloudStorage[]).find((s: CloudStorage) => s.provider === provider);
+			return storage?.name || provider;
+		},
+		/** The providers an administrator enabled, and whether the user allowed each. */
+		async loadCloudStorages() {
 			const vm = this;
-			const trigger = event.currentTarget as HTMLElement;
-			const connections = vm.instance?.api.connections;
-			if (!trigger || !vm.instance || !connections) return;
-			const rect = trigger.getBoundingClientRect();
-			let linked;
+			const cloud = vm.instance?.api?.cloud;
+			if (!cloud) return;
 			try {
-				linked = await connections.getLinkedAccounts();
-			} catch (e: any) {
-				vm.showCloudMessage(vm.t('app.content-browser.cloud.title', undefined, 'Cloud'), [], [e?.message || String(e)]);
+				vm.cloudStorages = await cloud.getStorages();
+			} catch (e) {
+				// Not reachable: the section stays as it was.
+				console.warn('[ContentBrowser] cloud storages:', e);
+			}
+		},
+		/** A provider's drives, from the sidebar. */
+		async openCloudStorage(storage: CloudStorage) {
+			await this.navigateToPath(cloudProviderPath(storage.provider));
+		},
+		/** Preferences › Linked accounts, where a bundle is allowed. */
+		openPreferencesLinked() {
+			window.parent?.postMessage({ type: 'open-app', appId: PREFERENCES_APP_ID, options: { section: 'linked' } }, window.location.origin);
+		},
+		isCloudStorageActive(storage: CloudStorage): boolean {
+			return this.cloudLocation?.provider === storage.provider;
+		},
+		/** Whether a cloud path can be opened now: its provider's files bundle is allowed. */
+		isCloudPathGranted(path: string): boolean {
+			const provider = parseCloudPath(path)?.provider;
+			if (!provider) return true;
+			return (this.cloudStorages as CloudStorage[]).some((s: CloudStorage) => s.provider === provider && s.granted);
+		},
+		/** The order a cloud listing is asked for: the two the providers can produce. */
+		_cloudOrder(): CloudOrder {
+			return this.sortColumn === 'date' ? 'MODIFIED_DESC' : 'NAME';
+		},
+		_stampDates(items: ContentItem[]): ContentItem[] {
+			for (const item of items) {
+				item.attributes.displayDate = this.displayDate(item);
+			}
+			return items;
+		},
+		/**
+		 * Lists a cloud location into `items`. Returns a path to go to instead
+		 * when the location cannot be shown: the location itself once the user
+		 * allowed the account, the repository when they did not, the listing
+		 * above when the folder is gone.
+		 */
+		async _loadCloud(path: string, seq: number, crumbs: CloudCrumbs | null): Promise<string | null> {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			const location = parseCloudPath(path);
+			if (!source || !location) {
+				throw new Error(vm.t('app.content-browser.error.fetchFailed', undefined, 'Failed to fetch data'));
+			}
+			const cloudSeq = vm._cloudSeq;
+			try {
+				if (location.virtual === 'drives') {
+					const listing = source.listDrivesRoot(location);
+					vm.cloudCrumbs = listing.crumbs;
+					vm.items = vm._stampDates(listing.items);
+					return null;
+				}
+				if (location.virtual === 'shared') {
+					vm.cloudCrumbs = source.virtualCrumbs(location);
+					const listing = await source.listSharedDrives(location);
+					if (vm._navSeq !== seq) return null;
+					vm.items = vm._stampDates(listing.items);
+					return null;
+				}
+				// A drive's root or a folder. The crumbs come from the listing the
+				// folder was clicked in; otherwise the list is shown with the names
+				// pending and they are looked up afterwards.
+				const carried = crumbs && crumbs.provider === location.provider && crumbs.drive?.id === location.driveId
+					&& (crumbs.current?.id ?? null) === location.id && !crumbs.pending;
+				let known: CloudCrumbs;
+				if (carried) {
+					known = crumbs as CloudCrumbs;
+				} else if (location.driveId === CLOUD_MY_DRIVE) {
+					known = source.crumbsOf(location, source.myDrive(location.provider), [], null, !!location.id);
+				} else {
+					known = { provider: location.provider, providerName: vm.cloudProviderLabel(location.provider), drive: null, virtual: null, ancestors: [], current: null, pending: true };
+				}
+				vm.cloudCrumbs = known;
+				const listing = await source.listFolder(location, known, null, vm._cloudOrder(), CLOUD_PAGE_SIZE);
+				if (vm._navSeq !== seq) return null;
+				vm.items = vm._stampDates(listing.items);
+				vm.cloudCursor = listing.nextCursor;
+				vm.cloudHasMore = !!listing.nextCursor;
+				vm._cloudConsentRetry = '';
+				if (known.pending) {
+					vm._resolveCloudCrumbs(location, cloudSeq);
+				}
+				vm._cloudFillViewport();
+				return null;
+			} catch (error: any) {
+				if (vm._navSeq !== seq) return null;
+				if (isConsentRequired(error)) {
+					// The account is not linked, or the files bundle not allowed:
+					// asked once; declined, the repository is shown instead.
+					let allowed = false;
+					if (vm._cloudConsentRetry !== path) {
+						try {
+							allowed = await vm.instance.api.connections.ensure(location.provider, 'files');
+						} catch (_) { /* popup blocked: as declined */ }
+					}
+					vm.loadCloudStorages();
+					if (allowed) {
+						vm._cloudConsentRetry = path;
+						return path;
+					}
+					vm._cloudConsentRetry = '';
+					vm.errorMessage = vm.t('app.content-browser.cloud.consentDeclined', undefined, 'The account was not allowed, so the repository is shown instead.');
+					return '/content';
+				}
+				if (error instanceof GraphQLError && error.code === 'NOT_FOUND') {
+					// Gone (deleted, or the user is no longer a member): the listing above.
+					vm.errorMessage = vm.t('app.content-browser.cloud.gone', { name: vm.cloudProviderLabel(location.provider) }, 'This folder is no longer available on {name}.');
+					return source.parentPathOf(location, crumbs) || '/content';
+				}
+				throw error;
+			}
+		},
+		/** The names above a folder nobody carried: looked up after the list is shown. */
+		async _resolveCloudCrumbs(location: CloudLocation, cloudSeq: number) {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			if (!source) return;
+			let resolved: CloudCrumbs | null = null;
+			try {
+				resolved = await source.folderCrumbs(location);
+			} catch (e) {
+				console.warn('[ContentBrowser] cloud crumbs:', e);
+			}
+			if (vm._cloudSeq !== cloudSeq) return;
+			const current = vm.cloudCrumbs as CloudCrumbs | null;
+			if (resolved) {
+				vm.cloudCrumbs = resolved;
+			} else if (current) {
+				vm.cloudCrumbs = { ...current, pending: false };
+			}
+			// The items carry the crumbs of their listing, and their location as names, too.
+			for (const item of vm.items as ContentItem[]) {
+				if (item.cloud) {
+					item.cloud.crumbs = vm.cloudCrumbs as CloudCrumbs;
+					item.cloud.location = source.locationTextOf(item.cloud.crumbs, item);
+				}
+			}
+		},
+		/** The next page of the cloud listing, as the list is scrolled to its end. */
+		async cloudLoadMore() {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			const location = vm.cloudLocation as CloudLocation | null;
+			const crumbs = vm.cloudCrumbs as CloudCrumbs | null;
+			if (!source || !location || !crumbs || !vm.cloudHasMore || vm.cloudLoadingMore || vm.isNavigating) return;
+			const cloudSeq = vm._cloudSeq;
+			vm.cloudLoadingMore = true;
+			try {
+				const listing = await source.listFolder(location, crumbs, vm.cloudCursor, vm._cloudOrder(), CLOUD_PAGE_SIZE);
+				if (vm._cloudSeq !== cloudSeq) return;
+				const known = new Set((vm.items as ContentItem[]).map(i => i.id));
+				vm.items = (vm.items as ContentItem[]).concat(vm._stampDates(listing.items.filter(i => !known.has(i.id))));
+				vm.cloudHasMore = !!listing.nextCursor && listing.nextCursor !== vm.cloudCursor;
+				vm.cloudCursor = listing.nextCursor;
+			} catch (error: any) {
+				if (vm._cloudSeq === cloudSeq) {
+					vm.errorMessage = error?.message || String(error);
+					vm.cloudHasMore = false;
+				}
+			} finally {
+				if (vm._cloudSeq === cloudSeq) {
+					vm.cloudLoadingMore = false;
+					vm._cloudFillViewport();
+				}
+			}
+		},
+		_cloudFillViewport() {
+			const vm = this;
+			vm.$nextTick(() => {
+				if (!vm.cloudHasMore) return;
+				const el = vm.$refs.contentList as HTMLElement | undefined;
+				if (el && el.scrollHeight <= el.clientHeight + 1) {
+					vm.cloudLoadMore();
+				}
+			});
+		},
+		/** The breadcrumbs of a cloud location: provider › drive kind [› drive] › folders. */
+		cloudBreadcrumb(): { name: string; path: string }[] {
+			const location = this.cloudLocation as CloudLocation | null;
+			if (!location) return [];
+			const p = location.provider;
+			const labels = this.cloudLabels as CloudLabels;
+			const crumbs = this.cloudCrumbs as CloudCrumbs | null;
+			const out: { name: string; path: string }[] = [{ name: labels.providerName(p), path: cloudProviderPath(p) }];
+			if (location.virtual === 'drives') return out;
+			const shared = location.virtual === 'shared' || (!!location.driveId && location.driveId !== CLOUD_MY_DRIVE);
+			if (shared) {
+				out.push({ name: labels.sharedDrives(p), path: cloudProviderPath(p) + 'shared/' });
+			}
+			if (location.virtual === 'shared') return out;
+			const driveId = location.driveId as string;
+			out.push({
+				name: shared ? (crumbs?.drive?.name || '…') : labels.myDrive(p),
+				path: cloudPath(p, driveId),
+			});
+			if (!location.id) return out;
+			if (crumbs && !crumbs.pending) {
+				for (const a of crumbs.ancestors) {
+					out.push({ name: a.name, path: cloudPath(p, driveId, a.id) });
+				}
+			} else {
+				out.push({ name: '…', path: cloudPath(p, driveId) });
+			}
+			out.push({ name: crumbs?.current?.name || '…', path: this.currentPath });
+			return out;
+		},
+		/** The listing above the current cloud location, or null at the provider's root. */
+		cloudParentPath(): string | null {
+			const source = this._cloudSource as CloudSource | null;
+			const location = this.cloudLocation as CloudLocation | null;
+			if (!source || !location) return null;
+			return source.parentPathOf(location, this.cloudCrumbs as CloudCrumbs | null);
+		},
+		/** The crumbs a folder row's listing would have: for the click that opens it. */
+		cloudCrumbsFor(item: ContentItem): CloudCrumbs | null {
+			const source = this._cloudSource as CloudSource | null;
+			const info = item.cloud;
+			if (!source || !info) return null;
+			if (info.virtual === 'drive' && info.drive) {
+				return source.crumbsOf(parseCloudPath(item.path) as CloudLocation, info.drive, [], null, false);
+			}
+			if (info.virtual) return null;
+			if (!item.isCollection || !info.id) return null;
+			const entry: CloudEntry = {
+				provider: info.provider, driveId: info.driveId, id: info.id, name: item.name, mimeType: item.mimeType || null,
+				size: null, folder: true, webUrl: info.webUrl, modified: item.lastModified ? item.lastModified.toISOString() : null,
+				created: item.created ? item.created.toISOString() : null, nativeType: null, parentId: info.parentId, etag: info.etag,
+				owner: info.owner, shared: info.shared, hasThumbnail: false, path: null, contentUrl: info.contentUrl || '',
+			};
+			return source.crumbsBelow(info.crumbs, entry);
+		},
+		/** A cloud row: a folder (or drive) is listed, a file opens where the provider shows it. */
+		async openCloudItem(item: ContentItem) {
+			const info = item.cloud;
+			if (!info) return;
+			if (item.isCollection) {
+				await this.load(item.path, false, { crumbs: this.cloudCrumbsFor(item) });
 				return;
 			}
-			const hasSelectedFiles = vm.items.some((i: any) => vm.selectedItems.includes(i.id) && !i.isCollection);
-			const items: any[] = [];
-			if (!linked.providers.length) {
-				items.push({ id: '__none', label: vm.t('app.content-browser.cloud.notConfigured', undefined, 'No cloud storage is enabled on this server.'), disabled: true });
+			// Apps open cloud files through a file handle in a later step; until
+			// then the provider's own viewer or editor is where a file opens.
+			const url = info.webUrl || info.contentUrl;
+			if (url) {
+				window.open(url, '_blank', 'noopener');
 			}
-			for (const p of linked.providers) {
-				items.push({
-					label: p.name,
-					items: [
-						{ id: `import:${p.id}`, label: vm.t('app.content-browser.cloud.import', undefined, 'Import files…'), icon: 'bi bi-cloud-download', disabled: vm.xpathSearchActive },
-						{ id: `link:${p.id}`, label: vm.t('app.content-browser.cloud.link', undefined, 'Import as links…'), icon: 'bi bi-link-45deg', disabled: vm.xpathSearchActive },
-						{ id: `export:${p.id}`, label: vm.t('app.content-browser.cloud.export', undefined, 'Export selected files…'), icon: 'bi bi-cloud-upload', disabled: !hasSelectedFiles },
-					],
-				});
-			}
-			const handle = vm.instance.popup.open({
-				anchor: rect,
-				placement: 'bottom-start',
-				minWidth: 240,
-				items,
-			});
-			const result = await handle.result;
-			if (result == null || result === '__none') return;
-			const [action, provider] = String(result).split(':');
-			const providerName = linked.providers.find((p: any) => p.id === provider)?.name || provider;
-			await vm.startCloudAction(action as 'import' | 'link' | 'export', provider, providerName);
 		},
-		async startCloudAction(action: 'import' | 'link' | 'export', provider: string, providerName: string) {
+		/** The location of a cloud item as names, for the clipboard and the favourites. */
+		cloudItemLocationText(item: ContentItem): string {
+			return item.cloud ? item.cloud.location : item.path;
+		},
+		/** The link a cloud item is passed on by: where the provider shows it. */
+		async copyCloudLink(item: ContentItem) {
+			const url = item.cloud?.webUrl;
+			if (!url) {
+				this.showCloudMessage(item.name, [], [this.t('app.content-browser.cloud.noLink', undefined, 'This item has no link to copy.')]);
+				return;
+			}
+			await this.copyToClipboard(url);
+		},
+		openAtProvider(item: ContentItem) {
+			const url = item.cloud?.webUrl;
+			if (url) window.open(url, '_blank', 'noopener');
+		},
+		/** "Copy to repository…" / "Put a link in the repository…": the folder is picked first. */
+		startCopyToRepository(items: ContentItem[], asLink: boolean) {
+			const cloudItems = items.filter(i => i.cloud && !i.cloud.virtual && i.cloud.id);
+			if (!cloudItems.length) return;
+			this.folderPicker = { visible: true, action: asLink ? 'link' : 'import', items: cloudItems };
+		},
+		async onFolderPicked(path: string) {
 			const vm = this;
-			const connections = vm.instance?.api.connections;
-			if (!connections) return;
+			const picker = vm.folderPicker;
+			const items = picker.items.slice();
+			const asLink = picker.action === 'link';
+			vm.folderPicker = { visible: false, action: '', items: [] };
+			if (!path || !items.length) return;
+			await vm.importFromCloud(items, path, asLink);
+		},
+		/** "Copy to cloud storage…": the provider (when several), then the folder. */
+		async startCopyToCloud(items: ContentItem[], event?: MouseEvent) {
+			const vm = this;
+			const repositoryItems = items.filter(i => !i.cloud);
+			if (!repositoryItems.length || !vm.instance) return;
+			const storages = vm.cloudStorages as CloudStorage[];
+			if (!storages.length) return;
+			let provider = storages.length === 1 ? storages[0].provider : '';
+			if (!provider) {
+				const at = event ? { x: event.clientX, y: event.clientY } : (vm._contextMenuAt || { x: 0, y: 0 });
+				const anchor = { left: at.x, top: at.y, right: at.x, bottom: at.y, width: 0, height: 0 };
+				const handle = vm.instance.popup.open({
+					anchor,
+					placement: 'bottom-start',
+					minWidth: 200,
+					items: storages.map((s: CloudStorage) => ({ id: s.provider, label: vm.cloudProviderLabel(s.provider), icon: s.provider === 'google' ? 'bi bi-google' : 'bi bi-microsoft' })),
+				});
+				const result = await handle.result;
+				if (result == null) return;
+				provider = String(result);
+			}
 			let allowed = false;
 			try {
-				allowed = await connections.ensure(provider, 'files');
+				allowed = await vm.instance.api.connections.ensure(provider, 'files');
 			} catch (e: any) {
 				const blocked = e?.message === 'popup_blocked';
-				vm.showCloudMessage(providerName, [], [blocked
+				vm.showCloudMessage(vm.cloudProviderLabel(provider), [], [blocked
 					? vm.t('app.content-browser.cloud.popupBlocked', undefined, 'The browser blocked the sign-in window. Allow popups for this site and try again.')
 					: (e?.message || String(e))]);
 				return;
 			}
+			vm.loadCloudStorages();
 			if (!allowed) return;
 			vm.cloudPicker = {
 				visible: true,
 				provider,
-				providerName,
-				mode: action === 'export' ? 'folder' : 'files',
-				multiple: true,
-				action,
+				providerName: vm.cloudProviderLabel(provider),
+				mode: 'folder',
+				multiple: false,
+				action: 'copy',
 			};
+			vm._cloudCopyItems = repositoryItems;
 		},
-		async onCloudPicked(entries: CloudEntry[]) {
+		async onCloudPicked(entries: { provider: string; driveId: string | null; id: string | null; name: string }[]) {
 			const vm = this;
 			const picker = vm.cloudPicker;
-			if (!entries || !entries.length || !picker.action) return;
-			if (picker.action === 'export') {
-				await vm.exportToCloud(picker.provider, picker.providerName, entries[0]);
-			} else {
-				await vm.importFromCloud(picker.provider, picker.providerName, entries, picker.action === 'link');
-			}
+			if (!entries || !entries.length || picker.action !== 'copy') return;
+			const items = (vm._cloudCopyItems as ContentItem[] | null) || [];
+			vm._cloudCopyItems = null;
+			await vm.exportToCloud(picker.provider, picker.providerName, entries[0], items);
 		},
-		/** Copies the picked files (or writes references to them) into the folder being browsed. */
-		async importFromCloud(provider: string, providerName: string, entries: CloudEntry[], asLink: boolean) {
+		/** Copies cloud items (or writes references to them) into a repository folder. */
+		async importFromCloud(items: ContentItem[], folder: string, asLink: boolean) {
 			const vm = this;
 			const cloud = vm.instance?.api.cloud;
 			if (!cloud) return;
-			const folder = vm.currentPath;
 			vm.errorMessage = '';
 			vm.uploadMonitor = {
 				isCanceled: false,
@@ -2000,40 +2457,45 @@ export const App = {
 				cancel() { this.isCanceled = true; },
 			};
 			const errors: string[] = [];
+			let copied = 0;
 			try {
 				let done = 0;
-				for (const entry of entries) {
-					if (vm.uploadMonitor?.isCanceled) break;
-					vm.uploadMonitor.target.currentFile = entry.name;
-					vm.uploadMonitor.target.progressPercent = Math.round((done / entries.length) * 100);
+				for (const item of items) {
+					const info = item.cloud;
+					if (vm.uploadMonitor?.isCanceled || !info || !info.id) break;
+					vm.uploadMonitor.target.currentFile = item.name;
+					vm.uploadMonitor.target.progressPercent = Math.round((done / items.length) * 100);
 					try {
 						if (asLink) {
-							await cloud.createLink(provider, entry.id, folder, { driveId: entry.driveId });
+							await cloud.createLink(info.provider, info.id, folder, { driveId: info.driveId });
 						} else {
-							await cloud.importFile(provider, entry.id, folder, { driveId: entry.driveId });
+							await cloud.importFile(info.provider, info.id, folder, { driveId: info.driveId });
 						}
+						copied++;
 					} catch (e: any) {
-						errors.push(`${entry.name}: ${e?.message || String(e)}`);
+						errors.push(`${item.name}: ${e?.message || String(e)}`);
 					}
 					done++;
 				}
 				if (vm.uploadMonitor) vm.uploadMonitor.target.progressPercent = 100;
-				await vm.load(vm.currentPath);
-			} finally {
-				if (errors.length) {
-					vm.errorMessage = vm.t('app.content-browser.cloud.importFailed', { name: providerName, n: errors.length, error: errors[0] }, '{n} file(s) could not be imported from {name}: {error}');
-				} else {
-					vm.uploadMonitor = null;
+				if (folder === vm.currentPath) {
+					await vm.load(vm.currentPath, true);
 				}
+			} finally {
+				vm.uploadMonitor = null;
+			}
+			if (errors.length) {
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.copyToRepositoryTitle', undefined, 'Copy to repository'), [],
+					[vm.t('app.content-browser.cloud.copyFailed', { n: errors.length, error: errors[0] }, '{n} item(s) could not be copied: {error}')]);
+			} else if (copied && folder !== vm.currentPath) {
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.copiedTo', { folder }, 'Copied to {folder}'), [], []);
 			}
 		},
-		/** Uploads the selected files to the picked folder of the drive. */
-		async exportToCloud(provider: string, providerName: string, folder: CloudEntry) {
+		/** Uploads repository items (files and folders) to the picked folder of a drive. */
+		async exportToCloud(provider: string, providerName: string, folder: { driveId: string | null; id: string | null; name: string }, items: ContentItem[]) {
 			const vm = this;
 			const cloud = vm.instance?.api.cloud;
-			if (!cloud) return;
-			const files = vm.items.filter((i: any) => vm.selectedItems.includes(i.id) && !i.isCollection);
-			if (!files.length) return;
+			if (!cloud || !items.length) return;
 			vm.errorMessage = '';
 			vm.uploadMonitor = {
 				isCanceled: false,
@@ -2044,14 +2506,14 @@ export const App = {
 			const errors: string[] = [];
 			try {
 				let done = 0;
-				for (const file of files) {
+				for (const item of items) {
 					if (vm.uploadMonitor?.isCanceled) break;
-					vm.uploadMonitor.target.currentFile = file.name;
-					vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
+					vm.uploadMonitor.target.currentFile = item.name;
+					vm.uploadMonitor.target.progressPercent = Math.round((done / items.length) * 100);
 					try {
-						exported.push(await cloud.exportFile(provider, file.path, { driveId: folder.driveId, folderId: folder.id }));
+						exported.push(await cloud.exportFile(provider, item.path, { driveId: folder.driveId || CLOUD_MY_DRIVE, folderId: folder.id }));
 					} catch (e: any) {
-						errors.push(`${file.name}: ${e?.message || String(e)}`);
+						errors.push(`${item.name}: ${e?.message || String(e)}`);
 					}
 					done++;
 				}
@@ -2098,6 +2560,22 @@ export const App = {
 		async onInspectorRevealItem(target: any) {
 			const path = target?.path;
 			if (!path) return;
+			if (isCloudPath(path)) {
+				// A cloud item's folder: the crumbs it carries name it.
+				const info = (target as ContentItem).cloud;
+				if (!info || info.virtual) return;
+				const parent = cloudPath(info.provider, info.driveId, info.crumbs?.current?.id ?? info.parentId ?? null);
+				if (parent !== this.currentPath) {
+					await this.load(parent, false, { crumbs: info.crumbs?.current ? info.crumbs : null });
+				}
+				const found = (this.items as any[]).find((i: any) => i.path === path);
+				if (found) {
+					this.selectedItems = [found.id];
+					this.selectionAnchorID = found.id;
+					this.focusedItemID = found.id;
+				}
+				return;
+			}
 			const idx = path.lastIndexOf('/');
 			const parent = idx > 0 ? path.substring(0, idx) : '/';
 			// While search results are showing, the list holds matches that may
@@ -2200,6 +2678,9 @@ export const App = {
 			return info.lockOwnerDisplayName || info.lockOwner || '';
 		},
 		getFileIcon(item: any): string {
+			// The rows above a drive's folders: a drive, or the shared drives entry.
+			if (item?.cloud?.virtual === 'drive') return 'bi bi-hdd';
+			if (item?.cloud?.virtual === 'shared') return 'bi bi-people';
 			return getFileIconUtil(item);
 		},
 		// The hex of a file's color (a swatch key of the shared palette).
@@ -2220,6 +2701,20 @@ export const App = {
 				this.sortDirection = 'asc';
 			}
 
+			// A cloud listing is ordered by the provider, a page at a time: the
+			// name or the date re-reads it in that order (the date newest first,
+			// the only order the providers share); any other column is left as
+			// it is, since the pages still to come could not follow it.
+			if (this.isCloudLocation) {
+				if (!(this.cloudSortableColumns as string[]).includes(column)) {
+					this.sortColumn = 'name';
+					this.sortDirection = 'asc';
+					return;
+				}
+				this.sortDirection = column === 'date' ? 'desc' : 'asc';
+				this.load(this.currentPath, true, { crumbs: this.cloudCrumbs });
+				return;
+			}
 			// A search result is ordered by the server, one page at a time, so a
 			// column the index sorts by re-runs the search in the new order (a
 			// header click) or leaves the loaded pages as they came (a re-sort
@@ -2292,6 +2787,12 @@ export const App = {
 		// Center pane: accept internal drags, mail attachments, save-as chips, and
 		// OS file uploads.
 		onDragOver(event: DragEvent) {
+			// Drops into cloud storage (and drags out of it into the repository)
+			// come in a later step; until then nothing lands in a cloud listing.
+			if (this.isCloudLocation) {
+				if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+				return;
+			}
 			// An attachment dragged out of the Mail app is copied in
 			if (this._hasMailAttachmentDrag(event)) {
 				if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -2951,6 +3452,7 @@ export const App = {
 		onContextMenu(item: any, event: MouseEvent) {
 			const vm = this;
 			event.preventDefault();
+			vm._contextMenuAt = { x: event.clientX, y: event.clientY };
 
 			// 未選択のアイテムを右クリックした場合、そのアイテムを単一選択
 			if (!vm.selectedItems.includes(item.id)) {
@@ -2961,6 +3463,10 @@ export const App = {
 
 			// 選択されたアイテムの情報を取得
 			const selectedItemObjects = vm.items.filter((i: any) => vm.selectedItems.includes(i.id));
+			if (selectedItemObjects.some((i: any) => i.cloud)) {
+				vm.openCloudContextMenu(selectedItemObjects, event);
+				return;
+			}
 			const hasFolder = selectedItemObjects.some((i: any) => i.isCollection);
 			const hasFile = selectedItemObjects.some((i: any) => !i.isCollection);
 			const isSingleSelection = vm.selectedItems.length === 1;
@@ -3004,6 +3510,11 @@ export const App = {
 			if (hasFile || hasFolder) {
 				menuItems.push({ id: 'download', label: vm.t('app.content-browser.menu.download', undefined, 'Download'), icon: 'bi-download' });
 				menuItems.push({ id: 'export', label: vm.t('app.content-browser.menu.export', undefined, 'Export'), icon: 'bi-box-arrow-up' });
+				// A copy to a drive the user allowed; with none allowed, the first
+				// use asks for the grant.
+				if ((vm.cloudStorages as CloudStorage[]).length > 0) {
+					menuItems.push({ id: 'copy-to-cloud', label: vm.t('app.content-browser.menu.copyToCloud', undefined, 'Copy to cloud storage…'), icon: 'bi-cloud-upload' });
+				}
 			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
 			menuItems.push({ id: 'copy', label: vm.t('app.content-browser.menu.copy', undefined, 'Copy'), icon: 'bi-clipboard' });
@@ -3074,6 +3585,58 @@ export const App = {
 				sourceAppId: vm.instance?.id
 			}, window.location.origin);
 		},
+		/**
+		 * The menu of cloud rows: open, open at the provider, copy the link
+		 * (the webUrl, the one thing another person can open), copy to the
+		 * repository or put a link there (a folder is picked), rename, delete
+		 * (to the provider's trash) and a new folder beside. A row of the
+		 * listings above the drives opens, links and pins, nothing else.
+		 */
+		openCloudContextMenu(selected: ContentItem[], event: MouseEvent) {
+			const vm = this;
+			const single = selected.length === 1 ? selected[0] : null;
+			const info = single?.cloud ?? null;
+			const virtual = selected.some(i => i.cloud?.virtual);
+			const providerName = vm.cloudProviderLabel((selected[0].cloud as CloudItemInfo).provider);
+			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
+			if (single && single.isCollection) {
+				menuItems.push({ id: 'open', label: vm.t('app.content-browser.menu.open', undefined, 'Open'), icon: 'bi-folder2-open' });
+			}
+			if (single && info?.webUrl) {
+				menuItems.push({ id: 'open-at-provider', label: vm.t('app.content-browser.menu.openAtProvider', { name: providerName }, 'Open at {name}'), icon: 'bi-box-arrow-up-right' });
+				menuItems.push({ id: 'copy-link', label: vm.t('app.content-browser.menu.copyLink', undefined, 'Copy link'), icon: 'bi-link-45deg' });
+			}
+			if (virtual) {
+				if (single && !vm.isPathPinned(single.path) && info?.virtual !== 'shared') {
+					menuItems.push({ type: 'separator', id: '', label: '' });
+					menuItems.push({ id: 'pin', label: vm.t('app.content-browser.menu.addFavorite', undefined, 'Add to favorites'), icon: 'bi-pin-angle' });
+				}
+			} else {
+				if (single && !single.isCollection && single.downloadURL) {
+					menuItems.push({ id: 'download', label: vm.t('app.content-browser.menu.download', undefined, 'Download'), icon: 'bi-download' });
+				}
+				menuItems.push({ type: 'separator', id: '', label: '' });
+				menuItems.push({ id: 'copy-to-repository', label: vm.t('app.content-browser.menu.copyToRepository', undefined, 'Copy to repository…'), icon: 'bi-cloud-download' });
+				menuItems.push({ id: 'link-in-repository', label: vm.t('app.content-browser.menu.linkInRepository', undefined, 'Put a link in the repository…'), icon: 'bi-link' });
+				menuItems.push({ type: 'separator', id: '', label: '' });
+				if (single) {
+					menuItems.push({ id: 'rename', label: vm.t('app.content-browser.menu.rename', undefined, 'Rename'), icon: 'bi-pencil' });
+				}
+				if (single && single.isCollection && !vm.isPathPinned(single.path)) {
+					menuItems.push({ id: 'pin', label: vm.t('app.content-browser.menu.addFavorite', undefined, 'Add to favorites'), icon: 'bi-pin-angle' });
+				}
+				menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
+				menuItems.push({ type: 'separator', id: '', label: '' });
+				menuItems.push({ id: 'delete', label: vm.t('app.content-browser.menu.delete', undefined, 'Delete'), icon: 'bi-trash', danger: true });
+			}
+			window.parent.postMessage({
+				type: 'show-context-menu',
+				x: event.clientX,
+				y: event.clientY,
+				items: menuItems,
+				sourceAppId: vm.instance?.id,
+			}, window.location.origin);
+		},
 		// Context menu for empty area (background)
 		onBackgroundContextMenu(event: MouseEvent) {
 			const vm = this;
@@ -3086,6 +3649,20 @@ export const App = {
 
 			// Clear selection when right-clicking on background
 			vm.clearSelection();
+
+			// A cloud folder offers a new folder; the listings above the drives
+			// have nothing to make anything in. Uploads come in a later step.
+			if (vm.isCloudLocation) {
+				if (vm.isCloudVirtualLocation) return;
+				window.parent.postMessage({
+					type: 'show-context-menu',
+					x: event.clientX,
+					y: event.clientY,
+					items: [{ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' }],
+					sourceAppId: vm.instance?.id,
+				}, window.location.origin);
+				return;
+			}
 
 			// Build context menu with New Folder / New File / Upload / Paste.
 			// Every entry here targets the folder being browsed, so a search
@@ -3233,6 +3810,25 @@ export const App = {
 					if (selectedItemObjects.length > 0) {
 						vm.showDeleteDialog(selectedItemObjects);
 					}
+					break;
+				// ---- cloud rows ----
+				case 'open-at-provider':
+					if (selectedItemObjects.length === 1) vm.openAtProvider(selectedItemObjects[0]);
+					break;
+				case 'copy-link':
+					if (selectedItemObjects.length === 1) vm.copyCloudLink(selectedItemObjects[0]);
+					break;
+				case 'copy-to-repository':
+					vm.startCopyToRepository(selectedItemObjects, false);
+					break;
+				case 'link-in-repository':
+					vm.startCopyToRepository(selectedItemObjects, true);
+					break;
+				case 'copy-to-cloud':
+					vm.startCopyToCloud(selectedItemObjects);
+					break;
+				case 'pin':
+					if (selectedItemObjects.length === 1) vm.pinCloudItem(selectedItemObjects[0]);
 					break;
 			}
 		},
@@ -3424,6 +4020,10 @@ export const App = {
 				uuid: i.isReferenceable ? i.id : undefined,
 				isReferenceable: i.isReferenceable,
 				downloadURL: i.downloadURL ? i.downloadURL.replace(/[?&]attachment$/, '') : undefined,
+				// A cloud entry: the link to pass on, and where it is. The download
+				// URL above is the same-origin one, so Mail attaches it as a file.
+				webUrl: i.cloud?.webUrl || undefined,
+				cloud: i.cloud ? { provider: i.cloud.provider, driveId: i.cloud.driveId, id: i.cloud.id } : undefined,
 			}));
 
 			event.dataTransfer.setData('application/x-webtop-files', JSON.stringify(payload));
@@ -3593,6 +4193,11 @@ export const App = {
 				const parentData = (window.parent as any).__webtopDragData;
 				if (!parentData) return false;
 				const dest = destPath ?? this.currentPath;
+				// Between the repository and cloud storage, and within it: a later step.
+				if (isCloudPath(dest)) return true;
+				if (Array.isArray(parentData.items) && parentData.items.some((it: any) => it && (it.cloud || isCloudPath(it.path)))) {
+					return true;
+				}
 				// Move into the source folder is a no-op
 				if (!event.ctrlKey && parentData.sourceFolderPath === dest) {
 					return true;
@@ -3626,6 +4231,12 @@ export const App = {
 			// File rows have no drop semantics of their own — let the event
 			// bubble so the parent's onDragOver treats it as a background drop.
 			if (!item.isCollection) return;
+			// A cloud folder takes no drops yet (see onDragOver).
+			if (item.cloud) {
+				event.stopPropagation();
+				if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+				return;
+			}
 			// A mail attachment can be dropped on a folder row as well
 			if (this._hasMailAttachmentDrag(event)) {
 				event.stopPropagation();
@@ -3920,6 +4531,12 @@ export const App = {
 			vm.renameDialog.errorMessage = '';
 
 			try {
+				if (item.cloud) {
+					await (vm._cloudSource as CloudSource).rename(item.cloud, newName);
+					vm.closeRenameDialog();
+					await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+					return;
+				}
 				// Use GraphQL API to rename the node
 				const contentService = vm.instance.api.content;
 				await contentService.renameNode(item.path, newName);
@@ -3968,6 +4585,28 @@ export const App = {
 
 			vm.deleteDialog.isLoading = true;
 			vm.deleteDialog.errorMessage = '';
+
+			// Cloud entries go to the provider's trash, one request each.
+			if (items.some((it: ContentItem) => it.cloud)) {
+				const source = vm._cloudSource as CloudSource;
+				const errors: string[] = [];
+				for (const it of items as ContentItem[]) {
+					if (!it.cloud || !it.cloud.id) continue;
+					try {
+						await source.delete(it.cloud);
+					} catch (error: any) {
+						errors.push(`${it.name}: ${error?.message || String(error)}`);
+					}
+				}
+				vm.deleteDialog.isLoading = false;
+				if (errors.length) {
+					vm.deleteDialog.errorMessage = errors[0];
+					return;
+				}
+				vm.closeDeleteDialog();
+				await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+				return;
+			}
 
 			try {
 				const result = await deleteContentItems(
@@ -4501,6 +5140,12 @@ export const App = {
 			vm.newFolderDialog.errorMessage = '';
 
 			try {
+				if (vm.isCloudLocation) {
+					await (vm._cloudSource as CloudSource).createFolder(vm.cloudLocation as CloudLocation, name);
+					vm.closeNewFolderDialog();
+					await vm.load(vm.currentPath, true, { crumbs: vm.cloudCrumbs });
+					return;
+				}
 				const contentService = vm.instance.api.content;
 				await contentService.createFolder(vm.currentPath, name);
 				vm.closeNewFolderDialog();
@@ -4656,6 +5301,8 @@ export const App = {
 			this.persistNavData();
 		},
 		enterEditMode() {
+			// A cloud location is made of ids: nothing a person could type.
+			if (this.isCloudLocation) return;
 			this.editPathValue = this.currentPath;
 			this.navEditMode = true;
 			this.ellipsisDropdownOpen = false;
@@ -4726,7 +5373,7 @@ export const App = {
 			}
 		},
 		async copyPathToClipboard() {
-			await this.copyToClipboard(this.editPathValue || this.currentPath);
+			await this.copyToClipboard(this.isCloudLocation ? this.locationText : (this.editPathValue || this.currentPath));
 		},
 		async toggleHistoryDropdown(event: MouseEvent) {
 			const vm = this;
@@ -4808,6 +5455,14 @@ export const App = {
 		// (they come from no single folder) and at the root.
 		async goToParent() {
 			if (!this.canGoToParent) return;
+			if (this.isCloudLocation) {
+				const parent = this.cloudParentPath();
+				if (!parent) return;
+				const source = this._cloudSource as CloudSource;
+				const crumbs = this.cloudCrumbs as CloudCrumbs | null;
+				await this.load(parent, false, { crumbs: crumbs && !crumbs.pending && crumbs.current ? source.crumbsAbove(crumbs) : null });
+				return;
+			}
 			await this.load(parentPathOf(this.currentPath));
 		},
 		async goBack() {
@@ -4882,8 +5537,40 @@ export const App = {
 		},
 		// Extract display name from path
 		pathDisplayName(path: string): string {
+			if (isCloudPath(path)) {
+				// A history entry of a cloud location: only its ids are kept, so
+				// the provider is the one name there is.
+				const pin = (this.pinnedPaths as any[]).find((p: any) => p.path === path);
+				if (pin?.name) return pin.name;
+				const location = parseCloudPath(path);
+				return location ? this.cloudProviderLabel(location.provider) : path;
+			}
 			const parts = path.split('/').filter((p: string) => p);
 			return parts.length > 0 ? parts[parts.length - 1] : 'root';
+		},
+		/** A cloud folder or drive row pinned as a favourite: its name and its location as names. */
+		pinCloudItem(item: ContentItem) {
+			if (!item.cloud || this.isPathPinned(item.path)) return;
+			this.pinnedPaths.push({ path: item.path, name: item.name, display: this.cloudItemLocationText(item) });
+			this.persistNavData();
+			this.syncContentBrowserPreferences();
+		},
+		/** What a favourite shows under its name: the path, or a cloud location as names. */
+		pinDisplayPath(pin: { path: string; display?: string }): string {
+			return pin.display || pin.path;
+		},
+		/** A favourite of a provider the user no longer allows stays put, locked. */
+		openPinnedPath(pin: { path: string }) {
+			if (!this.isCloudPathGranted(pin.path)) return;
+			this.navigateToPath(pin.path);
+		},
+		/** Whether a column header orders the list here: every one in the repository, name and date in cloud storage. */
+		canSortColumn(column: string): boolean {
+			return !this.isCloudLocation || (this.cloudSortableColumns as string[]).includes(column);
+		},
+		sortHeader(column: string) {
+			if (!this.canSortColumn(column)) return;
+			this.sortItems(column);
 		},
 		async navigateFromHistoryPanel(path: string) {
 			this.closeFullHistoryPanel();
@@ -4897,6 +5584,20 @@ export const App = {
 		},
 		pinPath(path: string) {
 			if (this.pinnedPaths.some((p: any) => p.path === path)) return;
+			if (isCloudPath(path)) {
+				// The location being shown: its last name, and the whole as names.
+				const crumbs = (path === this.currentPath) ? this.cloudCrumbs as CloudCrumbs | null : null;
+				const location = parseCloudPath(path);
+				const labels = this.cloudLabels as CloudLabels;
+				let name = location ? this.cloudProviderLabel(location.provider) : path;
+				if (crumbs?.current) name = crumbs.current.name;
+				else if (crumbs?.drive) name = crumbs.drive.kind === 'MINE' ? labels.myDrive(crumbs.provider) : crumbs.drive.name;
+				else if (location?.virtual === 'shared') name = labels.sharedDrives(location.provider);
+				this.pinnedPaths.push({ path, name, display: crumbs ? cloudLocationText(crumbs, labels) : name });
+				this.persistNavData();
+				this.syncContentBrowserPreferences();
+				return;
+			}
 			const parts = path.split('/').filter((p: string) => p);
 			const name = parts.length > 0 ? parts[parts.length - 1] : 'root';
 			this.pinnedPaths.push({ path, name });
@@ -5205,6 +5906,8 @@ export const App = {
 		},
 		async xpathExecuteSearch() {
 			const vm = this;
+			// A cloud listing is searched through the provider in a later step.
+			if (vm.isCloudLocation) return;
 			// Surface a parse error from the full-text expression before kicking off the request.
 			const ft = vm.fullTextCompiled as any as { predicate: string | null; error: string | null };
 			if (ft.error) {
@@ -5520,11 +6223,16 @@ export const App = {
 		},
 		// Scrolling the list to its end asks for the next search page.
 		onContentListScroll(event: Event) {
+			const el = event.target as HTMLElement;
+			const nearEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - SEARCH_LOAD_MORE_MARGIN;
+			if (this.cloudHasMore) {
+				if (nearEnd) this.cloudLoadMore();
+				return;
+			}
 			if (!this.xpathSearchActive || !this.xpathSearchHasMore) {
 				return;
 			}
-			const el = event.target as HTMLElement;
-			if (el.scrollTop + el.clientHeight >= el.scrollHeight - SEARCH_LOAD_MORE_MARGIN) {
+			if (nearEnd) {
 				this.xpathLoadMore();
 			}
 		},
@@ -5855,8 +6563,15 @@ export const App = {
 		// URL to the picture: a remade thumbnail gets a new URL, and one whose
 		// version equals the file's modification time is cached immutably.
 		thumbnailURL(item: any): string {
-			if (!item?.downloadURL || item.thumbnailVersion == null) return '';
+			if (!item?.downloadURL) return '';
 			const base = item.downloadURL.replace(/[?&]attachment$/, '');
+			if (item.cloud) {
+				// The provider's thumbnail, through the cloud servlet; the etag
+				// pins the URL to the content, as the version does below.
+				if (!item.cloud.hasThumbnail) return '';
+				return base + (base.includes('?') ? '&' : '?') + 'thumbnail=medium&v=' + encodeURIComponent(item.cloud.etag || '');
+			}
+			if (item.thumbnailVersion == null) return '';
 			return base + (base.includes('?') ? '&' : '?') + 'property=' + encodeURIComponent(THUMBNAIL_PROPERTY) + '&v=' + item.thumbnailVersion;
 		},
 		// The file itself, pinned to its modification time as the Inspector's
@@ -5864,8 +6579,8 @@ export const App = {
 		previewURL(item: any): string {
 			if (!item?.downloadURL) return '';
 			const base = item.downloadURL.replace(/[?&]attachment$/, '');
-			const v = item.lastModified ? new Date(item.lastModified).getTime() : Date.now();
-			return base + (base.includes('?') ? '&' : '?') + 'v=' + v;
+			const v = item.cloud?.etag || (item.lastModified ? new Date(item.lastModified).getTime() : Date.now());
+			return base + (base.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(String(v));
 		},
 		// What a grid tile shows: the thumbnail, or the image itself while it
 		// has none, as an <img>; a video's first frame as a <video>; otherwise
@@ -5874,7 +6589,7 @@ export const App = {
 		gridMediaKind(item: any): 'image' | 'video' | 'icon' {
 			if (!item || item.isCollection || !item.downloadURL) return 'icon';
 			if (this.gridMediaErrors.includes(item.id)) return 'icon';
-			if (item.thumbnailVersion != null) return 'image';
+			if (item.thumbnailVersion != null || item.cloud?.hasThumbnail) return 'image';
 			const mimeType = item.mimeType || '';
 			if (mimeType.startsWith('image/')) return 'image';
 			if (mimeType.startsWith('video/')) return 'video';
@@ -5920,7 +6635,7 @@ export const App = {
 			this.sidebarPanelVisible = !this.sidebarPanelVisible;
 			this.persistSidebarPanelState();
 		},
-		toggleSidebarSection(name: 'filter' | 'favorites' | 'smartFolders' | 'xpathSearch') {
+		toggleSidebarSection(name: 'filter' | 'cloud' | 'favorites' | 'smartFolders' | 'xpathSearch') {
 			this.sidebarSectionExpanded[name] = !this.sidebarSectionExpanded[name];
 			this.persistSidebarPanelState();
 		},

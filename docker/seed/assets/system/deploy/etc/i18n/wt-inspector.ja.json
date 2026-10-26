@@ -32,6 +32,11 @@
 	"webtop.inspector.encoding.placeholder": "例: UTF-8",
 	"webtop.inspector.encoding.editHint": "クリックしてエンコーディングを変更",
 	"webtop.inspector.path.copy": "パスをコピー",
+	"webtop.inspector.field.owner": "所有者",
+	"webtop.inspector.field.shared": "共有",
+	"webtop.inspector.field.location": "場所",
+	"webtop.inspector.location.copy": "場所をコピー",
+	"webtop.inspector.action.openAtProvider": "プロバイダーで開く",
 
 	"webtop.inspector.field.color": "色",
 	"webtop.inspector.field.tags": "タグ",
