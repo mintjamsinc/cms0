@@ -63,7 +63,7 @@ The context menu of a file or folder of a drive:
 
 | Entry | What happens |
 | --- | --- |
-| Open | A folder is listed. A file opens where the provider shows it, in a new tab (apps open cloud files themselves in a later step). |
+| Open | A folder is listed. A file opens in the app of the Webtop for its type (see *Opening a cloud file in an app* below); a Google document or an Office file opens where the provider edits it, in a new tab. |
 | Open at Google Drive / OneDrive | The provider's own page for the item, in a new tab. |
 | Copy link | Copies the provider's link to the item — the one thing another person can open, with their own access at the provider. |
 | Download | The file's bytes, through the Webtop (a Google document as its Office export). |
@@ -96,7 +96,7 @@ repository, and the cursor says what a drop would do:
 | Repository → cloud (a folder of the list, a drive's row, or a provider in the sidebar) | A copy; a folder with everything in it. |
 | Files from the PC → cloud | Uploaded, folders made first. A name the folder already has is asked about: overwrite replaces the file's content, skip leaves it. |
 | A mail attachment → cloud | Uploaded like a file from the PC. |
-| A save chip (an editor's *Save As*, see `webtop-save-as.md`) → cloud | Written to the drive; a chip whose format is a Google document is accepted on Google Drive only. The editor keeps the file it has open and says the copy was saved, with a link to it at the provider; writing cloud files from the editors comes in a later step. |
+| A save chip (an editor's *Save As*, see `webtop-save-as.md`) → cloud | Written to the drive. The editor switches to the file in the drive and keeps editing it there. A chip whose format is a Google document is accepted on Google Drive only; the editor keeps the file it has open and says the copy was saved, with a link to it at the provider. |
 
 The listings above the drives (the drives, the shared drives) take nothing.
 Copy and paste do the same as a drop; a cut is a move, so it can only be
@@ -110,9 +110,11 @@ another person can open.
 ## The Inspector
 
 A cloud item shows its preview (an image, a video or an audio file plays from
-the Webtop's own URL of the file), its name, type, size, the dates, the
-**Owner**, whether it is **Shared**, and its **Location** as names with a copy
-button, plus an **Open at provider** action. The repository's sections
+the Webtop's own URL of the file; an Office document in OneDrive is shown in
+Microsoft's embedded viewer; a Google document and any other file the
+provider has a picture of show the provider's thumbnail), its name, type,
+size, the dates, the **Owner**, whether it is **Shared**, and its
+**Location** as names with a copy button, plus an **Open at provider** action. The repository's sections
 (properties, access control, versions, locks, labels, the conversation) do not
 apply and are not shown.
 
@@ -164,8 +166,53 @@ A cloud search cannot be saved as a smart folder. Renaming or deleting a
 result runs the search again; closing the search (the × in the search bar)
 lists the folder again, with its breadcrumbs as they were.
 
+## Opening a cloud file in an app
+
+A double-click (or *Open*) on a file of a drive opens it in the app of the
+Webtop registered for its type, as a repository file would open: the PDF
+Viewer for a PDF, the Text Editor for text, Markdown, JSON and the like,
+Memo for a memo or an HTML file it wrote, the BPMN and EIP modelers for
+their diagrams. The app reads the file through the Webtop's own URL of it and,
+in the editors, **Save** writes it back to the drive. The window's title and
+the tab are the file's name; the Inspector shows the cloud item's rows.
+
+What the drive itself edits stays with the drive: a Google document (Docs,
+Sheets, Slides, …) and an Office document (`.docx`, `.xlsx`, `.pptx` and the
+older types) open in the provider's editor, in a new tab. A file no app of the
+Webtop takes opens in a new tab too: Google shows it in its own viewer; a
+OneDrive file's bytes are shown by the browser when it can (an image, a PDF)
+and downloaded otherwise.
+
+A drive has neither versions nor locks, so two people editing one file are
+told apart only at the moment of saving: the Webtop writes the file on the
+condition that it has not changed since it was read (the provider's ETag).
+When it has, the save is refused, nothing is overwritten, and the editor says
+*The file was changed elsewhere. Save it under another name.* and opens
+*Save As* — the chip then writes the user's version wherever it is dropped.
+There is no notice before that moment, and the editors do not reload a cloud
+file that changed while it was open.
+
+Autosave is not offered for cloud files (every write is a request to the
+provider, and the providers limit their rate); the editors save on the
+button, on Ctrl+S and when a window with changes is closed, as they do in the
+repository.
+
+A cloud file can be dropped on an editor's window, as a repository file can,
+and a restored session reopens the cloud files its windows had open (asking
+the provider for each). The same mechanism opens a mail attachment, which is
+not a file of anything, read-only: see `webtop-mail.md`.
+
+For app authors: an app declares `fileHandles: true` in its `app.yml` and
+opens its files through `lib/file-handle.ts` (`openFileHandle(instance.api,
+launchOptions)`), which gives one object — `read()`, `write()`, `location`,
+`readOnly`, the Inspector target — for a repository node, a cloud file and a
+URL file alike. The shell hands such an app `launchOptions.file` for anything
+that is not a repository path; an app without the flag is never handed a
+cloud file, and the Content Browser opens the file at the provider instead.
+
 ## Where the pieces are
 
 - `webtop/src/webtop/lib/cloud-location.ts`: the `cloud://<provider>/<driveId>/<folderId>` paths the Content Browser, the favourites and the sessions keep.
 - `webtop/src/webtop/apps/content-browser/sources/cloud-source.ts`: the cloud listings (the two listings above the drives are made here), the crumbs, the location text.
-- `/bin/cloud.cgi/<provider>/<driveId>/<id>/<name>`: the bytes of a cloud file, with `?thumbnail=` for the grid (see `linked-accounts.md`).
+- `webtop/src/webtop/lib/file-handle.ts`: how the editors open and write a repository file, a cloud file (PUT with `If-Match`) and a URL file (read-only) through one handle.
+- `/bin/cloud.cgi/<provider>/<driveId>/<id>/<name>`: the bytes of a cloud file, with `?thumbnail=` for the grid and the Inspector, and the PUT the editors save with (see `linked-accounts.md`).

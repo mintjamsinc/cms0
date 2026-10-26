@@ -1,6 +1,7 @@
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, type CloudStorage, type CloudOrder, type CloudQuery, type CloudKind, type CloudFacet, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
 import { isCloudPath, parseCloudPath, cloudPath, cloudProviderPath, CLOUD_MY_DRIVE, type CloudLocation } from "../../lib/cloud-location.js";
+import { opensAtProvider, type FileRef } from "../../lib/file-handle.js";
 import { CloudSource, cloudLocationText, type CloudCrumbs, type CloudItemInfo, type CloudLabels } from "./sources/cloud-source.js";
 import { RepositorySource } from "./sources/repository-source.js";
 import { isConsentRequired } from "../../services/cloud-service-graphql.js";
@@ -2468,12 +2469,48 @@ export const App = {
 				await this.load(item.path, false, { crumbs: this.cloudCrumbsFor(item) });
 				return;
 			}
-			// Apps open cloud files through a file handle in a later step; until
-			// then the provider's own viewer or editor is where a file opens.
-			const url = info.webUrl || info.contentUrl;
+			if (!info.id) return;
+			// A Google document and an Office file are the provider's to edit.
+			if (opensAtProvider({ mimeType: item.mimeType, nativeType: info.nativeType })) {
+				this.openAtProvider(item);
+				return;
+			}
+			// An editor that opens files through a file handle (lib/file-handle.ts)
+			// takes the cloud file as a repository file: the shell hands it `file`.
+			const editorApp = this.findEditorForMimeType(item.mimeType);
+			if (editorApp && editorApp.fileHandles) {
+				window.parent.postMessage({
+					type: 'open-file-with-app',
+					appId: editorApp.id,
+					filePath: item.path,
+					mimeType: item.mimeType,
+					file: this.cloudFileRef(item),
+				}, window.location.origin);
+				return;
+			}
+			// No app of the Webtop opens it: Google shows the file itself; a
+			// OneDrive file's bytes the browser shows (a PDF, a picture) or downloads.
+			const url = info.provider === 'google' ? (info.webUrl || info.contentUrl) : (info.contentUrl || info.webUrl);
 			if (url) {
 				window.open(url, '_blank', 'noopener');
 			}
+		},
+		/** How a cloud file is named to an editor (a FileRef of lib/file-handle.ts): enough to open it without another request. */
+		cloudFileRef(item: ContentItem): FileRef {
+			const info = item.cloud as CloudItemInfo;
+			return {
+				kind: 'cloud',
+				location: item.path,
+				name: item.name,
+				mimeType: item.mimeType,
+				size: item.contentLength,
+				provider: info.provider,
+				driveId: info.driveId,
+				id: info.id,
+				etag: info.etag,
+				webUrl: info.webUrl,
+				downloadURL: info.contentUrl,
+			};
 		},
 		/** The location of a cloud item as names, for the clipboard and the favourites. */
 		cloudItemLocationText(item: ContentItem): string {
@@ -4206,7 +4243,7 @@ export const App = {
 				// A cloud entry: the link to pass on, and where it is. The download
 				// URL above is the same-origin one, so Mail attaches it as a file.
 				webUrl: i.cloud?.webUrl || undefined,
-				cloud: i.cloud ? { provider: i.cloud.provider, driveId: i.cloud.driveId, id: i.cloud.id } : undefined,
+				cloud: i.cloud ? { provider: i.cloud.provider, driveId: i.cloud.driveId, id: i.cloud.id, etag: i.cloud.etag } : undefined,
 			}));
 
 			event.dataTransfer.setData('application/x-webtop-files', JSON.stringify(payload));

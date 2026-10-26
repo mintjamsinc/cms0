@@ -12,7 +12,7 @@ folder picker: the place is wherever the chip lands.
 | --- | --- |
 | A folder of the repository, in the Content Browser (the folder being browsed, or a folder row) | The file is written there. A name the folder already has is asked about. The editor switches to the new file: the title, the tab and the next *Save* are the new file's. |
 | The Desktop (its background, or a folder icon on it) | The same, in the Desktop folder or in that folder. |
-| A folder of Google Drive or OneDrive, in the Content Browser (see `webtop-cloud-storage.md`) | The file is written to the drive. The editor keeps the file it has open, and a note at the bottom of its window says the copy was saved, with a link that opens it at the provider. (The editors open and write cloud files in a later step; until then a copy in a drive is a copy.) |
+| A folder of Google Drive or OneDrive, in the Content Browser (see `webtop-cloud-storage.md`) | The file is written to the drive, and the editor switches to it there: the next *Save* writes to the drive. A Google document is the exception (see *Formats*): the editor keeps the file it has open, and a note at the bottom of its window says the copy was saved, with a link that opens it at the provider. |
 
 Once the chip has been dropped somewhere that took it, the dialog closes
 and the file appears where it was dropped. A drop that was refused (the
@@ -39,8 +39,14 @@ no. A Google document has no extension; the name is the document's title.
 
 The editor switches to the new file only when the file is something it can
 keep editing: a memo or an HTML file for Memo, any file for the Text Editor
-and the modelers. A memo saved as plain text, like a file saved in a drive,
-is a copy: the memo stays open, and the note says the copy was saved.
+and the modelers, in the repository or in a drive alike. A memo saved as
+plain text, like anything saved as a Google document, is a copy: the file
+stays open, and the note says the copy was saved.
+
+A file opened read-only — a mail attachment, which is not a file of the
+repository or of a drive — can be saved only this way: *Save* is off and the
+status bar says *Read-only* until the chip has been dropped somewhere, and
+the editor then switches to the copy and can save it as usual.
 
 ## For app authors
 

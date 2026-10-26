@@ -30,7 +30,7 @@
 			<!-- Left: Save / Save As -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile?.path || !isModified || isSaving" :title="t('app.eip-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
+					:disabled="!currentFile?.path || !isModified || isSaving || currentFile.readOnly" :title="t('app.eip-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
 				<button class="btn-icon" @click="openSaveAsDialog"
@@ -1461,7 +1461,8 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.eip-modeler.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-if="currentFile && currentFile.readOnly" class="status-item status-read-only"><i class="bi bi-lock me-1"></i>{{ t('app.eip-modeler.statusbar.readOnly', undefined, 'Read-only') }}</span>
+				<span v-else-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.eip-modeler.statusbar.saving', undefined, 'Saving...') }}</span>
 				<span v-else-if="isModified" class="status-item">{{ t('app.eip-modeler.statusbar.modified', undefined, 'Modified') }}</span>
 				<span v-else class="status-item">{{ t('app.eip-modeler.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>

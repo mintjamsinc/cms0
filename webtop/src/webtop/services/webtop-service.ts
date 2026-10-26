@@ -54,6 +54,10 @@ export class Application {
 	// from the menu restores and focuses the existing window instead of opening
 	// a new one.
 	get singleton(): boolean { return !!this.#data.singleton; }
+	// When true, the app opens files through lib/file-handle.ts: a cloud file and
+	// a file served at a URL (a mail attachment) are handed to it as `file` in its
+	// launch options, besides a repository path.
+	get fileHandles(): boolean { return !!this.#data.fileHandles; }
 	get widgets(): AppWidget[] { return this.#data.widgets || []; }
 }
 

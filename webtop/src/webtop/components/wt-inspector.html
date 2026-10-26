@@ -85,7 +85,10 @@
 			     requests, so seeking streams only what is needed). A file the
 			     browser cannot play falls back to the icon through the error
 			     event, like a broken image does. The audio preview draws a
-			     spectrum of what plays through the Web Audio API. -->
+			     spectrum of what plays through the Web Audio API. A cloud file the
+			     browser cannot show is still pictured when the provider can: an
+			     Office document in the provider's embedded viewer (cloudPreview),
+			     a Google document by its large thumbnail. -->
 			<div class="detail-preview-area">
 				<img v-if="isSelectedItemImage" :src="selectedItemPreviewURL"
 					class="detail-preview-image" @error="onPreviewImageError" />
@@ -99,6 +102,10 @@
 						@loadedmetadata="onPreviewMediaLoaded" @error="onPreviewMediaError"
 						@play="onPreviewMediaPlay" @pause="onPreviewMediaPause" @ended="onPreviewMediaPause"></audio>
 				</div>
+				<iframe v-else-if="cloudPreviewURL" :src="cloudPreviewURL" class="detail-preview-embed"
+					referrerpolicy="no-referrer" :title="singleTarget.name"></iframe>
+				<img v-else-if="isSelectedItemCloudThumbnail" :src="cloudThumbnailURL"
+					class="detail-preview-image" @error="onPreviewImageError" />
 				<div v-else class="detail-preview-icon">
 					<i :class="[getFileIcon(singleTarget), getFileIconClass(singleTarget), 'detail-preview-icon-large']"></i>
 					<span class="detail-preview-type">{{ displayType(singleTarget) }}</span>

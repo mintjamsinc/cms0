@@ -797,6 +797,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
 		app.put("singleton", asBoolean(data.get("singleton")));
 		app.put("customWindowControls", asBoolean(data.get("customWindowControls")));
+		app.put("fileHandles", asBoolean(data.get("fileHandles")));
 		app.put("minimumWidth", asInteger(data.get("minimumWidth")));
 		app.put("minimumHeight", asInteger(data.get("minimumHeight")));
 

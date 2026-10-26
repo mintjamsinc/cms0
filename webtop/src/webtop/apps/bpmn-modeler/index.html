@@ -30,7 +30,7 @@
 			<!-- Left: file actions -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile.path || !isModified || isSaving" :title="t('app.bpmn-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
+					:disabled="!currentFile.path || !isModified || isSaving || currentFile.readOnly" :title="t('app.bpmn-modeler.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
 				<button class="btn-icon" @click="openSaveAsDialog" :disabled="isSaving" :title="t('app.bpmn-modeler.toolbar.saveAs', undefined, 'Save As...')">
@@ -3242,7 +3242,8 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.bpmn-modeler.statusbar.saving') }}</span>
+				<span v-if="currentFile.readOnly" class="status-item status-read-only"><i class="bi bi-lock me-1"></i>{{ t('app.bpmn-modeler.statusbar.readOnly', undefined, 'Read-only') }}</span>
+				<span v-else-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.bpmn-modeler.statusbar.saving') }}</span>
 				<span v-else-if="isModified" class="status-item">{{ t('app.bpmn-modeler.statusbar.modified') }}</span>
 				<span v-else class="status-item">{{ t('app.bpmn-modeler.statusbar.saved') }}</span>
 			</div>

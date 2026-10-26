@@ -255,6 +255,8 @@
 	"app.memo.statusbar.saving": "Saving...",
 	"app.memo.statusbar.modified": "Modified",
 	"app.memo.statusbar.saved": "Saved",
+	"app.memo.statusbar.readOnly": "Read-only",
+	"app.memo.readOnly": "Read-only",
 	"app.memo.checkout.title": "Checkout Required",
 	"app.memo.checkout.message": "This memo is under version control and needs to be checked out before editing.",
 	"app.memo.checkout.version": "Version: {version}",
@@ -274,6 +276,7 @@
 	"app.memo.error.fetchFailed": "Failed to fetch: {status}",
 	"app.memo.error.loadFile": "Failed to load memo",
 	"app.memo.error.saveFile": "Failed to save memo",
+	"app.memo.error.conflict": "The memo was changed elsewhere. Save it under another name.",
 	"app.memo.error.checkin": "Failed to checkin",
 	"app.memo.error.checkpoint": "Failed to create checkpoint"
 }

@@ -10,6 +10,8 @@ interface ShellApp {
 	relPath?: string;
 	editor?: boolean;
 	contentTypes?: string[];
+	/** The app opens files through lib/file-handle.ts: cloud files and URL files too. */
+	fileHandles?: boolean;
 }
 
 const CONTENT_BROWSER = 'content-browser';
@@ -33,15 +35,22 @@ export function findEditorForMimeType(mimeType: string | null | undefined): Shel
 	return null;
 }
 
-/** Opens the file in its editor. False when no editor is registered for its type. */
-export function openFileInEditor(path: string, mimeType: string | null | undefined): boolean {
+/**
+ * Opens the file in its editor. False when no editor is registered for its
+ * type. `file` (a FileRef of lib/file-handle.ts) names a cloud file or a URL
+ * file; only an editor with `fileHandles` takes one, and false is returned
+ * when the editor found has none.
+ */
+export function openFileInEditor(path: string | null, mimeType: string | null | undefined, file?: Record<string, unknown> | null): boolean {
 	const editor = findEditorForMimeType(mimeType);
 	if (!editor) return false;
+	if (file && !editor.fileHandles) return false;
 	window.parent.postMessage({
 		type: 'open-file-with-app',
 		appId: editor.id,
 		filePath: path,
 		mimeType: mimeType || '',
+		...(file ? { file } : {}),
 	}, window.location.origin);
 	return true;
 }

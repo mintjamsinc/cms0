@@ -3,6 +3,7 @@ import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
+import { openFileHandle, cloudFileHandle, fileRefOfDragItem, FileConflictError, type FileHandle, type FileHandleKind, type FileRef } from "../../lib/file-handle.js";
 import { VDOM } from '@mintjamsinc/ichigojs';
 import {
 	createLocalizationSnapshot,
@@ -52,6 +53,11 @@ const EIP_MIME = 'application/vnd.webtop.eip+xml';
 interface CamelFile {
 	id: string;
 	name: string;
+	// Where the file lies (lib/file-handle.ts); a new or local file counts as 'repository' until it is saved.
+	kind: FileHandleKind;
+	// A URL file (a mail attachment) cannot be written: Save is off until "Save As" puts it somewhere.
+	readOnly: boolean;
+	// Repository path or cloud:// location; '' for a new, local or URL file.
 	path: string;
 	mimeType: string;
 	store: CamelModelStore;
@@ -166,12 +172,18 @@ const TRANSFORM_EXPRESSION_TYPE_OPTIONS: ChoiceOption[] = [
  * Launch options for the application
  */
 interface LaunchOptions {
-	path?: string;
+	path?: string | null;
 	mimeType?: string;
 	paths?: string[];
 	activeIndex?: number;
 	fileStates?: { path: string; scale?: number; panOffset?: { x: number; y: number } }[];
+	// A cloud file or a URL file (a mail attachment), from the shell.
+	file?: FileRef | null;
 }
+
+// The file handle of each tab (lib/file-handle.ts), keyed by CamelFile.id and
+// kept outside reactive data: it holds services with private fields.
+const fileHandles = new Map<string, FileHandle>();
 
 // =============================================================================
 // Constants
@@ -744,8 +756,9 @@ const App = {
 					}
 					const idx = options.activeIndex != null ? Math.min(options.activeIndex, vm.files.length - 1) : vm.files.length - 1;
 					vm.selectTab(idx);
-				} else if (options?.path) {
-					await vm.loadFile(options.path);
+				} else if (options?.path || options?.file) {
+					await vm.loadFile(options.path || '', options.file);
+					if (vm.files.length === 0) vm.newDiagram();
 				} else {
 					// Create new diagram
 					vm.newDiagram();
@@ -808,6 +821,8 @@ const App = {
 			const newFile: CamelFile = {
 				id: generateUUID(),
 				name: `Route-${this.files.length + 1}.camel.xml`,
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				mimeType: EIP_MIME,
 				store: this.$markRaw(store),
@@ -856,6 +871,7 @@ const App = {
 				}
 			}
 
+			fileHandles.delete(file.id);
 			vm.files.splice(index, 1);
 
 			if (vm.files.length === 0) {
@@ -889,7 +905,7 @@ const App = {
 				this.storeVersion++;
 
 				if (this.instance && this.currentFile) {
-					this.instance.windowTitle = this.currentFile.name;
+					this.instance.windowTitle = this.windowTitleFor(this.currentFile);
 				}
 			}
 		},
@@ -930,32 +946,37 @@ const App = {
 				event.dataTransfer.dropEffect = 'none';
 				return;
 			}
-			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file');
+			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file') || types.includes('application/x-webtop-files');
 			if (!isFileDrop) return; // palette drag — canvas owns the dropEffect
 			event.dataTransfer.dropEffect = 'copy';
 		},
 		async onCenterPaneDrop(event: DragEvent) {
 			const types = event.dataTransfer?.types ?? [];
 			if (types.includes('application/x-webtop-save')) return; // reject self-drop
-			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file');
+			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file') || types.includes('application/x-webtop-files');
 			if (!isFileDrop) return; // palette drop — canvas already handled
 			await this.handleFileDropEvent(event);
 		},
 		async handleFileDropEvent(event: DragEvent) {
 			const vm = this;
 
-			// Content Browser (cross-iframe) file drag — open via path in a new tab
-			const webtopFileData = event.dataTransfer?.getData('application/x-webtop-file');
-			if (webtopFileData) {
+			// Content Browser (cross-iframe) file drag: every file of the payload,
+			// from the repository or from cloud storage, each in a new tab.
+			const multi = event.dataTransfer?.getData('application/x-webtop-files');
+			const single = multi ? '' : event.dataTransfer?.getData('application/x-webtop-file');
+			if (multi || single) {
+				const dropped: { path: string; ref: FileRef }[] = [];
 				try {
-					const fileInfo = JSON.parse(webtopFileData);
-					if (fileInfo.path) {
-						await vm.loadFile(fileInfo.path);
-						return;
+					const items = multi ? JSON.parse(multi) : [JSON.parse(single as string)];
+					for (const item of items) {
+						const ref = fileRefOfDragItem(item);
+						if (ref) dropped.push({ path: item.path, ref });
 					}
 				} catch (e) {
 					console.error('Failed to parse webtop file data:', e);
 				}
+				for (const d of dropped) await vm.loadFile(d.path, d.ref);
+				if (dropped.length > 0) return;
 			}
 
 			// Local files (OS) — read content and open as a new untitled tab
@@ -970,6 +991,8 @@ const App = {
 						const newFile: CamelFile = {
 							id: generateUUID(),
 							name: file.name,
+							kind: 'repository',
+							readOnly: false,
 							path: '',
 							mimeType: EIP_MIME,
 							store: vm.$markRaw(store),
@@ -996,23 +1019,30 @@ const App = {
 		},
 
 		/**
-		 * Load file from path
+		 * Opens a file. `path` is a repository path or a cloud:// location; `ref`
+		 * names a file the sender already knows (a cloud file from the Content
+		 * Browser, a mail attachment at a URL, which has no path and is not
+		 * restored). Everything goes through a file handle (lib/file-handle.ts).
 		 */
-		async loadFile(path: string) {
+		async loadFile(path: string, ref?: FileRef | null) {
 			const vm = this;
+			if (path) {
+				const existingIndex = vm.files.findIndex((f: CamelFile) => f.path === path);
+				if (existingIndex >= 0) {
+					vm.currentFileIndex = existingIndex;
+					vm.selectedElementId = null;
+					vm.storeVersion++;
+					return;
+				}
+			}
 			vm.isLoading = true;
 
 			try {
-				const contentService = vm.instance!.api.content;
-				const node: Node | null = await contentService.getNode(path);
-
-				if (!node) {
-					throw new Error(`File not found: ${path}`);
-				}
+				const handle = await openFileHandle(vm.instance!.api, { path, file: ref });
 
 				// Fetch file content
-				if (node.downloadUrl) {
-					const response = await fetch(node.downloadUrl);
+				if (handle.downloadURL) {
+					const response = await handle.read();
 					if (!response.ok) {
 						throw new Error(`Failed to fetch file: ${response.statusText}`);
 					}
@@ -1022,9 +1052,11 @@ const App = {
 					// Create file entry
 					const newFile: CamelFile = {
 						id: generateUUID(),
-						name: node.name,
-						path: path,
-						mimeType: node.mimeType || EIP_MIME,
+						name: handle.name,
+						kind: handle.kind,
+						readOnly: handle.readOnly,
+						path: handle.location || '',
+						mimeType: handle.mimeType || EIP_MIME,
 						store: vm.$markRaw(store),
 						scale: 1.0,
 						panOffset: { x: 0, y: 0 },
@@ -1033,13 +1065,14 @@ const App = {
 						redoStack: []
 					};
 
+					fileHandles.set(newFile.id, handle);
 					vm.files.push(newFile);
 					vm.currentFileIndex = vm.files.length - 1;
 					vm.selectedElementId = null;
 					vm.storeVersion++;
 
 					if (vm.instance) {
-						vm.instance.windowTitle = node.name;
+						vm.instance.windowTitle = vm.windowTitleFor(newFile);
 					}
 				}
 			} catch (error) {
@@ -1047,7 +1080,11 @@ const App = {
 			} finally {
 				vm.isLoading = false;
 			}
-	
+		},
+
+		/** The window's title: the file's name, marked when it cannot be written. */
+		windowTitleFor(file: { name: string; readOnly?: boolean }): string {
+			return file.readOnly ? `${file.name} — ${this.t('app.eip-modeler.readOnly', undefined, 'Read-only')}` : file.name;
 		},
 
 		/**
@@ -1055,7 +1092,11 @@ const App = {
 		 */
 		async saveFile() {
 			const vm = this;
-			if (vm.isSaving || !vm.currentFile || !vm.activeStore) return;
+			if (vm.isSaving || !vm.currentFile || !vm.activeStore || vm.currentFile.readOnly) return;
+			if (vm.currentFile.kind === 'cloud') {
+				await vm.saveCloudFile();
+				return;
+			}
 
 			vm.isSaving = true;
 
@@ -1093,6 +1134,31 @@ const App = {
 			}
 		},
 
+		// A cloud file: PUT through its handle, conditioned on the etag it was
+		// read with. Changed elsewhere meanwhile (412), it is not overwritten:
+		// the user is told and offered "Save As".
+		async saveCloudFile() {
+			const vm = this;
+			const file = vm.currentFile as CamelFile | null;
+			const handle = file ? fileHandles.get(file.id) : null;
+			if (!file || !handle || !vm.activeStore) return;
+			vm.isSaving = true;
+			try {
+				const saved = await handle.write(storeToXml(vm.activeStore), file.mimeType);
+				fileHandles.set(file.id, saved);
+				file.isModified = false;
+			} catch (error: any) {
+				if (error instanceof FileConflictError) {
+					console.warn('[EipModeler]', vm.t('app.eip-modeler.error.conflict', undefined, 'The file was changed elsewhere. Save it under another name.'));
+					vm.openSaveAsDialog();
+				} else {
+					console.error('Failed to save file:', error);
+				}
+			} finally {
+				vm.isSaving = false;
+			}
+		},
+
 		// =========================================================================
 		// Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop)
 		// =========================================================================
@@ -1106,20 +1172,35 @@ const App = {
 			this.saveAsDialog.visible = false;
 		},
 
-		// The chip has been written. A file in the repository becomes the open
-		// file; a copy in cloud storage (which this app does not write yet)
-		// leaves the open file as it is, and the dialog says so.
+		// The chip has been written. The file it made — in the repository or in
+		// cloud storage — becomes the open file: the title, the tab and the next
+		// Save are its, and a read-only file (a mail attachment) can be written
+		// from here on.
 		onSaveAsSaved(detail: SaveAsSaved) {
 			const vm = this;
-			const file = vm.currentFile;
-			if (detail.cloud || !file) return;
+			const file = vm.currentFile as CamelFile | null;
+			if (!file) return;
 			detail.adopted = true;
+			file.kind = detail.cloud ? 'cloud' : 'repository';
+			file.readOnly = false;
 			file.path = detail.path;
 			file.name = detail.name;
 			file.mimeType = detail.mimeType;
 			file.isModified = false;
+			if (detail.cloud) {
+				const c = detail.cloud;
+				fileHandles.set(file.id, cloudFileHandle(vm.instance!.api, {
+					provider: c.provider, driveId: c.driveId, id: c.id, name: detail.name, mimeType: detail.mimeType,
+					size: null, folder: false, webUrl: c.webUrl ?? null, modified: null, created: null, nativeType: null,
+					parentId: null, etag: c.etag ?? null, owner: null, shared: false, hasThumbnail: false, path: null,
+					contentUrl: c.contentUrl || '',
+				}));
+			} else {
+				fileHandles.delete(file.id);
+				openFileHandle(vm.instance!.api, { path: detail.path }).then((h) => { if (vm.files.includes(file)) fileHandles.set(file.id, h); }).catch(() => { /* the next save looks it up again */ });
+			}
 			if (vm.instance) {
-				vm.instance.windowTitle = detail.name;
+				vm.instance.windowTitle = vm.windowTitleFor(file);
 			}
 		},
 

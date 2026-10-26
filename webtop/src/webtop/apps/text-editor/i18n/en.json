@@ -28,6 +28,8 @@
 	"app.text-editor.statusbar.saving": "Saving...",
 	"app.text-editor.statusbar.modified": "Modified",
 	"app.text-editor.statusbar.saved": "Saved",
+	"app.text-editor.statusbar.readOnly": "Read-only",
+	"app.text-editor.readOnly": "Read-only",
 	"app.text-editor.checkout.title": "Checkout Required",
 	"app.text-editor.checkout.message": "This file is under version control and needs to be checked out before editing.",
 	"app.text-editor.checkout.version": "Version: {version}",
@@ -47,6 +49,7 @@
 	"app.text-editor.error.fetchFailed": "Failed to fetch: {status}",
 	"app.text-editor.error.loadFile": "Failed to load file",
 	"app.text-editor.error.saveFile": "Failed to save file",
+	"app.text-editor.error.conflict": "The file was changed elsewhere. Save it under another name.",
 	"app.text-editor.error.checkin": "Failed to checkin",
 	"app.text-editor.error.checkpoint": "Failed to create checkpoint"
 }

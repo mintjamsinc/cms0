@@ -313,5 +313,6 @@ work as in the repository; the context menu copies in both directions
 (*Copy to repository…*, *Put a link in the repository…* on a cloud item,
 *Copy to cloud storage…* on a repository item). See
 `webtop-cloud-storage.md` for what cloud storage offers (drops, search and
-its facets, the Folder column of a result) and what it does not yet (opening
-a cloud file in an app).
+its facets, the Folder column of a result, opening a cloud file in an app of
+the Webtop) and what stays with the provider (Google documents and Office
+files open in its editor).

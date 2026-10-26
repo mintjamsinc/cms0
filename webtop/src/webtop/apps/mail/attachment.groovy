@@ -12,11 +12,13 @@ import org.mintjams.tools.mail.Message;
  * repository's access control applies as well.
  *
  * raw=1 returns the message as stored (.eml). inline=1 lets the browser show
- * images and PDF files; anything else is always a download, so an attached HTML
- * file never runs on this origin.
+ * images, PDF files and plain text (what the Mail app opens in a new tab when no
+ * app of the Webtop takes the type); anything else is always a download, so an
+ * attached HTML file never runs on this origin. The apps that open an attachment
+ * read it with fetch, which does not mind the disposition.
  */
 
-def INLINE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
+def INLINE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'];
 
 def contentDisposition = { String kind, String filename ->
 	String ascii = filename.replaceAll(/[^\x20-\x7E]/, '_').replace('"', '_').replace('\\', '_');

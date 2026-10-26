@@ -60,6 +60,7 @@
 //     server at once ("… and save"). Unsaved changes are saved or discarded
 //     with the bar at the top of the section.
 import { defineComponent } from '@mintjamsinc/ichigojs';
+import { isOfficeMimeType } from '../lib/file-handle.js';
 import { MimeTypes } from '../utils/mime-types.js';
 import { Encodings } from '../utils/encodings.js';
 import { Dates } from '../utils/dates.js';
@@ -474,6 +475,7 @@ defineComponent('wt-inspector', {
 				conversationTimer: null as ReturnType<typeof setTimeout> | null,
 				conversationSeq: 0,
 				targetReloadSeq: 0,
+				cloudPreviewSeq: 0,
 				aclReloadSeq: 0,
 				// The path the panel last loaded for, to tell a new target from
 				// the same one handed over again (the host rebuilds `target`
@@ -537,6 +539,10 @@ defineComponent('wt-inspector', {
 			],
 			// Preview image error state
 			previewImageError: false,
+			// The provider's embedded viewer of the cloud file shown, when it has one
+			// (an Office document in OneDrive); '' otherwise. Asked for on each
+			// target, as the URL is short-lived.
+			cloudPreviewURL: '',
 			// Video / audio preview: set when the browser cannot play the file
 			// (the preview then falls back to the icon), and what the browser
 			// read from the file's header once the player loaded it.
@@ -739,6 +745,21 @@ defineComponent('wt-inspector', {
 		panelTitle(this: any): string {
 			const pane = this.viewOptions?.pane;
 			return (pane && typeof pane === 'object' && pane.title) ? String(pane.title) : this.t('webtop.inspector.title');
+		},
+		// A cloud file the browser cannot show, pictured by the provider's large
+		// thumbnail: a Google document, or any cloud file with a thumbnail that is
+		// not an image, a video or an audio file itself.
+		isSelectedItemCloudThumbnail(this: any): boolean {
+			const item = this.singleTarget;
+			if (!item || item.isCollection || !item.cloud || !item.cloud.hasThumbnail || this.previewImageError) return false;
+			const mimeType = item.mimeType || '';
+			return !mimeType.startsWith('image/') && !mimeType.startsWith('video/') && !mimeType.startsWith('audio/');
+		},
+		cloudThumbnailURL(this: any): string {
+			const item = this.singleTarget;
+			if (!item?.downloadURL || !item.cloud) return '';
+			const base = item.downloadURL.replace(/[?&]attachment$/, '');
+			return base + (base.includes('?') ? '&' : '?') + 'thumbnail=large&v=' + encodeURIComponent(item.cloud.etag || '');
 		},
 		isSelectedItemImage(this: any): boolean {
 			const item = this.singleTarget;
@@ -998,6 +1019,7 @@ defineComponent('wt-inspector', {
 			this.cancelEncodingEdit?.();
 			this.previewImageError = false;
 			this.resetPreviewMedia();
+			this.loadCloudPreview(single);
 			this.actionErrorMessage = '';
 			this.actionConfirm = '';
 			this.versionHistoryDialog.confirmVersionName = '';
@@ -1207,6 +1229,25 @@ defineComponent('wt-inspector', {
 			if (vm.cmEscHandler) {
 				document.removeEventListener('keydown', vm.cmEscHandler, true);
 				vm.cmEscHandler = null;
+			}
+		},
+		// Asks the provider for its embedded viewer of an Office document in a
+		// drive (Microsoft answers; Google has none and returns null). The answer
+		// is dropped when the target moved on meanwhile.
+		async loadCloudPreview(this: any, target: any) {
+			const vm = this;
+			vm.cloudPreviewURL = '';
+			const cloud = target?.cloud;
+			const api = vm.api?.cloud;
+			if (!cloud || !cloud.id || target.isCollection || !api || typeof api.getPreview !== 'function') return;
+			if (!isOfficeMimeType(target.mimeType)) return;
+			const seq = (vm._.cloudPreviewSeq = (vm._.cloudPreviewSeq || 0) + 1);
+			try {
+				const url = await api.getPreview(cloud.provider, cloud.driveId, cloud.id);
+				if (seq !== vm._.cloudPreviewSeq) return;
+				if (url && /^https:\/\//.test(url)) vm.cloudPreviewURL = url;
+			} catch {
+				/* no preview: the icon stays */
 			}
 		},
 		resubscribeNodeWatch(this: any) {

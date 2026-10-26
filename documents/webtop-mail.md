@@ -127,26 +127,29 @@ There is no signature: write it into the message.
 
 ## Attachments of a message you read
 
-An attachment is listed under the message's header. Clicking it opens or
-downloads it (`attachment.groovy`, see *Where things live*). It can also be
-put into the workspace the Webtop is running in, in two ways:
+An attachment is listed under the message's header. **Clicking it opens it in
+the app of the Webtop for its type** — a PDF in the PDF Viewer, a text or a
+Markdown file in the Text Editor, a memo in Memo, a diagram in its modeler —
+read-only: the attachment is a part of the stored message, not a file of the
+repository, so there is nothing to save back to. The app's *Save As* (see
+`webtop-save-as.md`) puts a copy wherever its chip is dropped — a folder of the
+repository or of cloud storage in the Content Browser, or the Desktop — and the
+app then edits that copy. When no app of the Webtop takes the type, the
+attachment opens in a new tab, where the browser shows what it can (an image, a
+PDF, a text) and downloads the rest; an attached HTML file is never run on this
+origin.
 
-- **Drag it into a Content Browser window**, onto the file list or onto a
-  folder row. The Content Browser reads the file from the Mail app's
-  attachment URL and uploads it the way it uploads a file from the PC, so an
-  existing file of the same name asks before it is replaced, and a versioned
-  file is checked out and in as usual.
-- **The folder button on the attachment** opens a folder picker of the
-  workspace. Folders you may not create anything in are shown muted with a
-  lock and cannot be picked, but they open, so a writable folder below them
-  can be reached. *New folder* creates one in the picked folder. The folder
-  picked last is offered first the next time. An existing file of the same
-  name asks before it is replaced.
+An attachment can also be **dragged into a Content Browser window**, onto the
+file list or onto a folder row, of the repository or of a drive. The Content
+Browser reads the file from the Mail app's attachment URL and uploads it the
+way it uploads a file from the PC, so an existing file of the same name asks
+before it is replaced, and a versioned file is checked out and in as usual.
 
-Either way the copy is made by the browser: the attachment is read from the
-message through the app's attachment script and written to the folder with the
-caller's own session, so the repository's access control decides where it can
-be saved. Nothing changes in the mail itself.
+Either way the copy is made by the browser with the caller's own session: the
+attachment is read from the message through the app's attachment script, so the
+repository's access control decides where it can be saved. Nothing changes in
+the mail itself. The original message (`.eml`) is a download link beside the
+attachments.
 
 ## Messages that are broken
 

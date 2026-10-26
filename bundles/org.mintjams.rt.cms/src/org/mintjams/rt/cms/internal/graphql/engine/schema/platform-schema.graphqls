@@ -1143,6 +1143,8 @@ type App {
   isAdminOnly: Boolean
   singleton: Boolean
   customWindowControls: Boolean
+  """Whether the app opens files through a file handle (lib/file-handle.ts): a cloud file, or a file served at a URL such as a mail attachment, besides a repository path."""
+  fileHandles: Boolean
   minimumWidth: Int
   minimumHeight: Int
   actions: [AppAction!]!

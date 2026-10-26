@@ -5,6 +5,7 @@ import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 import { NEW_FILE_TYPES } from "../../lib/new-file-types.js";
 import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
+import { openFileHandle, cloudFileHandle, repositoryFileHandle, fileRefOfDragItem, FileConflictError, type FileHandle, type FileHandleKind, type FileRef } from "../../lib/file-handle.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -137,6 +138,10 @@ function getLanguageExtension(mimeType: string, fileName: string) {
 }
 
 interface CurrentFile {
+	// Where the file lies (lib/file-handle.ts); a new or local file counts as 'repository' until it is saved.
+	kind: FileHandleKind;
+	// A URL file (a mail attachment) cannot be written: Save is off until "Save As" puts it somewhere.
+	readOnly: boolean;
 	path: string;
 	name: string;
 	mimeType: string;
@@ -156,6 +161,9 @@ interface CurrentFile {
 
 interface TextFile {
 	id: string;
+	kind: FileHandleKind;
+	readOnly: boolean;
+	// Repository path or cloud:// location; '' for a new, local or URL file.
 	path: string;
 	name: string;
 	mimeType: string;
@@ -252,6 +260,9 @@ function nodeIsTemplated(node: Node | null | undefined): boolean {
 // facet/extension resolution (notably syntaxHighlighting). Indexed by
 // TextFile.id so each tab keeps its own undo history and selection.
 const editorStates = new Map<string, EditorState>();
+// The file handle of each tab (lib/file-handle.ts), keyed by TextFile.id and
+// kept outside reactive data: it holds services with private fields.
+const fileHandles = new Map<string, FileHandle>();
 
 // SSE subscription for the active tab's node. Kept in module scope (not in
 // reactive data) for the same reason as the preview channels below: there is
@@ -307,10 +318,12 @@ let previewChannelRef: BroadcastChannel | null = null;
 let previewPinnedPath: string = '';
 
 interface LaunchOptions {
-	path?: string;
+	path?: string | null;
 	mimeType?: string;
 	paths?: string[];
 	activeIndex?: number;
+	// A cloud file or a URL file (a mail attachment), from the shell.
+	file?: FileRef | null;
 }
 
 // Non-reactive compartments for live reconfiguration (kept outside data() so
@@ -369,6 +382,8 @@ export const App = {
 			files: [] as TextFile[],
 			currentFileIndex: -1,
 			currentFile: {
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name: 'Untitled',
 				mimeType: 'text/plain',
@@ -599,7 +614,7 @@ export const App = {
 				if (vm.inspectorOverlayOpen) return;
 				if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 					e.preventDefault();
-					if (vm.currentFile.isModified && !vm.isSaving) {
+					if (vm.currentFile.isModified && !vm.isSaving && !vm.currentFile.readOnly) {
 						vm.saveFile();
 					}
 				} else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
@@ -683,8 +698,9 @@ export const App = {
 					}
 					const idx = options.activeIndex != null ? Math.min(options.activeIndex, vm.files.length - 1) : vm.files.length - 1;
 					vm.selectTab(idx);
-				} else if (options?.path) {
-					await vm.loadFile(options.path);
+				} else if (options?.path || options?.file) {
+					await vm.loadFile(options.path || '', options.file);
+					if (vm.files.length === 0) vm.newFile();
 				} else {
 					vm.newFile();
 				}
@@ -714,7 +730,7 @@ export const App = {
 			if (vm.editor) {
 				vm.editor.destroy();
 			}
-			for (const f of vm.files) editorStates.delete(f.id);
+			for (const f of vm.files) { editorStates.delete(f.id); fileHandles.delete(f.id); }
 		},
 		// ---- Window controls ----
 		onMinimizeWindow() {
@@ -826,7 +842,9 @@ export const App = {
 			const vm = this;
 			unwatchActiveNode();
 			const file = vm.files[vm.currentFileIndex];
-			if (!file || !file.path) return;
+			// Only a repository node tells when it changes; a cloud file is read as
+			// it was, and a write that finds it changed is refused (412).
+			if (!file || !file.path || file.kind !== 'repository') return;
 			const eventHub = vm.instance?.api?.eventHub;
 			if (!eventHub || typeof eventHub.watchNode !== 'function') return;
 			const path = file.path;
@@ -841,7 +859,7 @@ export const App = {
 		async refreshActiveFileMetadata(path: string) {
 			const vm = this;
 			const idx = vm.files.findIndex((f: TextFile) => f.path === path);
-			if (idx < 0) return;
+			if (idx < 0 || vm.files[idx].kind !== 'repository') return;
 			const contentService = vm.instance?.api?.content;
 			if (!contentService) return;
 			let node: Node | null;
@@ -873,6 +891,7 @@ export const App = {
 			file.scriptable = node.scriptable || false;
 			file.modified = nextModified;
 			file.inspectorItem = nodeToInspectorTarget(node);
+			fileHandles.set(file.id, repositoryFileHandle(vm.instance.api, node));
 			if (idx === vm.currentFileIndex) {
 				vm.currentFile.mimeType = file.mimeType;
 				vm.currentFile.encoding = file.encoding;
@@ -913,7 +932,7 @@ export const App = {
 		async reloadFileContent(path: string, force: boolean) {
 			const vm = this;
 			const idx = vm.files.findIndex((f: TextFile) => f.path === path);
-			if (idx < 0) return;
+			if (idx < 0 || vm.files[idx].kind !== 'repository') return;
 			let file = vm.files[idx];
 			if (!force && file.isModified) return;
 			const contentService = vm.instance?.api?.content;
@@ -1071,6 +1090,8 @@ export const App = {
 			const vm = this;
 			if (vm.currentFileIndex < 0 || vm.currentFileIndex >= vm.files.length) return;
 			const file = vm.files[vm.currentFileIndex];
+			file.kind = vm.currentFile.kind;
+			file.readOnly = vm.currentFile.readOnly;
 			file.path = vm.currentFile.path;
 			file.name = vm.currentFile.name;
 			file.mimeType = vm.currentFile.mimeType;
@@ -1092,6 +1113,8 @@ export const App = {
 			const vm = this;
 			const file = vm.files[index];
 			if (!file) return;
+			vm.currentFile.kind = file.kind;
+			vm.currentFile.readOnly = file.readOnly;
 			vm.currentFile.path = file.path;
 			vm.currentFile.name = file.name;
 			vm.currentFile.mimeType = file.mimeType;
@@ -1132,7 +1155,7 @@ export const App = {
 			vm.currentFileIndex = index;
 			vm.restoreFileState(index);
 			if (vm.instance) {
-				vm.instance.windowTitle = vm.files[index].name;
+				vm.instance.windowTitle = vm.windowTitleFor(vm.files[index]);
 			}
 		},
 		async closeFile(index: number) {
@@ -1160,6 +1183,7 @@ export const App = {
 			}
 
 			editorStates.delete(file.id);
+			fileHandles.delete(file.id);
 			// If the preview window was pinned to this file, let it know so
 			// it can drop the pin and follow the new active tab.
 			if (previewPinnedPath && file.path && file.path === previewPinnedPath) {
@@ -1193,7 +1217,7 @@ export const App = {
 			vm.currentFileIndex = targetIndex;
 			vm.restoreFileState(targetIndex);
 			if (vm.instance) {
-				vm.instance.windowTitle = vm.files[targetIndex].name;
+				vm.instance.windowTitle = vm.windowTitleFor(vm.files[targetIndex]);
 			}
 		},
 		newFile() {
@@ -1207,6 +1231,8 @@ export const App = {
 
 			const newFile: TextFile = {
 				id: vm.generateFileID(),
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name: untitledName,
 				mimeType: 'text/plain',
@@ -1280,17 +1306,23 @@ export const App = {
 		async handleDropEvent(event: DragEvent) {
 			const vm = this;
 
-			const webtopFileData = event.dataTransfer?.getData('application/x-webtop-file');
-			if (webtopFileData) {
+			// Content Browser: every selected file (folders skipped), from the
+			// repository or from cloud storage.
+			const multi = event.dataTransfer?.getData('application/x-webtop-files');
+			const single = multi ? '' : event.dataTransfer?.getData('application/x-webtop-file');
+			if (multi || single) {
+				const dropped: { path: string; ref: FileRef }[] = [];
 				try {
-					const fileInfo = JSON.parse(webtopFileData);
-					if (fileInfo.path) {
-						await vm.loadFile(fileInfo.path);
-						return;
+					const items = multi ? JSON.parse(multi) : [JSON.parse(single as string)];
+					for (const item of items) {
+						const ref = fileRefOfDragItem(item);
+						if (ref) dropped.push({ path: item.path, ref });
 					}
 				} catch (e) {
 					console.error('Failed to parse webtop file data:', e);
 				}
+				for (const d of dropped) await vm.loadFile(d.path, d.ref);
+				if (dropped.length > 0) return;
 			}
 
 			const files = event.dataTransfer?.files;
@@ -1312,6 +1344,8 @@ export const App = {
 
 					const newFile: TextFile = {
 						id: vm.generateFileID(),
+						kind: 'repository',
+						readOnly: false,
 						path: '',
 						name: file.name,
 						mimeType: mimeType,
@@ -1343,36 +1377,41 @@ export const App = {
 			}
 		},
 		// ---- File loading ----
-		async loadFile(path: string) {
+		// `path` is a repository path or a cloud:// location; `ref` names a file
+		// the sender already knows (a cloud file from the Content Browser, a mail
+		// attachment at a URL, which has no path and is not restored). Everything
+		// goes through a file handle (lib/file-handle.ts).
+		async loadFile(path: string, ref?: FileRef | null) {
 			const vm = this;
 
-			const existingIndex = vm.files.findIndex(f => f.path === path);
-			if (existingIndex >= 0) {
-				vm.selectTab(existingIndex);
-				return;
+			if (path) {
+				const existingIndex = vm.files.findIndex(f => f.path === path);
+				if (existingIndex >= 0) {
+					vm.selectTab(existingIndex);
+					return;
+				}
 			}
 
 			vm.currentFile.isLoading = true;
 			vm.errorMessage = '';
 
 			try {
-				const contentService = vm.instance.api.content;
-				const node: Node | null = await contentService.getNode(path);
-				if (!node) throw new Error(vm.t('app.text-editor.error.fileNotFound', { path }, `File not found: ${path}`));
+				const handle = await openFileHandle(vm.instance.api, { path, file: ref });
+				const node: Node | null = handle.node;
 
 				if (vm.currentFileIndex >= 0) {
 					vm.saveCurrentFileState();
 				}
 
 				let content = '';
-				if (node.downloadUrl) {
-					const response = await fetch(node.downloadUrl);
+				if (handle.downloadURL) {
+					const response = await handle.read();
 					if (!response.ok) throw new Error(vm.t('app.text-editor.error.fetchFailed', { status: response.statusText }, `Failed to fetch: ${response.statusText}`));
 					content = await response.text();
 				}
 
-				const mimeType = node.mimeType || 'text/plain';
-				const languageExt = getLanguageExtension(mimeType, node.name);
+				const mimeType = handle.mimeType || 'text/plain';
+				const languageExt = getLanguageExtension(mimeType, handle.name);
 
 				const editorState = EditorState.create({
 					doc: content,
@@ -1383,41 +1422,44 @@ export const App = {
 
 				const newFile: TextFile = {
 					id: vm.generateFileID(),
-					path: node.path,
-					name: node.name,
+					kind: handle.kind,
+					readOnly: handle.readOnly,
+					path: handle.location || '',
+					name: handle.name,
 					mimeType: mimeType,
 					originalContent: content,
 					isModified: false,
-					isVersionable: node.isVersionable || false,
-					isCheckedOut: node.isCheckedOut || false,
-					baseVersionName: node.baseVersionName || '',
-					encoding: node.encoding || 'UTF-8',
-					downloadUrl: node.downloadUrl || '',
-					uuid: node.uuid || '',
+					isVersionable: node?.isVersionable || false,
+					isCheckedOut: node?.isCheckedOut || false,
+					baseVersionName: node?.baseVersionName || '',
+					encoding: node?.encoding || 'UTF-8',
+					downloadUrl: handle.downloadURL,
+					uuid: node?.uuid || '',
 					hasWebTemplate,
-					scriptable: node.scriptable || false,
-					modified: node.modified || '',
-					inspectorItem: nodeToInspectorTarget(node),
+					scriptable: node?.scriptable || false,
+					modified: handle.modified || '',
+					inspectorItem: handle.inspectorTarget(),
 				};
 
 				editorStates.set(newFile.id, editorState);
+				fileHandles.set(newFile.id, handle);
 				vm.files.push(newFile);
 				// Seed the preview output extension from the server's binding so a
 				// templated source (e.g. index.md bound to html) previews at the
 				// right representation without the user having to choose one.
-				if (node.webRender?.outputs?.length) {
+				if (node?.webRender?.outputs?.length) {
 					vm.previewExtensionByTab[newFile.id] = node.webRender.outputs[0];
 				}
 				// Remember the server-resolved document root so the preview can
 				// rewrite site-root-absolute references for its mount point.
-				if (node.webRender?.documentRoot) {
+				if (node?.webRender?.documentRoot) {
 					vm.documentRootByTab[newFile.id] = node.webRender.documentRoot;
 				}
 				vm.currentFileIndex = vm.files.length - 1;
 				vm.restoreFileState(vm.currentFileIndex);
 
 				if (vm.instance) {
-					vm.instance.windowTitle = node.name;
+					vm.instance.windowTitle = vm.windowTitleFor(newFile);
 				}
 			} catch (error: any) {
 				vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.loadFile', undefined, 'Failed to load file');
@@ -1425,9 +1467,17 @@ export const App = {
 				vm.currentFile.isLoading = false;
 			}
 		},
+		// The window's title: the file's name, marked when it cannot be written.
+		windowTitleFor(file: { name: string; readOnly?: boolean }): string {
+			return file.readOnly ? `${file.name} — ${this.t('app.text-editor.readOnly', undefined, 'Read-only')}` : file.name;
+		},
 		async saveFile() {
 			const vm = this;
-			if (!vm.currentFile.path || vm.isSaving) return;
+			if (!vm.currentFile.path || vm.isSaving || vm.currentFile.readOnly) return;
+			if (vm.currentFile.kind === 'cloud') {
+				await vm.saveCloudFile();
+				return;
+			}
 
 			vm.errorMessage = '';
 
@@ -1493,6 +1543,40 @@ export const App = {
 				vm.isSaving = false;
 			}
 		},
+		// A cloud file: PUT through its handle, conditioned on the etag it was
+		// read with. Changed elsewhere meanwhile (412), it is not overwritten:
+		// the user is told and offered "Save As".
+		async saveCloudFile() {
+			const vm = this;
+			const index = vm.currentFileIndex;
+			const file = vm.files[index] as TextFile | undefined;
+			const handle = file ? fileHandles.get(file.id) : null;
+			if (!file || !handle) return;
+			vm.errorMessage = '';
+			vm.isSaving = true;
+			const content = vm.currentFile.content;
+			try {
+				const saved = await handle.write(content, vm.currentFile.mimeType);
+				fileHandles.set(file.id, saved);
+				file.downloadUrl = saved.downloadURL;
+				file.modified = saved.modified || '';
+				file.inspectorItem = saved.inspectorTarget();
+				file.originalContent = content;
+				file.isModified = false;
+				vm.currentFile.downloadUrl = saved.downloadURL;
+				vm.currentFile.originalContent = content;
+				vm.currentFile.isModified = false;
+			} catch (error: any) {
+				if (error instanceof FileConflictError) {
+					vm.errorMessage = vm.t('app.text-editor.error.conflict', undefined, 'The file was changed elsewhere. Save it under another name.');
+					vm.openSaveAsDialog();
+				} else {
+					vm.errorMessage = error?.message || String(error) || vm.t('app.text-editor.error.saveFile', undefined, 'Failed to save file');
+				}
+			} finally {
+				vm.isSaving = false;
+			}
+		},
 		// ---- Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop) ----
 		openSaveAsDialog() {
 			this.saveAsDialog.fileName = this.currentFile.name || 'untitled.txt';
@@ -1501,32 +1585,56 @@ export const App = {
 		closeSaveAsDialog() {
 			this.saveAsDialog.visible = false;
 		},
-		// The chip has been written. A file in the repository becomes the open
-		// file; a copy in cloud storage (which this app does not write yet)
-		// leaves the open file as it is, and the dialog says so.
+		// The chip has been written. The file it made — in the repository or in
+		// cloud storage — becomes the open file: the title, the tab and the next
+		// Save are its, and a read-only file (a mail attachment) can be written
+		// from here on. A Google document is a conversion, not this file: the
+		// open file stays, and the dialog says the copy was saved.
 		onSaveAsSaved(detail: SaveAsSaved) {
 			const vm = this;
-			if (detail.cloud || detail.format !== 'asNamed') return;
+			if (detail.format !== 'asNamed') return;
+			const index = vm.currentFileIndex;
+			const file = index >= 0 && index < vm.files.length ? vm.files[index] as TextFile : null;
+			if (!file) return;
 			detail.adopted = true;
-			vm.currentFile.path = detail.path;
-			vm.currentFile.name = detail.name;
-			vm.currentFile.mimeType = detail.mimeType;
-			vm.currentFile.isModified = false;
-			vm.currentFile.originalContent = vm.currentFile.content;
+			unwatchActiveNode();
+			const kind: FileHandleKind = detail.cloud ? 'cloud' : 'repository';
+			const content = vm.currentFile.content;
+			for (const f of [vm.currentFile, file]) {
+				f.kind = kind;
+				f.readOnly = false;
+				f.path = detail.path;
+				f.name = detail.name;
+				f.mimeType = detail.mimeType;
+				f.isModified = false;
+				f.originalContent = content;
+				f.isVersionable = false;
+				f.isCheckedOut = false;
+				f.baseVersionName = '';
+				f.uuid = '';
+			}
 			if (vm.instance) {
-				vm.instance.windowTitle = detail.name;
+				vm.instance.windowTitle = vm.windowTitleFor(file);
 			}
-			if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
-				vm.files[vm.currentFileIndex].path = detail.path;
-				vm.files[vm.currentFileIndex].name = detail.name;
-				vm.files[vm.currentFileIndex].mimeType = detail.mimeType;
-				vm.files[vm.currentFileIndex].isModified = false;
-				vm.files[vm.currentFileIndex].originalContent = vm.currentFile.content;
-				// The tab now has a backing node — wire the Inspector to it
-				// and pull the freshly created node's metadata.
-				vm.watchActiveFileNode();
-				vm.refreshActiveFileMetadata(detail.path);
+			if (detail.cloud) {
+				const c = detail.cloud;
+				const handle = cloudFileHandle(vm.instance.api, {
+					provider: c.provider, driveId: c.driveId, id: c.id, name: detail.name, mimeType: detail.mimeType,
+					size: null, folder: false, webUrl: c.webUrl ?? null, modified: null, created: null, nativeType: null,
+					parentId: null, etag: c.etag ?? null, owner: null, shared: false, hasThumbnail: false, path: null,
+					contentUrl: c.contentUrl || '',
+				});
+				fileHandles.set(file.id, handle);
+				file.downloadUrl = handle.downloadURL;
+				file.modified = '';
+				file.inspectorItem = handle.inspectorTarget();
+				vm.currentFile.downloadUrl = handle.downloadURL;
+				return;
 			}
+			// The tab now has a backing node — wire the Inspector to it and pull
+			// the freshly created node's metadata (which also sets its handle).
+			vm.watchActiveFileNode();
+			vm.refreshActiveFileMetadata(detail.path);
 		},
 		// ---- Undo / Redo ----
 		undo() {

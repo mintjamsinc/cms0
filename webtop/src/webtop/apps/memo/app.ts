@@ -3,6 +3,7 @@ import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
+import { openFileHandle, cloudFileHandle, repositoryFileHandle, fileRefOfDragItem, FileConflictError, type FileHandle, type FileHandleKind, type FileRef } from "../../lib/file-handle.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP, SWATCH_HIGHLIGHT_COLORS } from "../../lib/color-palette.js";
@@ -86,6 +87,11 @@ const COLOR_CLEAR = '__clear__';
 
 interface MemoFile {
 	id: string;
+	// Where the file lies (lib/file-handle.ts); a new or local file counts as 'repository' until it is saved.
+	kind: FileHandleKind;
+	// A URL file (a mail attachment) cannot be written: Save is off until "Save As" puts it somewhere.
+	readOnly: boolean;
+	// Repository path or cloud:// location; '' for a new, local or URL file.
 	path: string;
 	name: string;
 	mimeType: string;
@@ -108,6 +114,8 @@ interface MemoFile {
 }
 
 interface CurrentFile {
+	kind: FileHandleKind;
+	readOnly: boolean;
 	path: string;
 	name: string;
 	mimeType: string;
@@ -124,10 +132,12 @@ interface CurrentFile {
 }
 
 interface LaunchOptions {
-	path?: string;
+	path?: string | null;
 	mimeType?: string;
 	paths?: string[];
 	activeIndex?: number;
+	// A cloud file or a URL file (a mail attachment), from the shell.
+	file?: FileRef | null;
 }
 
 // Tiptap Editor instances live OUTSIDE reactive data: ichigo.js wraps stored
@@ -136,6 +146,9 @@ interface LaunchOptions {
 // Each tab keeps its own Editor (and therefore its own undo history) keyed by
 // MemoFile.id, mounted into its own child of #editor-host.
 const editors = new Map<string, Editor>();
+// The file handle of each tab (lib/file-handle.ts), keyed by MemoFile.id and
+// kept outside reactive data as well: it holds services with private fields.
+const fileHandles = new Map<string, FileHandle>();
 const mounts = new Map<string, HTMLElement>();
 
 // SSE subscription for the active tab's node. Module-scoped for the same
@@ -248,6 +261,8 @@ export const App = {
 			files: [] as MemoFile[],
 			currentFileIndex: -1,
 			currentFile: {
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name: 'Untitled',
 				mimeType: MEMO_MIME,
@@ -510,7 +525,7 @@ export const App = {
 				if (vm.inspectorOverlayOpen) return;
 				if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
 					e.preventDefault();
-					if (vm.currentFile.isModified && !vm.isSaving) vm.saveFile();
+					if (vm.currentFile.isModified && !vm.isSaving && !vm.currentFile.readOnly) vm.saveFile();
 				} else if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F') && !e.shiftKey && !e.altKey) {
 					// Ctrl+F opens the Find & Replace sidebar (matches the Text Editor).
 					e.preventDefault();
@@ -585,8 +600,8 @@ export const App = {
 						: vm.files.length - 1;
 					if (vm.files.length > 0) vm.selectTab(idx);
 					else vm.newFile();
-				} else if (options?.path) {
-					await vm.loadFile(options.path);
+				} else if (options?.path || options?.file) {
+					await vm.loadFile(options.path || '', options.file);
 					if (vm.files.length === 0) vm.newFile();
 				} else {
 					vm.newFile();
@@ -604,6 +619,7 @@ export const App = {
 				try { ed.destroy(); } catch { /* ignore */ }
 			}
 			editors.clear();
+			fileHandles.clear();
 			mounts.clear();
 		},
 		// ---- Window controls ----
@@ -1005,7 +1021,9 @@ export const App = {
 			const vm = this;
 			unwatchActiveNode();
 			const file = vm.files[vm.currentFileIndex];
-			if (!file || !file.path) return;
+			// Only a repository node tells when it changes; a cloud file is read as
+			// it was, and a write that finds it changed is refused (412).
+			if (!file || !file.path || file.kind !== 'repository') return;
 			const eventHub = vm.instance?.api?.eventHub;
 			if (!eventHub || typeof eventHub.watchNode !== 'function') return;
 			const path = file.path;
@@ -1016,7 +1034,7 @@ export const App = {
 		async refreshActiveFileMetadata(path: string) {
 			const vm = this;
 			const idx = vm.files.findIndex((f: MemoFile) => f.path === path);
-			if (idx < 0) return;
+			if (idx < 0 || vm.files[idx].kind !== 'repository') return;
 			const contentService = vm.instance?.api?.content;
 			if (!contentService) return;
 			let node: Node | null;
@@ -1039,6 +1057,7 @@ export const App = {
 			file.uuid = node.uuid || '';
 			file.modified = nextModified;
 			file.inspectorItem = nodeToInspectorTarget(node);
+			fileHandles.set(file.id, repositoryFileHandle(vm.instance.api, node));
 			// A memo saved for the first time now has the identifier its
 			// conversation is kept by, and the path a dataset is created next to.
 			refreshChatViews();
@@ -1056,7 +1075,7 @@ export const App = {
 		async reloadFileContent(path: string, force: boolean) {
 			const vm = this;
 			const idx = vm.files.findIndex((f: MemoFile) => f.path === path);
-			if (idx < 0) return;
+			if (idx < 0 || vm.files[idx].kind !== 'repository') return;
 			let file = vm.files[idx];
 			if (!force && file.isModified) return;
 			const contentService = vm.instance?.api?.content;
@@ -1709,6 +1728,8 @@ export const App = {
 			const vm = this;
 			if (vm.currentFileIndex < 0 || vm.currentFileIndex >= vm.files.length) return;
 			const file = vm.files[vm.currentFileIndex];
+			file.kind = vm.currentFile.kind;
+			file.readOnly = vm.currentFile.readOnly;
 			file.path = vm.currentFile.path;
 			file.name = vm.currentFile.name;
 			file.mimeType = vm.currentFile.mimeType;
@@ -1727,6 +1748,8 @@ export const App = {
 			if (!file) return;
 			// The cursor leaves the previous tab's document, dataset block included.
 			vm.deactivateDatasetPane();
+			vm.currentFile.kind = file.kind;
+			vm.currentFile.readOnly = file.readOnly;
 			vm.currentFile.path = file.path;
 			vm.currentFile.name = file.name;
 			vm.currentFile.mimeType = file.mimeType;
@@ -1756,7 +1779,7 @@ export const App = {
 			vm.saveCurrentFileState();
 			vm.currentFileIndex = index;
 			vm.restoreFileState(index);
-			if (vm.instance) vm.instance.windowTitle = vm.files[index].name;
+			if (vm.instance) vm.instance.windowTitle = vm.windowTitleFor(vm.files[index]);
 		},
 		async closeFile(index: number) {
 			const vm = this;
@@ -1781,6 +1804,7 @@ export const App = {
 			// Tear down the tab's editor + mount.
 			const ed = editors.get(file.id);
 			if (ed) { try { ed.destroy(); } catch { /* ignore */ } editors.delete(file.id); }
+			fileHandles.delete(file.id);
 			const m = mounts.get(file.id);
 			if (m) { try { m.remove(); } catch { /* ignore */ } mounts.delete(file.id); }
 			vm.files.splice(index, 1);
@@ -1798,7 +1822,7 @@ export const App = {
 
 			vm.currentFileIndex = targetIndex;
 			vm.restoreFileState(targetIndex);
-			if (vm.instance) vm.instance.windowTitle = vm.files[targetIndex].name;
+			if (vm.instance) vm.instance.windowTitle = vm.windowTitleFor(vm.files[targetIndex]);
 		},
 		newFile() {
 			const vm = this;
@@ -1810,6 +1834,8 @@ export const App = {
 
 			const newFile: MemoFile = {
 				id: vm.generateFileID(),
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name,
 				mimeType: MEMO_MIME,
@@ -1905,9 +1931,9 @@ export const App = {
 				const images = items.filter(isImg);
 				if (images.length > 0) await vm.insertImagesAtDrop(images, event);
 				for (const it of items) {
-					// A cloud entry has no repository path to load from; apps open
-					// cloud files through a file handle in a later step.
-					if (!isImg(it) && !it.isCollection && it?.path && !it.cloud) await vm.loadFile(it.path);
+					// A file of the repository or of cloud storage opens in its own tab.
+					const ref = isImg(it) ? null : fileRefOfDragItem(it);
+					if (ref) await vm.loadFile(it.path, ref);
 				}
 				return;
 			}
@@ -1922,6 +1948,8 @@ export const App = {
 					if (vm.currentFileIndex >= 0) vm.saveCurrentFileState();
 					const newFile: MemoFile = {
 						id: vm.generateFileID(),
+						kind: 'repository',
+						readOnly: false,
 						path: '',
 						name: file.name,
 						mimeType,
@@ -1980,48 +2008,56 @@ export const App = {
 			chain.insertContent(nodes).run();
 		},
 		// ---- Loading ----
-		async loadFile(path: string) {
+		// `path` is a repository path or a cloud:// location; `ref` names a file
+		// the sender already knows (a cloud file from the Content Browser, a mail
+		// attachment at a URL, which has no path and is not restored). Everything
+		// goes through a file handle (lib/file-handle.ts).
+		async loadFile(path: string, ref?: FileRef | null) {
 			const vm = this;
-			const existingIndex = vm.files.findIndex((f) => f.path === path);
-			if (existingIndex >= 0) { vm.selectTab(existingIndex); return; }
+			if (path) {
+				const existingIndex = vm.files.findIndex((f) => f.path === path);
+				if (existingIndex >= 0) { vm.selectTab(existingIndex); return; }
+			}
 
 			vm.currentFile.isLoading = true;
 			vm.errorMessage = '';
 			try {
-				const contentService = vm.instance.api.content;
-				const node: Node | null = await contentService.getNode(path);
-				if (!node) throw new Error(vm.t('app.memo.error.fileNotFound', { path }, `Memo not found: ${path}`));
+				const handle = await openFileHandle(vm.instance.api, { path, file: ref });
+				const node: Node | null = handle.node;
 
 				if (vm.currentFileIndex >= 0) vm.saveCurrentFileState();
 
 				let raw = '';
-				if (node.downloadUrl) {
-					const response = await fetch(node.downloadUrl);
+				if (handle.downloadURL) {
+					const response = await handle.read();
 					if (!response.ok) throw new Error(vm.t('app.memo.error.fetchFailed', { status: response.statusText }, `Failed to fetch: ${response.statusText}`));
 					raw = await response.text();
 				}
 
-				const mimeType = node.mimeType || MEMO_MIME;
-				const format = detectFormat(mimeType, node.name);
+				const mimeType = handle.mimeType || MEMO_MIME;
+				const format = detectFormat(mimeType, handle.name);
 
 				const newFile: MemoFile = {
 					id: vm.generateFileID(),
-					path: node.path,
-					name: node.name,
+					kind: handle.kind,
+					readOnly: handle.readOnly,
+					path: handle.location || '',
+					name: handle.name,
 					mimeType,
 					format,
 					originalContent: raw,
 					isModified: false,
-					isVersionable: node.isVersionable || false,
-					isCheckedOut: node.isCheckedOut || false,
-					baseVersionName: node.baseVersionName || '',
-					encoding: node.encoding || 'UTF-8',
-					downloadUrl: node.downloadUrl || '',
-					uuid: node.uuid || '',
-					modified: node.modified || '',
-					inspectorItem: nodeToInspectorTarget(node),
+					isVersionable: node?.isVersionable || false,
+					isCheckedOut: node?.isCheckedOut || false,
+					baseVersionName: node?.baseVersionName || '',
+					encoding: node?.encoding || 'UTF-8',
+					downloadUrl: handle.downloadURL,
+					uuid: node?.uuid || '',
+					modified: handle.modified || '',
+					inspectorItem: handle.inspectorTarget(),
 				};
 
+				fileHandles.set(newFile.id, handle);
 				vm.files.push(newFile);
 				vm.ensureEditor(newFile, parseContent(format, raw));
 				// Normalize originalContent against the parsed/reserialized output so
@@ -2031,17 +2067,25 @@ export const App = {
 
 				vm.currentFileIndex = vm.files.length - 1;
 				vm.restoreFileState(vm.currentFileIndex);
-				if (vm.instance) vm.instance.windowTitle = node.name;
+				if (vm.instance) vm.instance.windowTitle = vm.windowTitleFor(newFile);
 			} catch (error: any) {
 				vm.errorMessage = error?.message || String(error) || vm.t('app.memo.error.loadFile', undefined, 'Failed to load memo');
 			} finally {
 				vm.currentFile.isLoading = false;
 			}
 		},
+		// The window's title: the memo's name, marked when it cannot be written.
+		windowTitleFor(file: { name: string; readOnly?: boolean }): string {
+			return file.readOnly ? `${file.name} — ${this.t('app.memo.readOnly', undefined, 'Read-only')}` : file.name;
+		},
 		// ---- Saving ----
 		async saveFile() {
 			const vm = this;
-			if (!vm.currentFile.path || vm.isSaving) return;
+			if (!vm.currentFile.path || vm.isSaving || vm.currentFile.readOnly) return;
+			if (vm.currentFile.kind === 'cloud') {
+				await vm.saveCloudFile();
+				return;
+			}
 			vm.errorMessage = '';
 			try {
 				const contentService = vm.instance.api.content;
@@ -2096,6 +2140,39 @@ export const App = {
 				vm.isSaving = false;
 			}
 		},
+		// A cloud file: PUT through its handle, conditioned on the etag it was
+		// read with. Changed elsewhere meanwhile (412), it is not overwritten:
+		// the user is told and offered "Save As".
+		async saveCloudFile() {
+			const vm = this;
+			const file = vm.files[vm.currentFileIndex] as MemoFile | undefined;
+			const handle = file ? fileHandles.get(file.id) : null;
+			if (!file || !handle) return;
+			vm.errorMessage = '';
+			vm.isSaving = true;
+			const content = vm.serializeActive();
+			try {
+				const saved = await handle.write(content, vm.currentFile.mimeType);
+				fileHandles.set(file.id, saved);
+				file.downloadUrl = saved.downloadURL;
+				file.modified = saved.modified || '';
+				file.inspectorItem = saved.inspectorTarget();
+				file.originalContent = content;
+				file.isModified = false;
+				vm.currentFile.downloadUrl = saved.downloadURL;
+				vm.currentFile.originalContent = content;
+				vm.currentFile.isModified = false;
+			} catch (error: any) {
+				if (error instanceof FileConflictError) {
+					vm.errorMessage = vm.t('app.memo.error.conflict', undefined, 'The memo was changed elsewhere. Save it under another name.');
+					vm.openSaveAsDialog();
+				} else {
+					vm.errorMessage = error?.message || String(error) || vm.t('app.memo.error.saveFile', undefined, 'Failed to save memo');
+				}
+			} finally {
+				vm.isSaving = false;
+			}
+		},
 		// ---- Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop) ----
 		openSaveAsDialog() {
 			this.saveAsDialog.fileName = this.currentFile.name || `untitled.${MEMO_EXTENSION}`;
@@ -2103,32 +2180,55 @@ export const App = {
 			this.saveAsDialog.visible = true;
 		},
 		closeSaveAsDialog() { this.saveAsDialog.visible = false; },
-		// The chip has been written. A memo or an HTML file in the repository
-		// becomes the open file; a copy elsewhere (plain text, which drops the
-		// formatting, or a file in cloud storage, which this app does not
-		// write yet) leaves the open file as it is, and the dialog says so.
+		// The chip has been written. A memo or an HTML file — in the repository
+		// or in cloud storage — becomes the open file: the title, the tab and the
+		// next Save are its, and a read-only file (a mail attachment) can be
+		// written from here on. A copy in another form (plain text, which drops
+		// the formatting; a Google document, which is a conversion) leaves the
+		// open file as it is, and the dialog says the copy was saved.
 		onSaveAsSaved(detail: SaveAsSaved) {
 			const vm = this;
-			if (detail.cloud || (detail.format !== 'memo' && detail.format !== 'html')) return;
+			if (detail.format !== 'memo' && detail.format !== 'html') return;
+			const index = vm.currentFileIndex;
+			const f = index >= 0 && index < vm.files.length ? vm.files[index] as MemoFile : null;
+			if (!f) return;
 			detail.adopted = true;
-			vm.currentFile.path = detail.path;
-			vm.currentFile.name = detail.name;
-			vm.currentFile.mimeType = detail.mimeType;
-			vm.currentFile.format = detectFormat(detail.mimeType, detail.name);
-			vm.currentFile.isModified = false;
-			vm.currentFile.originalContent = vm.serializeActive();
-			if (vm.instance) vm.instance.windowTitle = detail.name;
-			if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
-				const f = vm.files[vm.currentFileIndex];
-				f.path = detail.path;
-				f.name = detail.name;
-				f.mimeType = detail.mimeType;
-				f.format = vm.currentFile.format;
-				f.isModified = false;
-				f.originalContent = vm.currentFile.originalContent;
-				vm.watchActiveFileNode();
-				vm.refreshActiveFileMetadata(detail.path);
+			unwatchActiveNode();
+			const kind: FileHandleKind = detail.cloud ? 'cloud' : 'repository';
+			const format = detectFormat(detail.mimeType, detail.name);
+			const content = vm.serializeActive();
+			for (const x of [vm.currentFile, f]) {
+				x.kind = kind;
+				x.readOnly = false;
+				x.path = detail.path;
+				x.name = detail.name;
+				x.mimeType = detail.mimeType;
+				x.format = format;
+				x.isModified = false;
+				x.originalContent = content;
+				x.isVersionable = false;
+				x.isCheckedOut = false;
+				x.baseVersionName = '';
+				x.uuid = '';
 			}
+			if (vm.instance) vm.instance.windowTitle = vm.windowTitleFor(f);
+			if (detail.cloud) {
+				const c = detail.cloud;
+				const handle = cloudFileHandle(vm.instance.api, {
+					provider: c.provider, driveId: c.driveId, id: c.id, name: detail.name, mimeType: detail.mimeType,
+					size: null, folder: false, webUrl: c.webUrl ?? null, modified: null, created: null, nativeType: null,
+					parentId: null, etag: c.etag ?? null, owner: null, shared: false, hasThumbnail: false, path: null,
+					contentUrl: c.contentUrl || '',
+				});
+				fileHandles.set(f.id, handle);
+				f.downloadUrl = handle.downloadURL;
+				f.modified = '';
+				f.inspectorItem = handle.inspectorTarget();
+				vm.currentFile.downloadUrl = handle.downloadURL;
+				return;
+			}
+			vm.watchActiveFileNode();
+			vm.refreshActiveFileMetadata(detail.path);
 		},
 		// ---- Printing ----
 		// Prints the active memo: the browser's print dialog over this iframe's

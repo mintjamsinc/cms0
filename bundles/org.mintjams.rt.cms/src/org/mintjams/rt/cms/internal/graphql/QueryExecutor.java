@@ -1096,7 +1096,7 @@ public class QueryExecutor {
 	 * Example:
 	 * {@code apps(path: "/usr/share/webtop/apps", first: 100, after: "cursor") {
 	 *   edges { node { identifier name title icon path relPath modified editor
-	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls
+	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls fileHandles
 	 *     minimumWidth minimumHeight actions { identifier label icon }
 	 *     widgets { identifier title entry width height layer } } cursor }
 	 *   pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
@@ -1259,6 +1259,7 @@ public class QueryExecutor {
 		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
 		app.put("singleton", asBoolean(data.get("singleton")));
 		app.put("customWindowControls", asBoolean(data.get("customWindowControls")));
+		app.put("fileHandles", asBoolean(data.get("fileHandles")));
 		app.put("minimumWidth", asInteger(data.get("minimumWidth")));
 		app.put("minimumHeight", asInteger(data.get("minimumHeight")));
 

@@ -32,6 +32,7 @@ import {
 	translate,
 } from "../../composables/use-localization.js";
 import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
+import { findEditorForMimeType } from "../../lib/open-file.js";
 import {
 	MailApi,
 	attachmentUrl,
@@ -274,13 +275,6 @@ const App = {
 			},
 			olderDialog: { visible: false, accountId: '', days: 90 },
 			confirmDialog: { visible: false, title: '', message: '' },
-			// Saving an attachment of the open message into a folder of the workspace.
-			folderPicker: {
-				visible: false,
-				attachment: null as { index: number; name: string; mimeType: string } | null,
-				/** The folder picked last time, offered first the next time. */
-				lastPath: '',
-			},
 			statusMessage: '',
 
 			labels: { colors: [], tags: [] } as MailLabels,
@@ -411,32 +405,13 @@ const App = {
 		visibleAttachments(): { index: number; name: string; mimeType: string }[] {
 			return (this.current?.attachments || []).filter((a: { inline: boolean }) => !a.inline);
 		},
-		/** Content service of the workspace the Webtop runs in: where attachments are saved. */
-		contentService(): unknown {
-			return this.instance?.api.content ?? null;
-		},
-		workspaceName(): string {
-			return this.instance?.api.workspace || '/';
-		},
 		cloudPickerLabels(): Record<string, string> {
 			return {
 				select: this.t('app.mail.compose.cloudPick', undefined, 'Choose'),
 				cancel: this.t('common.cancel'),
-				loading: this.t('app.mail.folderPicker.loading', undefined, 'Loading…'),
+				loading: this.t('app.mail.compose.cloudLoading', undefined, 'Loading…'),
 				empty: this.t('app.mail.compose.cloudEmpty', undefined, 'This folder is empty.'),
 				up: this.t('app.mail.compose.cloudUp', undefined, 'Up'),
-			};
-		},
-		folderPickerLabels(): Record<string, string> {
-			return {
-				select: this.t('app.mail.folderPicker.select', undefined, 'Save here'),
-				cancel: this.t('common.cancel'),
-				newFolder: this.t('app.mail.folderPicker.newFolder', undefined, 'New folder'),
-				newFolderName: this.t('app.mail.folderPicker.newFolderName', undefined, 'Folder name'),
-				create: this.t('app.mail.folderPicker.create', undefined, 'Create'),
-				loading: this.t('app.mail.folderPicker.loading', undefined, 'Loading…'),
-				noAccess: this.t('app.mail.folderPicker.noAccess', undefined, 'You cannot save here.'),
-				invalidName: this.t('app.mail.folderPicker.invalidName', undefined, 'The name cannot contain / \\ : * ? " < > |'),
 			};
 		},
 		kindItems(): { value: AccountKind; label: string }[] {
@@ -1157,55 +1132,36 @@ const App = {
 				if (data?.mailAttachments) (window.parent as any).__webtopDragData = null;
 			} catch (_) { /* cross-origin safety */ }
 		},
-		/** Opens the folder picker for an attachment of the open message. */
-		saveAttachment(a: { index: number; name: string; mimeType: string }) {
+		/**
+		 * Opens an attachment of the open message. An app of the Webtop that is
+		 * registered for the type and opens files through a file handle
+		 * (app.yml `fileHandles: true`) shows it read-only; its "Save As" then
+		 * puts a copy in the repository, in cloud storage or on the Desktop, and
+		 * the app switches to that copy. Without such an app the attachment opens
+		 * in a new tab, where the browser shows what it can (an image, a PDF, a
+		 * text) and downloads the rest. The attachment is a MIME part of the
+		 * stored message, not a node, so it is named by its URL.
+		 */
+		openAttachment(a: { index: number; name: string; mimeType: string }) {
 			if (!this.current) return;
-			this.folderPicker.attachment = { index: a.index, name: a.name, mimeType: a.mimeType };
-			this.folderPicker.visible = true;
-		},
-		async onFolderPicked(folder: string) {
-			const a = this.folderPicker.attachment;
-			const message = this.current as MailMessage | null;
-			const content = this.instance?.api.content;
-			if (!a || !message || !content) return;
-			this.folderPicker.lastPath = folder;
-			const name = safeFileName(a.name);
-			const dest = folder.endsWith('/') ? `${folder}${name}` : `${folder}/${name}`;
-			try {
-				const existing = await content.getNode(dest);
-				if (existing) {
-					this.openConfirm(
-						this.t('app.mail.message.replaceFile', undefined, 'Replace file'),
-						this.t('app.mail.message.attachmentExists', { name, path: folder }, '{path} already has {name}. Replace it?'),
-						() => { this.copyAttachmentTo(message.id, a, folder, name, true); },
-					);
-					return;
-				}
-				await this.copyAttachmentTo(message.id, a, folder, name, false);
-			} catch (e) {
-				this.showStatus(this.t('app.mail.message.attachmentSaveFailed', { name, error: errorText(e) }, '{name} could not be saved: {error}'));
+			const editor = findEditorForMimeType(a.mimeType);
+			if (editor && editor.fileHandles) {
+				window.parent.postMessage({
+					type: 'open-file-with-app',
+					appId: editor.id,
+					filePath: null,
+					mimeType: a.mimeType,
+					file: {
+						kind: 'url',
+						url: new URL(attachmentUrl(this.current.id, { index: a.index, inline: true }), window.location.href).toString(),
+						name: a.name,
+						mimeType: a.mimeType,
+						readOnly: true,
+					},
+				}, window.location.origin);
+				return;
 			}
-		},
-		/** Reads the attachment through attachment.groovy and writes it into the folder. */
-		async copyAttachmentTo(messageId: string, a: { index: number; name: string; mimeType: string }, folder: string, name: string, overwrite: boolean) {
-			const content = this.instance?.api.content;
-			if (!content) return;
-			try {
-				const response = await fetch(attachmentUrl(messageId, { index: a.index }), { credentials: 'same-origin' });
-				if (!response.ok) throw new Error(`HTTP ${response.status}`);
-				const blob = await response.blob();
-				const upload = await content.initiateMultipartUpload();
-				try {
-					await content.appendMultipartUploadData(upload.uploadId, blob);
-					await content.completeMultipartUpload(upload.uploadId, folder, name, a.mimeType || blob.type || 'application/octet-stream', overwrite);
-				} catch (e) {
-					try { await content.abortMultipartUpload(upload.uploadId); } catch { /* ignore */ }
-					throw e;
-				}
-				this.showStatus(this.t('app.mail.message.attachmentSaved', { name, path: folder }, '{name} was saved to {path}.'));
-			} catch (e) {
-				this.showStatus(this.t('app.mail.message.attachmentSaveFailed', { name, error: errorText(e) }, '{name} could not be saved: {error}'));
-			}
+			window.open(attachmentUrl(this.current.id, { index: a.index, inline: true }), '_blank', 'noopener');
 		},
 
 		// =====================================================================

@@ -36,7 +36,7 @@
 			<!-- Left: file actions -->
 			<div class="toolbar-group">
 				<button class="btn-icon" @click="saveFile"
-					:disabled="!currentFile.path || !currentFile.isModified || isSaving"
+					:disabled="!currentFile.path || !currentFile.isModified || isSaving || currentFile.readOnly"
 					:title="t('app.memo.toolbar.save', undefined, 'Save (Ctrl+S)')">
 					<i class="bi bi-floppy"></i>
 				</button>
@@ -284,7 +284,8 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.memo.statusbar.saving', undefined, 'Saving...') }}</span>
+				<span v-if="currentFile.readOnly" class="status-item status-read-only"><i class="bi bi-lock me-1"></i>{{ t('app.memo.statusbar.readOnly', undefined, 'Read-only') }}</span>
+				<span v-else-if="isSaving" class="status-item"><wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.memo.statusbar.saving', undefined, 'Saving...') }}</span>
 				<span v-else-if="currentFile.isModified" class="status-item">{{ t('app.memo.statusbar.modified', undefined, 'Modified') }}</span>
 				<span v-else class="status-item">{{ t('app.memo.statusbar.saved', undefined, 'Saved') }}</span>
 			</div>

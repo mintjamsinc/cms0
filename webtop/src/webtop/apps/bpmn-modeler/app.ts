@@ -3,6 +3,7 @@ import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { ApplicationInstance, PopupHandle, PopupItem } from "../../services/webtop-service.js";
 import type { Node } from "../../graphql/types.js";
 import { saveAsLabels, saveAsFormatLabel, type SaveAsFormat, type SaveAsSaved } from "../../lib/save-as.js";
+import { openFileHandle, cloudFileHandle, fileRefOfDragItem, FileConflictError, type FileHandle, type FileHandleKind, type FileRef } from "../../lib/file-handle.js";
 import {
 	BpmnModelStore,
 	BpmnSemantic,
@@ -45,6 +46,10 @@ import {
 } from "../../composables/use-localization.js";
 
 interface CurrentFile {
+	// Where the file lies (lib/file-handle.ts); a new or local file counts as 'repository' until it is saved.
+	kind: FileHandleKind;
+	// A URL file (a mail attachment) cannot be written: Save is off until "Save As" puts it somewhere.
+	readOnly: boolean;
 	path: string;
 	name: string;
 	mimeType: string;
@@ -59,6 +64,9 @@ interface CurrentFile {
  */
 interface BpmnFile {
 	id: string;
+	kind: FileHandleKind;
+	readOnly: boolean;
+	// Repository path or cloud:// location; '' for a new, local or URL file.
 	path: string;
 	name: string;
 	mimeType: string;
@@ -77,12 +85,18 @@ interface BpmnFile {
 }
 
 interface LaunchOptions {
-	path?: string;
+	path?: string | null;
 	mimeType?: string;
 	paths?: string[];
 	activeIndex?: number;
 	fileStates?: { path: string; zoom?: number; panX?: number; panY?: number }[];
+	// A cloud file or a URL file (a mail attachment), from the shell.
+	file?: FileRef | null;
 }
+
+// The file handle of each tab (lib/file-handle.ts), keyed by BpmnFile.id and
+// kept outside reactive data: it holds services with private fields.
+const fileHandles = new Map<string, FileHandle>();
 
 // =============================================================================
 // Command Manager (Undo/Redo)
@@ -597,6 +611,8 @@ export const App = {
 			files: [] as BpmnFile[],
 			currentFileIndex: -1,
 			currentFile: {
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name: 'Untitled.bpmn',
 				mimeType: 'application/x-bpmn',
@@ -2076,7 +2092,7 @@ export const App = {
 				}
 				if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 					e.preventDefault();
-					if (!vm.isSaving) {
+					if (!vm.isSaving && !vm.currentFile.readOnly) {
 						vm.saveFile();
 					}
 				}
@@ -2176,8 +2192,9 @@ export const App = {
 					}
 					const idx = options.activeIndex != null ? Math.min(options.activeIndex, vm.files.length - 1) : vm.files.length - 1;
 					vm.selectTab(idx);
-				} else if (options?.path) {
-					await vm.loadFile(options.path);
+				} else if (options?.path || options?.file) {
+					await vm.loadFile(options.path || '', options.file);
+					if (vm.files.length === 0) vm.newDiagram();
 				} else {
 					// Create new diagram
 					vm.newDiagram();
@@ -2238,6 +2255,8 @@ export const App = {
 			vm.selectedIds = file.selectedIds;
 			vm.storeVersion = file.storeVersion;
 			// Update file metadata on currentFile
+			vm.currentFile.kind = file.kind;
+			vm.currentFile.readOnly = file.readOnly;
 			vm.currentFile.path = file.path;
 			vm.currentFile.name = file.name;
 			vm.currentFile.mimeType = file.mimeType;
@@ -2260,7 +2279,7 @@ export const App = {
 			vm.restoreFileState(index);
 			// Update window title
 			if (vm.instance) {
-				vm.instance.windowTitle = vm.files[index].name;
+				vm.instance.windowTitle = vm.windowTitleFor(vm.files[index]);
 			}
 			// Force re-render
 			vm.storeVersion++;
@@ -2300,6 +2319,7 @@ export const App = {
 			}
 
 			// Remove file
+			fileHandles.delete(vm.files[index].id);
 			vm.files.splice(index, 1);
 
 			if (vm.files.length === 0) {
@@ -2321,7 +2341,7 @@ export const App = {
 			vm.currentFileIndex = targetIndex;
 			vm.restoreFileState(targetIndex);
 			if (vm.instance) {
-				vm.instance.windowTitle = vm.files[targetIndex].name;
+				vm.instance.windowTitle = vm.windowTitleFor(vm.files[targetIndex]);
 			}
 			vm.storeVersion++;
 		},
@@ -2347,6 +2367,8 @@ export const App = {
 
 			const newFile: BpmnFile = {
 				id: vm.generateFileId(),
+				kind: 'repository',
+				readOnly: false,
 				path: '',
 				name: 'Untitled.bpmn',
 				mimeType: 'application/x-bpmn',
@@ -2373,26 +2395,28 @@ export const App = {
 			}
 		},
 
-		async loadFile(path: string) {
+		// `path` is a repository path or a cloud:// location; `ref` names a file
+		// the sender already knows (a cloud file from the Content Browser, a mail
+		// attachment at a URL, which has no path and is not restored). Everything
+		// goes through a file handle (lib/file-handle.ts).
+		async loadFile(path: string, ref?: FileRef | null) {
 			const vm = this;
 
 			// Check if already open in another tab
-			const existingIndex = vm.files.findIndex((f: BpmnFile) => f.path === path);
-			if (existingIndex >= 0) {
-				vm.selectTab(existingIndex);
-				return;
+			if (path) {
+				const existingIndex = vm.files.findIndex((f: BpmnFile) => f.path === path);
+				if (existingIndex >= 0) {
+					vm.selectTab(existingIndex);
+					return;
+				}
 			}
 
 			vm.isLoading = true;
 			vm.errorMessage = '';
 
 			try {
-				const contentService = vm.instance.api.content;
-				const node: Node | null = await contentService.getNode(path);
-
-				if (!node) {
-					throw new Error(`File not found: ${path}`);
-				}
+				const handle = await openFileHandle(vm.instance.api, { path, file: ref });
+				const node = handle.node;
 
 				// Save current file state
 				if (vm.currentFileIndex >= 0) {
@@ -2404,8 +2428,8 @@ export const App = {
 				let originalXml = '';
 
 				// Fetch file content
-				if (node.downloadUrl) {
-					const response = await fetch(node.downloadUrl);
+				if (handle.downloadURL) {
+					const response = await handle.read();
 					if (!response.ok) {
 						throw new Error(`Failed to fetch file content: ${response.statusText}`);
 					}
@@ -2416,12 +2440,14 @@ export const App = {
 
 				const newFile: BpmnFile = {
 					id: vm.generateFileId(),
-					path: node.path,
-					name: node.name,
-					mimeType: node.mimeType || 'application/x-bpmn',
-					isVersionable: node.isVersionable || false,
-					isCheckedOut: node.isCheckedOut || false,
-					baseVersionName: node.baseVersionName || '',
+					kind: handle.kind,
+					readOnly: handle.readOnly,
+					path: handle.location || '',
+					name: handle.name,
+					mimeType: handle.mimeType || 'application/x-bpmn',
+					isVersionable: node?.isVersionable || false,
+					isCheckedOut: node?.isCheckedOut || false,
+					baseVersionName: node?.baseVersionName || '',
 					store: vm.$markRaw(newStore),
 					originalXml: originalXml,
 					isModified: false,
@@ -2433,13 +2459,14 @@ export const App = {
 					storeVersion: 0,
 				};
 
+				fileHandles.set(newFile.id, handle);
 				vm.files.push(vm.$markRaw(newFile));
 				vm.currentFileIndex = vm.files.length - 1;
 				vm.restoreFileState(vm.currentFileIndex);
 				vm.storeVersion++;
 
 				if (vm.instance) {
-					vm.instance.windowTitle = node.name;
+					vm.instance.windowTitle = vm.windowTitleFor(newFile);
 				}
 
 				// Center view on content
@@ -2451,10 +2478,18 @@ export const App = {
 			}
 
 		},
+		// The window's title: the file's name, marked when it cannot be written.
+		windowTitleFor(file: { name: string; readOnly?: boolean }): string {
+			return file.readOnly ? `${file.name} — ${this.t('app.bpmn-modeler.readOnly', undefined, 'Read-only')}` : file.name;
+		},
 
 		async saveFile() {
 			const vm = this;
-			if (vm.isSaving) return;
+			if (vm.isSaving || !vm.currentFile.path || vm.currentFile.readOnly) return;
+			if (vm.currentFile.kind === 'cloud') {
+				await vm.saveCloudFile();
+				return;
+			}
 
 			vm.isSaving = true;
 			vm.errorMessage = '';
@@ -2503,6 +2538,37 @@ export const App = {
 			}
 		},
 
+		// A cloud file: PUT through its handle, conditioned on the etag it was
+		// read with. Changed elsewhere meanwhile (412), it is not overwritten:
+		// the user is told and offered "Save As".
+		async saveCloudFile() {
+			const vm = this;
+			const file = vm.files[vm.currentFileIndex] as BpmnFile | undefined;
+			const handle = file ? fileHandles.get(file.id) : null;
+			if (!file || !handle) return;
+			vm.isSaving = true;
+			vm.errorMessage = '';
+			const xml = serializeStoreToXml(bpmnModelStore);
+			try {
+				const saved = await handle.write(xml, vm.currentFile.mimeType);
+				fileHandles.set(file.id, saved);
+				vm.originalXml = xml;
+				vm.isModified = false;
+				file.isModified = false;
+				file.originalXml = xml;
+				vm.files.splice(vm.currentFileIndex, 1, file);
+			} catch (error: any) {
+				if (error instanceof FileConflictError) {
+					vm.errorMessage = vm.t('app.bpmn-modeler.error.conflict', undefined, 'The file was changed elsewhere. Save it under another name.');
+					vm.openSaveAsDialog();
+				} else {
+					vm.errorMessage = error?.message || String(error) || vm.t('app.bpmn-modeler.error.saveFile');
+				}
+			} finally {
+				vm.isSaving = false;
+			}
+		},
+
 		// Save As (<wt-save-as>: a chip dragged to the Content Browser or the Desktop)
 		openSaveAsDialog() {
 			this.saveAsDialog.fileName = this.currentFile.name || 'Untitled.bpmn';
@@ -2511,26 +2577,44 @@ export const App = {
 		closeSaveAsDialog() {
 			this.saveAsDialog.visible = false;
 		},
-		// The chip has been written. A file in the repository becomes the open
-		// file; a copy in cloud storage (which this app does not write yet)
-		// leaves the open file as it is, and the dialog says so.
+		// The chip has been written. The file it made — in the repository or in
+		// cloud storage — becomes the open file: the title, the tab and the next
+		// Save are its, and a read-only file (a mail attachment) can be written
+		// from here on.
 		onSaveAsSaved(detail: SaveAsSaved) {
 			const vm = this;
-			if (detail.cloud) return;
+			const index = vm.currentFileIndex;
+			const file = index >= 0 && index < vm.files.length ? vm.files[index] as BpmnFile : null;
+			if (!file) return;
 			detail.adopted = true;
-			vm.currentFile.path = detail.path;
-			vm.currentFile.name = detail.name;
-			vm.currentFile.mimeType = detail.mimeType;
+			const kind: FileHandleKind = detail.cloud ? 'cloud' : 'repository';
+			for (const f of [vm.currentFile, file]) {
+				f.kind = kind;
+				f.readOnly = false;
+				f.path = detail.path;
+				f.name = detail.name;
+				f.mimeType = detail.mimeType;
+				f.isVersionable = false;
+				f.isCheckedOut = false;
+				f.baseVersionName = '';
+			}
 			vm.isModified = false;
-			if (vm.currentFileIndex >= 0 && vm.currentFileIndex < vm.files.length) {
-				vm.files[vm.currentFileIndex].path = detail.path;
-				vm.files[vm.currentFileIndex].name = detail.name;
-				vm.files[vm.currentFileIndex].mimeType = detail.mimeType;
-				vm.files[vm.currentFileIndex].isModified = false;
-				vm.files.splice(vm.currentFileIndex, 1, vm.files[vm.currentFileIndex]);
+			file.isModified = false;
+			vm.files.splice(index, 1, file);
+			if (detail.cloud) {
+				const c = detail.cloud;
+				fileHandles.set(file.id, cloudFileHandle(vm.instance.api, {
+					provider: c.provider, driveId: c.driveId, id: c.id, name: detail.name, mimeType: detail.mimeType,
+					size: null, folder: false, webUrl: c.webUrl ?? null, modified: null, created: null, nativeType: null,
+					parentId: null, etag: c.etag ?? null, owner: null, shared: false, hasThumbnail: false, path: null,
+					contentUrl: c.contentUrl || '',
+				}));
+			} else {
+				fileHandles.delete(file.id);
+				openFileHandle(vm.instance.api, { path: detail.path }).then((h) => { if (vm.files.includes(file)) fileHandles.set(file.id, h); }).catch(() => { /* the next save looks it up again */ });
 			}
 			if (vm.instance) {
-				vm.instance.windowTitle = detail.name;
+				vm.instance.windowTitle = vm.windowTitleFor(file);
 			}
 		},
 
@@ -2570,32 +2654,37 @@ export const App = {
 				event.dataTransfer.dropEffect = 'none';
 				return;
 			}
-			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file');
+			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file') || types.includes('application/x-webtop-files');
 			if (!isFileDrop) return; // palette drag — canvas owns the dropEffect
 			event.dataTransfer.dropEffect = 'copy';
 		},
 		async onCenterPaneDrop(event: DragEvent) {
 			const types = event.dataTransfer?.types ?? [];
 			if (types.includes('application/x-webtop-save')) return; // reject self-drop
-			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file');
+			const isFileDrop = types.includes('Files') || types.includes('application/x-webtop-file') || types.includes('application/x-webtop-files');
 			if (!isFileDrop) return; // palette drop — canvas already handled
 			await this.handleFileDropEvent(event);
 		},
 		async handleFileDropEvent(event: DragEvent) {
 			const vm = this;
 
-			// Content Browser (cross-iframe) file drag
-			const webtopFileData = event.dataTransfer?.getData('application/x-webtop-file');
-			if (webtopFileData) {
+			// Content Browser (cross-iframe) file drag: every file of the payload,
+			// from the repository or from cloud storage.
+			const multi = event.dataTransfer?.getData('application/x-webtop-files');
+			const single = multi ? '' : event.dataTransfer?.getData('application/x-webtop-file');
+			if (multi || single) {
+				const dropped: { path: string; ref: FileRef }[] = [];
 				try {
-					const fileInfo = JSON.parse(webtopFileData);
-					if (fileInfo.path) {
-						await vm.loadFile(fileInfo.path);
-						return;
+					const items = multi ? JSON.parse(multi) : [JSON.parse(single as string)];
+					for (const item of items) {
+						const ref = fileRefOfDragItem(item);
+						if (ref) dropped.push({ path: item.path, ref });
 					}
 				} catch (e) {
 					console.error('Failed to parse webtop file data:', e);
 				}
+				for (const d of dropped) await vm.loadFile(d.path, d.ref);
+				if (dropped.length > 0) return;
 			}
 
 			// Local files (OS)
@@ -2615,6 +2704,8 @@ export const App = {
 
 					const newFile: BpmnFile = {
 						id: vm.generateFileId(),
+						kind: 'repository',
+						readOnly: false,
 						path: '',
 						name: file.name,
 						mimeType: file.type || 'application/x-bpmn',

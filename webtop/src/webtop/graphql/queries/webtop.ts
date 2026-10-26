@@ -36,6 +36,7 @@ export const WEBTOP_QUERIES = {
             isAdminOnly
             singleton
             customWindowControls
+            fileHandles
             minimumWidth
             minimumHeight
             actions {

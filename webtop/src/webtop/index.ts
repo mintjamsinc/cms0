@@ -1855,7 +1855,11 @@ const WtDesktop = {
 			this.notificationCenterOpen = false;
 		},
 
-		async openFileWithApp(payload: { appId: string; filePath: string; mimeType: string }) {
+		// `file` names what is not a repository path — a cloud file, or a file served
+		// at a URL (a mail attachment) — for an app that opens files through
+		// lib/file-handle.ts (app.yml `fileHandles: true`); it reaches the app as
+		// `launchOptions.file`, as it is.
+		async openFileWithApp(payload: { appId: string; filePath: string | null; mimeType: string; file?: Record<string, unknown> | null }) {
 			const vm = this;
 			// Find the app by ID
 			const app = window.Webtop.apps.find((a: Application) => a.id === payload.appId);
@@ -1873,8 +1877,9 @@ const WtDesktop = {
 				: pos;
 			// Store launch options for the window component to pass to the app
 			(instance as any).launchOptions = {
-				path: payload.filePath,
+				path: payload.filePath || null,
 				mimeType: payload.mimeType,
+				...(payload.file ? { file: payload.file } : {}),
 			};
 			vm.appInstances.push(vm.$markRaw(instance));
 		},

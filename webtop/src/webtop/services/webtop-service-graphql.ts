@@ -241,6 +241,7 @@ interface AppNode {
   isAdminOnly?: boolean | null;
   singleton?: boolean | null;
   customWindowControls?: boolean | null;
+  fileHandles?: boolean | null;
   minimumWidth?: number | null;
   minimumHeight?: number | null;
   actions?: AppActionNode[] | null;
@@ -513,6 +514,7 @@ export class WebtopServiceGraphQL {
       minimumWidth: node.minimumWidth ?? undefined,
       minimumHeight: node.minimumHeight ?? undefined,
       customWindowControls: node.customWindowControls ?? undefined,
+      fileHandles: node.fileHandles ?? undefined,
       singleton: node.singleton ?? undefined,
       widgets: node.widgets ?? [],
     });

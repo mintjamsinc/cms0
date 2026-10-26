@@ -138,6 +138,14 @@ wt-inspector {
 	object-fit: contain;
 }
 
+/* The provider's embedded viewer of an Office document in a drive. */
+.detail-preview-embed {
+	width: 100%;
+	height: 100%;
+	border: 0;
+	background: #fff;
+}
+
 .detail-preview-video {
 	width: 100%;
 	height: 100%;

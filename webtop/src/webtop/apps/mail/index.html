@@ -449,18 +449,16 @@
 						<button type="button" class="wt wt-slim ms-2" @click="showRemote = true">{{ t('app.mail.message.showRemote', undefined, 'Show images') }}</button>
 					</div>
 
-					<!-- An attachment opens or downloads on click, can be dragged into a
-					     Content Browser window, and has a button that saves it to a folder. -->
+					<!-- An attachment opens on click, read-only, in the app of the Webtop for
+					     its type (or in a new tab when there is none), and can be dragged into
+					     a Content Browser window, a repository folder or a cloud folder alike.
+					     The href is the same URL, for "open in a new tab" and "copy link". -->
 					<div v-if="visibleAttachments.length" class="ml-attachments">
 						<span v-for="a of visibleAttachments" :key="a.index" class="ml-attachment ml-attachment-draggable" :title="a.mimeType"
 							draggable="true" @dragstart="onAttachmentDragStart(a, $event)" @dragend="onAttachmentDragEnd">
-							<a class="ml-attachment-link" :href="attachmentHref(a.index)">
+							<a class="ml-attachment-link" :href="attachmentHref(a.index)" @click.prevent="openAttachment(a)">
 								<i class="bi bi-paperclip"></i><span class="text-truncate">{{ a.name }}</span>
 							</a>
-							<button type="button" class="ml-chip-x" @click.prevent="saveAttachment(a)"
-								:title="t('app.mail.message.saveAttachment', undefined, 'Save to a folder…')">
-								<i class="bi bi-folder-plus"></i>
-							</button>
 						</span>
 					</div>
 
@@ -667,11 +665,6 @@
 			</template>
 		</wt-dialog>
 
-		<!-- Folder picker: saves an attachment into a folder of this workspace -->
-		<wt-folder-picker v-model:open="folderPicker.visible" :service="contentService"
-			:root-label="workspaceName" :initial-path="folderPicker.lastPath"
-			:title="t('app.mail.message.saveAttachmentTitle', undefined, 'Save attachment')"
-			:labels="folderPickerLabels" @select="onFolderPicked($event.detail)"></wt-folder-picker>
 		<!-- A file of the user's Google Drive / OneDrive to attach or link to. -->
 		<wt-cloud-picker v-model:open="cloudPicker.visible" :service="instance ? instance.api.cloud : null"
 			:provider="cloudPicker.provider" :provider-name="cloudPicker.providerName" mode="files" :multiple="cloudPicker.action === 'attach'"

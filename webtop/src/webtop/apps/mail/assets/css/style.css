@@ -532,15 +532,6 @@
 	text-decoration: none;
 }
 
-.ml-attachment .ml-chip-x {
-	flex-shrink: 0;
-	opacity: 0.6;
-}
-
-.ml-attachment:hover .ml-chip-x {
-	opacity: 1;
-}
-
 .ml-frame {
 	flex: 1;
 	min-height: 0;

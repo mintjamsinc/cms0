@@ -22,3 +22,4 @@ actions:
 minimumWidth: 480
 minimumHeight: 480
 customWindowControls: true
+fileHandles: true

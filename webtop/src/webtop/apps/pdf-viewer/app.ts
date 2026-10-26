@@ -4,6 +4,7 @@ import type { Node } from "../../graphql/types.js";
 import { BUILD_VERSION } from "../../utils/build-version.js";
 import { Bytes } from "../../utils/bytes.js";
 import { nodeToInspectorTarget, type InspectorTarget } from "../../lib/inspector-target.js";
+import { openFileHandle, fileRefOfDragItem, type FileHandle, type FileHandleKind, type FileRef } from "../../lib/file-handle.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -71,7 +72,12 @@ interface OutlineNode {
 
 interface PdfFile {
 	id: string;
-	// Repository path; '' for a local file dropped from the OS.
+	// Where the file lies (lib/file-handle.ts): a repository node, a cloud
+	// file, or a URL file such as a mail attachment. A local file dropped from
+	// the OS counts as 'url' with no path.
+	kind: FileHandleKind;
+	// Repository path or cloud:// location; '' for a URL file and for a local
+	// file dropped from the OS, neither of which is restored with a session.
 	path: string;
 	name: string;
 	mimeType: string;
@@ -155,11 +161,13 @@ let viewerResizeObserver: ResizeObserver | null = null;
 let keydownListener: ((e: KeyboardEvent) => void) | null = null;
 
 interface LaunchOptions {
-	path?: string;
+	path?: string | null;
 	mimeType?: string;
 	paths?: string[];
 	activeIndex?: number;
 	pageNumbers?: number[];
+	// A cloud file or a URL file (a mail attachment), from the shell.
+	file?: FileRef | null;
 }
 
 function isPdf(mimeType: string | undefined, name: string): boolean {
@@ -367,8 +375,8 @@ export const App = {
 						? Math.min(options.activeIndex, vm.files.length - 1)
 						: vm.files.length - 1;
 					if (idx >= 0) vm.selectTab(idx);
-				} else if (options?.path) {
-					await vm.loadFile(options.path);
+				} else if (options?.path || options?.file) {
+					await vm.loadFile(options.path || '', 0, options.file);
 				}
 
 				vm.$nextTick(() => {
@@ -659,6 +667,7 @@ export const App = {
 			if (!vm.createRuntime(id)) return null;
 			vm.files.push({
 				id,
+				kind: 'url',
 				path: '',
 				mimeType: 'application/pdf',
 				size: 0,
@@ -731,46 +740,55 @@ export const App = {
 			} catch { /* ignore */ }
 		},
 		// ---- Loading ----
-		async loadFile(path: string, pageNumber = 0) {
+		// `path` is a repository path or a cloud:// location; `ref` names a file
+		// the sender already knows (a cloud file from the Content Browser, a mail
+		// attachment at a URL, which has no path and is not restored).
+		async loadFile(path: string, pageNumber = 0, ref?: FileRef | null) {
 			const vm = this;
-			const existingIndex = (vm.files as PdfFile[]).findIndex((f) => f.path === path);
-			if (existingIndex >= 0) {
-				vm.selectTab(existingIndex);
-				return;
+			if (path) {
+				const existingIndex = (vm.files as PdfFile[]).findIndex((f) => f.path === path);
+				if (existingIndex >= 0) {
+					vm.selectTab(existingIndex);
+					return;
+				}
 			}
 			vm.errorMessage = '';
-			let node: Node | null;
+			let handle: FileHandle;
 			try {
-				node = await vm.instance.api.content.getNode(path);
+				handle = await openFileHandle(vm.instance.api, { path, file: ref });
 			} catch (error: any) {
 				vm.errorMessage = error?.message || vm.t('app.pdf-viewer.error.loadFile', undefined, 'Failed to load the PDF file');
 				return;
 			}
-			if (!node || !node.downloadUrl) {
-				vm.errorMessage = vm.t('app.pdf-viewer.error.fileNotFound', { path }, `File not found: ${path}`);
+			if (!handle.downloadURL) {
+				vm.errorMessage = vm.t('app.pdf-viewer.error.fileNotFound', { path: path || handle.name }, `File not found: ${path || handle.name}`);
 				return;
 			}
-			if (!isPdf(node.mimeType, node.name)) {
-				vm.errorMessage = vm.t('app.pdf-viewer.error.notPdf', { name: node.name }, `"${node.name}" is not a PDF file`);
+			if (!isPdf(handle.mimeType, handle.name)) {
+				vm.errorMessage = vm.t('app.pdf-viewer.error.notPdf', { name: handle.name }, `"${handle.name}" is not a PDF file`);
 				return;
 			}
-			// Opened by a concurrent call while the node was being fetched.
-			const racedIndex = (vm.files as PdfFile[]).findIndex((f) => f.path === node.path);
-			if (racedIndex >= 0) {
-				vm.selectTab(racedIndex);
-				return;
+			const location = handle.location || '';
+			// Opened by a concurrent call while the file was being looked up.
+			if (location) {
+				const racedIndex = (vm.files as PdfFile[]).findIndex((f) => f.path === location);
+				if (racedIndex >= 0) {
+					vm.selectTab(racedIndex);
+					return;
+				}
 			}
 			const file = vm.addFile({
-				path: node.path,
-				name: node.name,
-				mimeType: node.mimeType || 'application/pdf',
-				size: node.size || 0,
-				downloadUrl: node.downloadUrl,
-				modified: node.modified || '',
-				inspectorItem: nodeToInspectorTarget(node),
+				kind: handle.kind,
+				path: location,
+				name: handle.name,
+				mimeType: handle.mimeType || 'application/pdf',
+				size: handle.size || 0,
+				downloadUrl: handle.downloadURL,
+				modified: handle.modified || '',
+				inspectorItem: handle.inspectorTarget(),
 			});
 			if (!file) return;
-			await vm.loadDocument(file.id, { url: node.downloadUrl }, pageNumber);
+			await vm.loadDocument(file.id, { url: handle.downloadURL }, pageNumber);
 		},
 		async openLocalFile(blob: File) {
 			const vm = this;
@@ -1131,31 +1149,23 @@ export const App = {
 			const dt = event.dataTransfer;
 			if (!dt || dt.types.includes('application/x-webtop-save')) return;
 
-			// Content Browser: every selected file (collections skipped).
-			const paths: string[] = [];
+			// Content Browser: every selected file (collections skipped), from the
+			// repository or from cloud storage.
+			const dropped: { path: string; ref: FileRef | null }[] = [];
 			const multi = dt.getData('application/x-webtop-files');
-			if (multi) {
-				try {
-					for (const item of JSON.parse(multi)) {
-						if (item?.path && !item.isCollection) paths.push(item.path);
-					}
-				} catch (e) {
-					console.error('Failed to parse webtop files data:', e);
+			const single = multi ? '' : dt.getData('application/x-webtop-file');
+			try {
+				const items = multi ? JSON.parse(multi) : (single ? [JSON.parse(single)] : []);
+				for (const item of items) {
+					const ref = fileRefOfDragItem(item);
+					if (ref) dropped.push({ path: item.path, ref });
 				}
-			} else {
-				const single = dt.getData('application/x-webtop-file');
-				if (single) {
-					try {
-						const item = JSON.parse(single);
-						if (item?.path) paths.push(item.path);
-					} catch (e) {
-						console.error('Failed to parse webtop file data:', e);
-					}
-				}
+			} catch (e) {
+				console.error('Failed to parse webtop file data:', e);
 			}
-			if (paths.length > 0) {
-				for (const path of paths) {
-					await vm.loadFile(path);
+			if (dropped.length > 0) {
+				for (const d of dropped) {
+					await vm.loadFile(d.path, 0, d.ref);
 				}
 				return;
 			}
@@ -1193,7 +1203,8 @@ export const App = {
 			const vm = this;
 			unwatchActiveNode();
 			const f = vm.currentFile as PdfFile | null;
-			if (!f || !f.path) return;
+			// Only a repository node tells when it changes; a cloud file is read as it was.
+			if (!f || !f.path || f.kind !== 'repository') return;
 			const eventHub = vm.instance?.api?.eventHub;
 			if (!eventHub || typeof eventHub.watchNode !== 'function') return;
 			const path = f.path;
@@ -1213,7 +1224,7 @@ export const App = {
 				return;
 			}
 			const f = (vm.files as PdfFile[]).find((x) => x.path === path);
-			if (!node || !f) return;
+			if (!node || !f || f.kind !== 'repository') return;
 			const contentChanged = force || (!!f.modified && !!node.modified && f.modified !== node.modified);
 			f.name = node.name;
 			f.mimeType = node.mimeType || f.mimeType;
