@@ -348,13 +348,6 @@
 	flex: 1;
 }
 
-.pref-form {
-	display: flex;
-	flex-direction: column;
-	gap: 1rem;
-	max-width: 22rem;
-}
-
 .pref-select {
 	max-width: 22rem;
 }

@@ -295,30 +295,11 @@
 						<h2 class="pref-section-title">{{ t('app.preferences.security.title') }}</h2>
 
 						<div class="property-group">
-							<div class="property-group-title mb-2">{{ t('app.preferences.security.changePassword') }}</div>
-							<div class="pref-form">
-								<wt-field :label="t('app.preferences.security.currentPassword')">
-									<input type="password" class="wt w-100"
-										v-model="passwordForm.current" autocomplete="current-password">
-								</wt-field>
-								<wt-field :label="t('app.preferences.security.newPassword')">
-									<input type="password" class="wt w-100"
-										v-model="passwordForm.newPassword" autocomplete="new-password">
-								</wt-field>
-								<wt-field :label="t('app.preferences.security.confirmPassword')">
-									<input type="password" class="wt w-100"
-										v-model="passwordForm.confirm" autocomplete="new-password">
-								</wt-field>
-								<div class="d-flex gap-2 mt-1">
-									<button class="wt wt-primary" @click="changePassword"
-										:disabled="!canChangePassword || passwordSaving">
-										{{ t('app.preferences.security.changePassword') }}
-									</button>
-								</div>
-								<wt-inline-message v-if="passwordError" type="error">
-									{{ passwordError }}
-								</wt-inline-message>
-							</div>
+							<div class="property-group-title mb-2">{{ t('app.preferences.security.password.title') }}</div>
+							<div class="text-muted fs-small mb-3">{{ t('app.preferences.security.password.desc') }}</div>
+							<button class="wt wt-primary" @click="openPasswordDialog">
+								{{ t('app.preferences.security.changePassword') }}
+							</button>
 						</div>
 
 						<!-- Two-step verification (TOTP) -->
@@ -657,6 +638,36 @@
 				<button class="wt" :class="passwordPrompt.danger ? 'wt-danger' : 'wt-primary'"
 					@click="submitPasswordPrompt" :disabled="!passwordPrompt.password || passwordPrompt.busy">
 					{{ passwordPrompt.confirmLabel }}
+				</button>
+			</template>
+		</wt-dialog>
+
+		<!-- Password change -->
+		<wt-dialog v-model:open="passwordDialog.visible" size="sm" @close="closePasswordDialog">
+			<template v-slot:title="d">
+				<i class="bi bi-key me-2"></i>{{ t('app.preferences.security.changePassword') }}
+			</template>
+			<template v-slot="d">
+				<div class="wt-fields">
+					<wt-field :label="t('app.preferences.security.currentPassword')">
+						<input type="password" class="wt w-100" v-model="passwordDialog.current"
+							autocomplete="current-password" @keydown="onPasswordDialogKeydown">
+					</wt-field>
+					<wt-field :label="t('app.preferences.security.newPassword')">
+						<input type="password" class="wt w-100" v-model="passwordDialog.newPassword"
+							autocomplete="new-password" @keydown="onPasswordDialogKeydown">
+					</wt-field>
+					<wt-field :label="t('app.preferences.security.confirmPassword')">
+						<input type="password" class="wt w-100" v-model="passwordDialog.confirm"
+							autocomplete="new-password" @keydown="onPasswordDialogKeydown">
+					</wt-field>
+				</div>
+				<wt-inline-message v-if="passwordDialog.error" type="error" class="mt-2">{{ passwordDialog.error }}</wt-inline-message>
+			</template>
+			<template v-slot:footer="d">
+				<button class="wt" @click="closePasswordDialog">{{ t('common.cancel') }}</button>
+				<button class="wt wt-primary" @click="changePassword" :disabled="!canChangePassword || passwordDialog.busy">
+					{{ t('app.preferences.security.password.submit') }}
 				</button>
 			</template>
 		</wt-dialog>

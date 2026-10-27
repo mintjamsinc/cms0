@@ -720,6 +720,11 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 					return errorResult("Current password is incorrect", "INVALID_CREDENTIALS");
 				}
 			}
+			// Checked against the stored hash, so it also holds when an
+			// administrator changes someone else's password without the current one.
+			if (UserCredentials.verifyPassword(systemSession, username, newPassword)) {
+				return errorResult("The new password is the same as the current one", "PASSWORD_UNCHANGED");
+			}
 			UserCredentials.setPassword(systemSession, username, newPassword);
 		} finally {
 			systemSession.logout();

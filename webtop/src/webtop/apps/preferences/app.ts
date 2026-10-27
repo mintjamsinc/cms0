@@ -208,13 +208,14 @@ const App = {
 			profileError: '',
 
 			// Security
-			passwordForm: {
+			passwordDialog: {
+				visible: false,
 				current: '',
 				newPassword: '',
 				confirm: '',
+				error: '',
+				busy: false,
 			},
-			passwordSaving: false,
-			passwordError: '',
 
 			// Security - second factors
 			securityService: null as SecurityServiceGraphQL | null,
@@ -339,10 +340,9 @@ const App = {
 			];
 		},
 		canChangePassword() {
-			return this.passwordForm.current
-				&& this.passwordForm.newPassword
-				&& this.passwordForm.confirm
-				&& this.passwordForm.newPassword === this.passwordForm.confirm;
+			return this.passwordDialog.current
+				&& this.passwordDialog.newPassword
+				&& this.passwordDialog.confirm;
 		},
 	},
 	methods: {
@@ -1127,38 +1127,57 @@ const App = {
 		// Security - Password
 		// =====================================================================
 
+		openPasswordDialog() {
+			this.passwordDialog.current = '';
+			this.passwordDialog.newPassword = '';
+			this.passwordDialog.confirm = '';
+			this.passwordDialog.error = '';
+			this.passwordDialog.busy = false;
+			this.passwordDialog.visible = true;
+		},
+		closePasswordDialog() {
+			this.passwordDialog.visible = false;
+			this.passwordDialog.current = '';
+			this.passwordDialog.newPassword = '';
+			this.passwordDialog.confirm = '';
+		},
+		onPasswordDialogKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') this.changePassword();
+		},
 		async changePassword() {
 			const vm = this;
-			if (!vm.canChangePassword) return;
+			if (!vm.canChangePassword || vm.passwordDialog.busy) return;
 
-			if (vm.passwordForm.newPassword !== vm.passwordForm.confirm) {
-				vm.passwordError = vm.t('app.preferences.msg.passwordsNoMatch', undefined, 'Passwords do not match.');
+			if (vm.passwordDialog.newPassword !== vm.passwordDialog.confirm) {
+				vm.passwordDialog.error = vm.t('app.preferences.msg.passwordsNoMatch', undefined, 'Passwords do not match.');
+				return;
+			}
+			if (vm.passwordDialog.newPassword === vm.passwordDialog.current) {
+				vm.passwordDialog.error = vm.t('app.preferences.msg.passwordUnchanged', undefined, 'The new password must be different from the current one.');
 				return;
 			}
 
-			vm.passwordSaving = true;
-			vm.passwordError = '';
+			vm.passwordDialog.busy = true;
+			vm.passwordDialog.error = '';
 
 			try {
 				const username = vm.instance.currentUser.id;
 				const result = await vm.idp.changePassword({
 					username,
-					currentPassword: vm.passwordForm.current,
-					newPassword: vm.passwordForm.newPassword,
+					currentPassword: vm.passwordDialog.current,
+					newPassword: vm.passwordDialog.newPassword,
 				});
 
 				if (result.errors?.length) {
-					vm.passwordError = result.errors[0].message;
+					vm.passwordDialog.error = vm.securityErrorMessage(result.errors, 'app.preferences.msg.passwordChangeFailed', 'Failed to change password.');
 				} else {
-					vm.passwordForm.current = '';
-					vm.passwordForm.newPassword = '';
-					vm.passwordForm.confirm = '';
+					vm.closePasswordDialog();
 					vm.showToast(vm.t('app.preferences.msg.passwordChanged', undefined, 'Password changed successfully.'));
 				}
 			} catch (e: any) {
-				vm.passwordError = e.message || vm.t('app.preferences.msg.passwordChangeFailed', undefined, 'Failed to change password.');
+				vm.passwordDialog.error = e.message || vm.t('app.preferences.msg.passwordChangeFailed', undefined, 'Failed to change password.');
 			} finally {
-				vm.passwordSaving = false;
+				vm.passwordDialog.busy = false;
 			}
 		},
 
@@ -1181,11 +1200,13 @@ const App = {
 		},
 
 		/** Shows an in-band mutation error in the section, mapping the codes users can act on. */
-		securityError(errors: IdpMutationError[] | null | undefined, fallbackKey: string, fallback: string): string {
+		securityErrorMessage(errors: IdpMutationError[] | null | undefined, fallbackKey: string, fallback: string): string {
 			const code = errors && errors.length ? errors[0].code : null;
 			switch (code) {
 				case 'INVALID_CREDENTIALS':
 					return this.t('app.preferences.msg.wrongPassword', undefined, 'The password is incorrect.');
+				case 'PASSWORD_UNCHANGED':
+					return this.t('app.preferences.msg.passwordUnchanged', undefined, 'The new password must be different from the current one.');
 				case 'INVALID_CODE':
 					return this.t('app.preferences.msg.invalidCode', undefined, 'The code is not valid.');
 				case 'NOT_ENROLLED':
@@ -1257,7 +1278,7 @@ const App = {
 						currentPassword: password,
 					});
 					if (result.errors?.length || !result.otpauthUri || !result.secret) {
-						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+						return vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					vm.openTotpDialog(result.otpauthUri, result.secret);
 					return null;
@@ -1295,7 +1316,7 @@ const App = {
 					code: vm.totpDialog.code.trim(),
 				});
 				if (result.errors?.length) {
-					vm.totpDialog.error = vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					vm.totpDialog.error = vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					if (result.errors[0].code === 'NOT_ENROLLED') {
 						vm.closeTotpDialog();
 						vm.setSecurityError(vm.totpDialog.error);
@@ -1325,7 +1346,7 @@ const App = {
 						currentPassword: password,
 					});
 					if (result.errors?.length) {
-						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+						return vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
 					return null;
@@ -1345,7 +1366,7 @@ const App = {
 						currentPassword: password,
 					});
 					if (result.errors?.length) {
-						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+						return vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
 					vm.openCodesDialog(result.backupCodes || []);
@@ -1407,7 +1428,7 @@ const App = {
 						currentPassword: password,
 					});
 					if (started.errors?.length || !started.options) {
-						return vm.securityError(started.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+						return vm.securityErrorMessage(started.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					// Close the prompt before the browser's own passkey dialog opens.
 					vm.closePasswordPrompt();
@@ -1439,7 +1460,7 @@ const App = {
 					credential,
 				});
 				if (result.errors?.length || !result.passkey) {
-					vm.setSecurityError(vm.securityError(result.errors, 'app.preferences.msg.passkeyCreateFailed', 'The passkey could not be created.'));
+					vm.setSecurityError(vm.securityErrorMessage(result.errors, 'app.preferences.msg.passkeyCreateFailed', 'The passkey could not be created.'));
 					return;
 				}
 				if (result.security) vm.security = result.security;
@@ -1494,7 +1515,7 @@ const App = {
 					displayName: name,
 				});
 				if (result.errors?.length) {
-					vm.passkeyNameDialog.error = vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+					vm.passkeyNameDialog.error = vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					return;
 				}
 				if (result.security) vm.security = result.security;
@@ -1520,7 +1541,7 @@ const App = {
 						currentPassword: password,
 					});
 					if (result.errors?.length) {
-						return vm.securityError(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
+						return vm.securityErrorMessage(result.errors, 'app.preferences.msg.securityFailed', 'The change could not be saved.');
 					}
 					if (result.security) vm.security = result.security;
 					return null;
