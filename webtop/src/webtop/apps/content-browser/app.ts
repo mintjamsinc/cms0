@@ -565,7 +565,6 @@ export const App = {
 			cloudResult: {
 				visible: false,
 				title: '',
-				entries: [] as CloudEntry[],
 				errors: [] as string[],
 			},
 			// The repository folder picker: where selected cloud items are copied
@@ -2522,7 +2521,7 @@ export const App = {
 		async copyCloudLink(item: ContentItem) {
 			const url = item.cloud?.webUrl;
 			if (!url) {
-				this.showCloudMessage(item.name, [], [this.t('app.content-browser.cloud.noLink', undefined, 'This item has no link to copy.')]);
+				this.showCloudMessage(item.name, [this.t('app.content-browser.cloud.noLink', undefined, 'This item has no link to copy.')]);
 				return;
 			}
 			await this.copyToClipboard(url);
@@ -2572,7 +2571,7 @@ export const App = {
 				allowed = await vm.instance.api.connections.ensure(provider, 'files');
 			} catch (e: any) {
 				const blocked = e?.message === 'popup_blocked';
-				vm.showCloudMessage(vm.cloudProviderLabel(provider), [], [blocked
+				vm.showCloudMessage(vm.cloudProviderLabel(provider), [blocked
 					? vm.t('app.content-browser.cloud.popupBlocked', undefined, 'The browser blocked the sign-in window. Allow popups for this site and try again.')
 					: (e?.message || String(e))]);
 				return;
@@ -2637,10 +2636,10 @@ export const App = {
 				vm.uploadMonitor = null;
 			}
 			if (errors.length) {
-				vm.showCloudMessage(vm.t('app.content-browser.cloud.copyToRepositoryTitle', undefined, 'Copy to repository'), [],
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.copyToRepositoryTitle', undefined, 'Copy to repository'),
 					[vm.t('app.content-browser.cloud.copyFailed', { n: errors.length, error: errors[0] }, '{n} item(s) could not be copied: {error}')]);
 			} else if (copied && folder !== vm.currentPath) {
-				vm.showCloudMessage(vm.t('app.content-browser.cloud.copiedTo', { folder }, 'Copied to {folder}'), [], []);
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.copiedTo', { folder }, 'Copied to {folder}'), []);
 			}
 		},
 		/** Uploads repository items (files and folders) to the picked folder of a drive. */
@@ -2654,7 +2653,6 @@ export const App = {
 				target: { currentFile: '', progressPercent: 0 },
 				cancel() { this.isCanceled = true; },
 			};
-			const exported: CloudEntry[] = [];
 			const errors: string[] = [];
 			try {
 				let done = 0;
@@ -2663,7 +2661,8 @@ export const App = {
 					vm.uploadMonitor.target.currentFile = item.name;
 					vm.uploadMonitor.target.progressPercent = Math.round((done / items.length) * 100);
 					try {
-						exported.push(await cloud.exportFile(provider, item.path, { driveId: folder.driveId || CLOUD_MY_DRIVE, folderId: folder.id }));
+						const entry = await cloud.exportFile(provider, item.path, { driveId: folder.driveId || CLOUD_MY_DRIVE, folderId: folder.id });
+						(vm._cloudSource as CloudSource | null)?.notePut(entry, { provider, driveId: folder.driveId, id: folder.id });
 					} catch (e: any) {
 						errors.push(`${item.name}: ${e?.message || String(e)}`);
 					}
@@ -2672,10 +2671,14 @@ export const App = {
 			} finally {
 				vm.uploadMonitor = null;
 			}
-			vm.showCloudMessage(vm.t('app.content-browser.cloud.exportedTo', { name: providerName, folder: folder.name }, 'Exported to {name}: {folder}'), exported, errors);
+			// Done quietly, like an upload; only what failed is told.
+			if (errors.length) {
+				vm.showCloudMessage(vm.t('app.content-browser.cloud.copyTitle', { name: providerName }, 'Copy to {name}'),
+					[vm.t('app.content-browser.cloud.copyFailed', { n: errors.length, error: errors[0] }, '{n} item(s) could not be copied: {error}')]);
+			}
 		},
-		showCloudMessage(title: string, entries: CloudEntry[], errors: string[]) {
-			this.cloudResult = { visible: true, title, entries, errors };
+		showCloudMessage(title: string, errors: string[]) {
+			this.cloudResult = { visible: true, title, errors };
 		},
 		closeCloudResult() {
 			this.cloudResult.visible = false;
@@ -2691,7 +2694,7 @@ export const App = {
 				if (!link.webUrl) throw new Error(vm.t('app.content-browser.cloud.linkNoUrl', undefined, 'The link has no address to open.'));
 				window.open(link.webUrl, '_blank', 'noopener');
 			} catch (e: any) {
-				vm.showCloudMessage(item.name, [], [e?.message || String(e)]);
+				vm.showCloudMessage(item.name, [e?.message || String(e)]);
 			}
 		},
 		// wt-inspector event handlers — thin wrappers that delegate to the
@@ -3271,6 +3274,7 @@ export const App = {
 				const entry = await cloud.exportContent(location.provider, name, mimeType, content, {
 					driveId: location.driveId, folderId: location.id, convert: !!convert,
 				});
+				(vm._cloudSource as CloudSource | null)?.notePut(entry, location);
 				if (saveAsToken) {
 					const channel = new BroadcastChannel('webtop-save-as');
 					channel.postMessage({
@@ -4638,6 +4642,7 @@ export const App = {
 		async _moveOrCopyInCloud(dragItems: any[], destPath: string, isCopy: boolean) {
 			const vm = this;
 			const cloud = vm.instance?.api.cloud;
+			const source = vm._cloudSource as CloudSource | null;
 			const location = parseCloudPath(destPath);
 			if (!cloud || !location) return;
 			vm.errorMessage = '';
@@ -4657,9 +4662,11 @@ export const App = {
 					vm.uploadMonitor.target.progressPercent = Math.round((done / dragItems.length) * 100);
 					try {
 						if (isCopy) {
-							await cloud.copy(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.driveId as string, location.id);
+							source?.notePut(await cloud.copy(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.driveId as string, location.id), location);
 						} else {
-							await cloud.move(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.id);
+							const moved = await cloud.move(info.provider, info.driveId || CLOUD_MY_DRIVE, info.id, location.id);
+							source?.noteRemoved(info, location);
+							source?.notePut(moved, location);
 						}
 					} catch (e: any) {
 						errors.push(`${d.name}: ${e?.message || String(e)}`);
@@ -4688,6 +4695,7 @@ export const App = {
 		async uploadToCloud(files: { file: File; path: string }[], destPath: string) {
 			const vm = this;
 			const cloud = vm.instance?.api.cloud;
+			const source = vm._cloudSource as CloudSource | null;
 			const location = parseCloudPath(destPath);
 			if (!cloud || !location || !vm.uploadMonitor) return;
 			const known = destPath === vm.currentPath ? (vm.items as ContentItem[]) : [];
@@ -4707,6 +4715,7 @@ export const App = {
 				}
 				if (!id) {
 					const made = await cloud.createFolder(location.provider, location.driveId as string, parentId, name);
+					source?.notePut(made, { ...location, id: parentId });
 					id = made.id;
 				}
 				folders.set(dir, id);
@@ -4741,6 +4750,11 @@ export const App = {
 					try { message = (await response.json()).message || message; } catch (_) { /* no JSON */ }
 					throw new Error(`${name}: ${message}`);
 				}
+				try {
+					for (const entry of await response.json() as CloudEntry[]) {
+						source?.notePut(entry, { ...location, id: folderId });
+					}
+				} catch (_) { /* uploaded; the listing shows it once the provider does */ }
 				done++;
 				vm.uploadMonitor.target.progressPercent = Math.round((done / files.length) * 100);
 			}

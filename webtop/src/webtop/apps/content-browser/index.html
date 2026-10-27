@@ -1385,16 +1385,9 @@
 			:title="folderPicker.action === 'link' ? t('app.content-browser.cloud.linkInRepositoryTitle', undefined, 'Put a link in the repository') : t('app.content-browser.cloud.copyToRepositoryTitle', undefined, 'Copy to repository')"
 			:labels="folderPickerLabels" @select="onFolderPicked($event.detail)"></wt-folder-picker>
 
-		<!-- The outcome of an export, or a message about a cloud file: there is no status line to carry it. -->
+		<!-- What failed in a copy, or a message about a cloud file: there is no status line to carry it. -->
 		<wt-dialog :open="cloudResult.visible" size="sm" :title="cloudResult.title" @close="closeCloudResult">
 			<template v-slot="d">
-				<ul v-if="cloudResult.entries.length" class="cb-cloud-result-list">
-					<li v-for="e in cloudResult.entries" :key="e.id">
-						<i class="bi bi-check-circle text-success me-1"></i>
-						<a v-if="e.webUrl" :href="e.webUrl" target="_blank" rel="noopener">{{ e.name }}</a>
-						<span v-else>{{ e.name }}</span>
-					</li>
-				</ul>
 				<wt-inline-message v-for="(error, i) in cloudResult.errors" :key="i" type="error" class="mt-2">{{ error }}</wt-inline-message>
 			</template>
 			<template v-slot:footer="d">

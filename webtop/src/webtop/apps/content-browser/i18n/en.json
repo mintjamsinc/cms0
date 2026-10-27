@@ -159,7 +159,6 @@
 	"app.content-browser.cloud.loading": "Loading…",
 	"app.content-browser.cloud.empty": "This folder is empty.",
 	"app.content-browser.cloud.importFailed": "{n} file(s) could not be imported from {name}: {error}",
-	"app.content-browser.cloud.exportedTo": "Exported to {name}: {folder}",
 	"app.content-browser.cloud.popupBlocked": "The browser blocked the sign-in window. Allow popups for this site and try again.",
 	"app.content-browser.cloud.linkUnreadable": "The link could not be read.",
 	"app.content-browser.cloud.linkNoUrl": "The link has no address to open.",

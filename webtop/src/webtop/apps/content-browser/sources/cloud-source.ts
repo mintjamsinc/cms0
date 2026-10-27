@@ -206,10 +206,51 @@ export interface CloudListing {
 	crumbs: CloudCrumbs;
 }
 
+/**
+ * How long a change made here is laid over the listings at most. Google
+ * lists a shared drive from an index that catches up with a change some
+ * seconds later (My Drive does not lag); a change the provider never shows
+ * (someone undid it meanwhile, say) stops being laid over after this.
+ */
+const PENDING_TTL = 120_000;
+
+/**
+ * A change made through the browser that a listing read right afterwards
+ * may not show yet: an entry put into a folder (made, uploaded, copied,
+ * moved there) or renamed, or an entry taken out (deleted, moved away).
+ */
+interface PendingChange {
+	kind: 'put' | 'remove';
+	provider: string;
+	id: string;
+	/** What the provider answered, for a put. */
+	entry: CloudEntry | null;
+	/**
+	 * A put: the folder it went into, where it is added when the listing
+	 * lacks it; null for a rename, replaced wherever it is listed. A remove:
+	 * the folder it stays listed in (a move's destination), or null.
+	 */
+	folder: string | null;
+	at: number;
+}
+
+/** A folder of a drive as a key: provider, drive, folder id (empty at the root). */
+function folderKey(location: { provider: string; driveId: string | null; id: string | null }): string {
+	return `${location.provider}|${location.driveId || CLOUD_MY_DRIVE}|${location.id || ''}`;
+}
+
+/** Whether `a` comes before `b` in a listing of the order: folders first, as the providers list them. */
+function listedBefore(a: CloudContentItem, b: CloudContentItem, order: CloudOrder): boolean {
+	if (a.isCollection !== b.isCollection) return a.isCollection;
+	if (order === 'MODIFIED_DESC') return (a.lastModified?.getTime() ?? 0) > (b.lastModified?.getTime() ?? 0);
+	return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) < 0;
+}
+
 /** The two listings above the drives need no request of their own apart from the drives. */
 export class CloudSource {
 	#cloud: CloudServiceGraphQL;
 	#labels: CloudLabels;
+	#pending: PendingChange[] = [];
 
 	constructor(cloud: CloudServiceGraphQL, labels: CloudLabels) {
 		this.#cloud = cloud;
@@ -277,14 +318,82 @@ export class CloudSource {
 		};
 	}
 
-	/** One page of a folder of a drive. The crumbs are the caller's (it knows where it is). */
+	/**
+	 * One page of a folder of a drive. The crumbs are the caller's (it knows
+	 * where it is). The changes made here that the provider does not list yet
+	 * are laid over it.
+	 */
 	async listFolder(location: CloudLocation, crumbs: CloudCrumbs, cursor: string | null, order: CloudOrder, first = 200): Promise<CloudListing> {
 		const page = await this.#cloud.listChildren(location.provider, location.driveId as string, location.id, { after: cursor, first, order });
+		const items = page.entries.map(e => cloudEntryToContentItem(e, crumbs, this.#labels));
 		return {
-			items: page.entries.map(e => cloudEntryToContentItem(e, crumbs, this.#labels)),
+			items: this.#applyPending(location, crumbs, items, order, !cursor),
 			nextCursor: page.nextCursor,
 			crumbs,
 		};
+	}
+
+	/**
+	 * An entry put into a folder (made, uploaded, copied or moved there), or
+	 * renamed when `folder` is null: shown so in the listings read until the
+	 * provider lists it so itself.
+	 */
+	notePut(entry: CloudEntry, folder: { provider: string; driveId: string | null; id: string | null } | null) {
+		const earlier = this.#pending.find(c => c.kind === 'put' && c.provider === entry.provider && c.id === entry.id);
+		// A rename of an entry just put somewhere still adds it there.
+		const key = folder ? folderKey(folder) : (earlier?.folder ?? null);
+		this.#pending = this.#pending.filter(c => c !== earlier);
+		this.#pending.push({ kind: 'put', provider: entry.provider, id: entry.id, entry, folder: key, at: Date.now() });
+	}
+
+	/** An entry taken out of its folder: deleted, or moved into `stays` (where it is not taken out). */
+	noteRemoved(entry: { provider: string; id: string | null }, stays: { provider: string; driveId: string | null; id: string | null } | null = null) {
+		if (!entry.id) return;
+		const key = stays ? folderKey(stays) : null;
+		// A put into the folder it stays in still adds it there; any other is undone.
+		this.#pending = this.#pending.filter(c => !(c.provider === entry.provider && c.id === entry.id && (c.kind === 'remove' || key === null || c.folder !== key)));
+		this.#pending.push({ kind: 'remove', provider: entry.provider, id: entry.id, entry: null, folder: key, at: Date.now() });
+	}
+
+	/**
+	 * Lays the changes made here over a page of a folder: an entry removed is
+	 * left out, one renamed or replaced shows what the provider answered, one
+	 * put into the folder is added in the listing's order (on the first page
+	 * only; the pages after it skip what the list already has). A put the
+	 * listing shows as it was answered is done with; a remove lasts its time.
+	 */
+	#applyPending(location: CloudLocation, crumbs: CloudCrumbs, items: CloudContentItem[], order: CloudOrder, firstPage: boolean): CloudContentItem[] {
+		const now = Date.now();
+		this.#pending = this.#pending.filter(c => now - c.at < PENDING_TTL);
+		const key = folderKey(location);
+		let result = items;
+		for (const change of this.#pending.slice()) {
+			if (change.provider !== location.provider) continue;
+			if (change.folder !== null && change.folder !== key && change.kind === 'put') continue;
+			const index = result.findIndex(i => i.cloud.id === change.id);
+			if (change.kind === 'remove') {
+				if (change.folder !== key && index >= 0) {
+					result = result.filter((_, i) => i !== index);
+				}
+				continue;
+			}
+			const entry = change.entry as CloudEntry;
+			if (index >= 0) {
+				const listed = result[index];
+				const answered = entry.modified ? new Date(entry.modified).getTime() : 0;
+				if (listed.name === entry.name && (listed.lastModified?.getTime() ?? 0) >= answered) {
+					this.#pending = this.#pending.filter(c => c !== change);
+				} else {
+					result = result.slice();
+					result[index] = cloudEntryToContentItem(entry, crumbs, this.#labels);
+				}
+			} else if (firstPage && change.folder === key) {
+				const item = cloudEntryToContentItem(entry, crumbs, this.#labels);
+				const at = result.findIndex(i => listedBefore(item, i, order));
+				result = at < 0 ? [...result, item] : [...result.slice(0, at), item, ...result.slice(at)];
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -399,15 +508,21 @@ export class CloudSource {
 	}
 
 	async createFolder(location: CloudLocation, name: string): Promise<CloudEntry> {
-		return this.#cloud.createFolder(location.provider, location.driveId as string, location.id, name);
+		const entry = await this.#cloud.createFolder(location.provider, location.driveId as string, location.id, name);
+		this.notePut(entry, location);
+		return entry;
 	}
 
 	async rename(item: CloudItemInfo, name: string): Promise<CloudEntry> {
-		return this.#cloud.rename(item.provider, item.driveId, item.id as string, name);
+		const entry = await this.#cloud.rename(item.provider, item.driveId, item.id as string, name);
+		this.notePut(entry, null);
+		return entry;
 	}
 
 	async delete(item: CloudItemInfo): Promise<boolean> {
-		return this.#cloud.delete(item.provider, item.driveId, item.id as string);
+		const deleted = await this.#cloud.delete(item.provider, item.driveId, item.id as string);
+		this.noteRemoved(item);
+		return deleted;
 	}
 
 	/** The path of the listing above a location: the crumbs' parent, the drive list, or the provider's root. */

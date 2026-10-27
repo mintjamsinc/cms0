@@ -159,7 +159,6 @@
 	"app.content-browser.cloud.loading": "読み込み中…",
 	"app.content-browser.cloud.empty": "このフォルダーは空です。",
 	"app.content-browser.cloud.importFailed": "{name} から {n} 件のファイルを取り込めませんでした: {error}",
-	"app.content-browser.cloud.exportedTo": "{name} へ書き出しました: {folder}",
 	"app.content-browser.cloud.popupBlocked": "ブラウザーがサインイン用のウィンドウをブロックしました。このサイトのポップアップを許可してからやり直してください。",
 	"app.content-browser.cloud.linkUnreadable": "リンクを読み取れませんでした。",
 	"app.content-browser.cloud.linkNoUrl": "このリンクには開くアドレスがありません。",
