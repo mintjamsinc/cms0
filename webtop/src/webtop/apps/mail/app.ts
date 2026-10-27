@@ -24,6 +24,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { ApplicationInstance } from "../../services/webtop-service.js";
 import { initUi } from "../../ui/index.js";
+import type { WtToastMessage } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import {
 	createLocalizationSnapshot,
@@ -276,6 +277,8 @@ const App = {
 			olderDialog: { visible: false, accountId: '', days: 90 },
 			confirmDialog: { visible: false, title: '', message: '' },
 			statusMessage: '',
+			// Completion toast (<wt-toast>): shows over an open dialog, unlike the status bar
+			toast: null as WtToastMessage | null,
 
 			labels: { colors: [], tags: [] } as MailLabels,
 			// Narrows whatever box is selected.
@@ -1451,7 +1454,7 @@ const App = {
 				await this.loadAccounts();
 				const fresh = (this.accounts as MailAccount[]).find((a) => a.id === saved.id) || saved;
 				this.editAccount(fresh);
-				this.showStatus(this.t('app.mail.account.saved', undefined, 'Account saved. Mail is downloaded in the background.'));
+				this.toast = { text: this.t('app.mail.account.saved', undefined, 'Account saved. Mail is downloaded in the background.') };
 				this.loadList();
 			} catch (e) {
 				f.error = errorText(e);
