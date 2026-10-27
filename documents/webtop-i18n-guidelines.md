@@ -149,6 +149,19 @@ evaluated as **`{name}`**: write only that part in the BPMN
 (`"Review {name}"` / `"確認：{name}"`). Without a bundle the BPMN part alone is
 shown, so the `en` value is then the BPMN `name` with the words added.
 
+**File kinds.** The kind shown for a file (Content Browser's Type column,
+the Inspector's Type field and its MIME type suggestions) is localized by
+convention under **`webtop.fileKind.<mimeType>`**, the MIME type in lower
+case (`webtop.fileKind.text/markdown`); folders use
+**`webtop.fileKind.folder`**. `displayType()` / `fileKindName()` in
+`lib/inspector-utils.ts` take the caller's `t()` and fall back to the
+built-in English description (`MimeTypes.description()`), then to the MIME
+type itself, so a type no bundle names still shows something. The names live
+in the global bundle `file-kinds.<locale>.json`; a unit that brings its own
+file type (an add-on's `application/vnd.…`) adds its name in its own global
+bundle under the same key. The `webtop.fileType.*` keys are a different thing:
+the choices of the New File dialog.
+
 App **action** labels (`app.yml` `actions.<id>.label`) are not surfaced in any
 shell UI today, so there is nothing to translate yet. When an action becomes
 visible (e.g. a future "open with" menu), localize it under

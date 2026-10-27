@@ -2138,6 +2138,7 @@ export class MimeTypes {
 			'application/bpmn+xml': 'Business Process Model and Notation',
 			'application/cmmn+xml': 'Case Management Model and Notation',
 			'application/dmn+xml': 'Decision Model and Notation',
+			'application/vnd.mintjams.cms.memo+json': 'Memo',
 			'application/x-pw': 'Pathetic Writer document',
 			'text/x-lilypond': 'Lilypond music sheet',
 			'application/vnd.ms-publisher': 'Microsoft Publisher document',

@@ -2819,7 +2819,7 @@ export const App = {
 			return this.instance.util.dates.format(item.lastModified, options);
 		},
 		displayType(item: any) {
-			return displayTypeUtil(item);
+			return displayTypeUtil(item, (id, params, fallback) => this.t(id, params, fallback));
 		},
 		// MIME / Encoding inline editors moved into wt-inspector.
 		displayVersion(item: any) {
@@ -2911,10 +2911,9 @@ export const App = {
 					av = a.baseVersionName?.toLowerCase() ?? '';
 					bv = b.baseVersionName?.toLowerCase() ?? '';
 				} else if (column == 'kind') {
-					const ad = this.instance.util.mimeTypes.description(a.mimeType) || a.mimeType || '';
-					const bd = this.instance.util.mimeTypes.description(b.mimeType) || b.mimeType || '';
-					av = ad.toLowerCase();
-					bv = bd.toLowerCase();
+					// By the name shown in the Type column.
+					av = this.displayType(a).toLowerCase();
+					bv = this.displayType(b).toLowerCase();
 				} else if (column == 'size') {
 					// Folders sort by their total once it has arrived; one still
 					// unknown sorts as the smallest.

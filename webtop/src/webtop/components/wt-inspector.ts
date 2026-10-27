@@ -76,6 +76,7 @@ import { translate, createLocalizationSnapshot } from '../composables/use-locali
 import {
 	displaySize as displaySizeUtil,
 	displayType as displayTypeUtil,
+	fileKindName as fileKindNameUtil,
 	displayEncoding as displayEncodingUtil,
 	displayVersion as displayVersionUtil,
 	formatDetailDate as formatDetailDateUtil,
@@ -1456,7 +1457,7 @@ defineComponent('wt-inspector', {
 		// Display helpers (delegated to inspector-utils)
 		// ────────────────────────────────────────────────────────────────────
 		displaySize(this: any, item: any) { return displaySizeUtil(item); },
-		displayType(this: any, item: any) { return displayTypeUtil(item); },
+		displayType(this: any, item: any) { return displayTypeUtil(item, (id, params, fallback) => this.t(id, params, fallback)); },
 		displayEncoding(this: any, item: any) { return displayEncodingUtil(item); },
 		displayVersion(this: any, item: any) { return displayVersionUtil(item); },
 		getFileIcon(this: any, item: any) { return getFileIconUtil(item); },
@@ -1920,7 +1921,7 @@ defineComponent('wt-inspector', {
 			const filtered = MimeTypes.filterMimeTypes(query).slice(0, 20);
 			vm.mimeTypeSuggestions = filtered.map((mt: string) => ({
 				mimeType: mt,
-				description: MimeTypes.description(mt) || mt,
+				description: fileKindNameUtil(mt, (id, params, fallback) => vm.t(id, params, fallback)),
 			}));
 			vm.mimeTypeHighlightIndex = -1;
 			vm.refreshMimeTypeSuggestionsPopup();

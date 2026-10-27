@@ -25,11 +25,35 @@ export function displaySize(item: DisplayItemLike): string {
 	return Bytes.format(item.contentLength as number, { short: true });
 }
 
-export function displayType(item: DisplayItemLike): string {
+// A caller's `t()`: the message for `messageId`, or `fallback` when no bundle
+// has it.
+export type Translate = (messageId: string, params?: Record<string, any>, fallback?: string) => string;
+
+/**
+ * i18n key of a file kind (the name shown for a MIME type):
+ * `webtop.fileKind.<mimeType>`, the MIME type in lower case
+ * (`webtop.fileKind.text/markdown`). Folders use `webtop.fileKind.folder`.
+ * The names live in the global bundle /etc/i18n/file-kinds.<locale>.json.
+ */
+export function fileKindKey(mimeType: string): string {
+	return 'webtop.fileKind.' + mimeType.toLowerCase();
+}
+
+/**
+ * Kind shown for a MIME type: the bundle entry under {@link fileKindKey},
+ * else the built-in English description, else the MIME type itself. Without
+ * `t` only the built-in description is used.
+ */
+export function fileKindName(mimeType: string, t?: Translate): string {
+	if (!mimeType) return '';
+	const fallback = MimeTypes.description(mimeType) || mimeType;
+	return t ? t(fileKindKey(mimeType), undefined, fallback) : fallback;
+}
+
+export function displayType(item: DisplayItemLike, t?: Translate): string {
 	if (!item) return '';
-	if (item.isCollection) return 'Folder';
-	const desc = MimeTypes.description(item.mimeType || '');
-	return desc || (item.mimeType || '');
+	if (item.isCollection) return t ? t('webtop.fileKind.folder', undefined, 'Folder') : 'Folder';
+	return fileKindName(item.mimeType || '', t);
 }
 
 export function displayEncoding(item: DisplayItemLike): string {
