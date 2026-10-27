@@ -180,16 +180,22 @@
 					</div>
 				</div>
 
-				<!-- Cloud storage: the providers whose files bundle the user allowed,
-				     each a location the list opens at its drives (see
-				     sources/cloud-source.ts). Shown only when an administrator
-				     enabled a provider; one not yet allowed is hinted at below. -->
-				<div v-if="!xpathSearchActive && cloudStorages.length > 0" class="sidebar-section sidebar-cloud-section">
+				<!-- Places: the workspace's /content, then the cloud providers whose
+				     files bundle the user allowed, each a location the list opens at
+				     its drives (see sources/cloud-source.ts). -->
+				<div v-if="!xpathSearchActive" class="sidebar-section sidebar-cloud-section">
 					<div class="sidebar-section-header" @click="toggleSidebarSection('cloud')">
 						<i class="bi" :class="sidebarSectionExpanded.cloud ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
-						<span>{{ t('app.content-browser.sidebar.cloud', undefined, 'Cloud storage') }}</span>
+						<span>{{ t('app.content-browser.sidebar.places', undefined, 'Places') }}</span>
 					</div>
 					<div v-show="sidebarSectionExpanded.cloud" class="sidebar-section-body sidebar-section-body-list">
+						<div class="sidebar-fav-item sidebar-workspace-item" :class="{ 'sidebar-fav-item-active': isWorkspaceActive }"
+							@click="openWorkspace" :title="t('app.content-browser.sidebar.workspace', undefined, 'Workspace')">
+							<i class="bi bi-hdd-stack sidebar-fav-icon"></i>
+							<div class="sidebar-fav-content">
+								<span class="sidebar-fav-name">{{ t('app.content-browser.sidebar.workspace', undefined, 'Workspace') }}</span>
+							</div>
+						</div>
 						<div v-for="s in grantedStorages" :key="'sb-cloud-' + s.provider"
 							class="sidebar-fav-item sidebar-cloud-item" :class="{ 'sidebar-fav-item-active': isCloudStorageActive(s) }"
 							@click="openCloudStorage(s)" :title="cloudProviderLabel(s.provider)"
@@ -198,9 +204,6 @@
 							<div class="sidebar-fav-content">
 								<span class="sidebar-fav-name">{{ cloudProviderLabel(s.provider) }}</span>
 							</div>
-						</div>
-						<div v-if="ungrantedStorages.length > 0" class="sidebar-cloud-hint" @click="openPreferencesLinked">
-							<i class="bi bi-info-circle me-1"></i>{{ t('app.content-browser.sidebar.cloudHint', undefined, 'Allow Files for a linked account in Preferences to see it here.') }}
 						</div>
 					</div>
 				</div>

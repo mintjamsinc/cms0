@@ -88,8 +88,8 @@ function nodeToContentItem(node: Node): ContentItem {
 	};
 }
 
-/** The Preferences app, where linked accounts are allowed. */
-const PREFERENCES_APP_ID = 'ddae3624-7926-436f-b474-931bed669328';
+/** Where the sidebar's Workspace place opens: the workspace's web content. */
+const WORKSPACE_PLACE_PATH = '/content';
 
 /** A cloud listing is read this many entries at a time; the next page loads as the list is scrolled. */
 const CLOUD_PAGE_SIZE = 200;
@@ -1397,8 +1397,10 @@ export const App = {
 		grantedStorages(): CloudStorage[] {
 			return (this.cloudStorages as CloudStorage[]).filter(s => s.granted);
 		},
-		ungrantedStorages(): CloudStorage[] {
-			return (this.cloudStorages as CloudStorage[]).filter(s => !s.granted);
+		// The Places row for the workspace: lit anywhere under /content.
+		isWorkspaceActive(): boolean {
+			const path = this.currentPath || '';
+			return path === WORKSPACE_PLACE_PATH || path.startsWith(WORKSPACE_PLACE_PATH + '/');
 		},
 		// The current location as one line: the repository path, or the cloud
 		// crumbs as names. What the Dock preview and a favourite show.
@@ -2225,9 +2227,9 @@ export const App = {
 		async openCloudStorage(storage: CloudStorage) {
 			await this.navigateToPath(cloudProviderPath(storage.provider));
 		},
-		/** Preferences › Linked accounts, where a bundle is allowed. */
-		openPreferencesLinked() {
-			window.parent?.postMessage({ type: 'open-app', appId: PREFERENCES_APP_ID, options: { section: 'linked' } }, window.location.origin);
+		/** The workspace's web content, from the sidebar's Places. */
+		async openWorkspace() {
+			await this.navigateToPath(WORKSPACE_PLACE_PATH);
 		},
 		isCloudStorageActive(storage: CloudStorage): boolean {
 			return this.cloudLocation?.provider === storage.provider;
