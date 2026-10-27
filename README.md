@@ -14,8 +14,7 @@ Identity Provider) is included out of the box.
   Sources under [`webtop/`](webtop/).
 
 > Status: **0.1.39-beta** — public preview. APIs, on-disk formats, and bundled
-> apps may change before 1.0. Installations of 0.1.23-beta or earlier cannot be
-> upgraded in place — see [Upgrading](#upgrading).
+> apps may change before 1.0.
 
 ---
 
