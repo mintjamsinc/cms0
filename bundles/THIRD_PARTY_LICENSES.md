@@ -31,9 +31,21 @@ separate jars are shipped for those.
 
 | JAR | Project | License |
 | --- | --- | --- |
-| `graphql-java-22.3.jar` | [graphql-java](https://github.com/graphql-java/graphql-java) | MIT License |
+| `graphql-java-22.3.jar` | [graphql-java](https://github.com/graphql-java/graphql-java) (repackaged, see below) | MIT License |
 | `java-dataloader-3.3.0.jar` | [java-dataloader](https://github.com/graphql-java/java-dataloader) | Apache License 2.0 |
 | `reactive-streams-1.0.3.jar` | [Reactive Streams](https://github.com/reactive-streams/reactive-streams-jvm) | MIT-0 |
+
+The `graphql-java-22.3.jar` shipped here differs from the upstream
+release. Its relocated Guava copy is 32.1.2, whose `MapMakerInternalMap`
+deserialization is affected by CVE-2026-102554, and no graphql-java
+release ships a fixed copy (26.1 still relocates 32.1.2). The two
+serialization proxy classes of the relocated map
+(`MapMakerInternalMap$SerializationProxy` and
+`MapMakerInternalMap$AbstractSerializationProxy`) and the Guava Maven
+metadata under `META-INF/maven/com.google.guava` were removed. The
+proxies are used only when that map is Java-serialized, which
+graphql-java never does; the map itself (used by `graphql.util.Interning`)
+is untouched. Nothing else in the JAR was changed.
 
 ---
 
@@ -214,7 +226,7 @@ the unmodified originals are in `src/` and `upstream/` of this directory
 
 ## bundles/org.apache.tika
 
-- **Upstream project:** [Apache Tika](https://tika.apache.org/) 3.3.2
+- **Upstream project:** [Apache Tika](https://tika.apache.org/) 3.3.3
 - **Primary license:** Apache License 2.0
 - **Upstream LICENSE / NOTICE:**
   - <https://github.com/apache/tika/blob/main/LICENSE.txt>
@@ -222,11 +234,7 @@ the unmodified originals are in `src/` and `upstream/` of this directory
 
 | JAR | Project | License |
 | --- | --- | --- |
-| `tika-app-3.3.2.jar` | Apache Tika (uber-jar, repackaged without Jackson and jsoup) | Apache License 2.0 |
-| `jackson-annotations-2.22.jar` | [FasterXML Jackson](https://github.com/FasterXML/jackson) | Apache License 2.0 |
-| `jackson-core-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jackson-databind-2.22.3.jar` | FasterXML Jackson | Apache License 2.0 |
-| `jsoup-1.23.2.jar` | [jsoup](https://jsoup.org/) | MIT License |
+| `tika-app-3.3.3.jar` | Apache Tika (uber-jar) | Apache License 2.0 |
 
 `tika-app` is a fat JAR that re-bundles a large number of transitive
 dependencies. The complete list of embedded third-party components and
@@ -234,12 +242,12 @@ their respective licenses is enumerated in the LICENSE and NOTICE files
 included inside the JAR (and mirrored at the upstream LICENSE / NOTICE
 links above).
 
-The JAR shipped here differs from the upstream `tika-app-3.3.2.jar`: the
-embedded Jackson 2.22.1 (annotations / core / databind) and jsoup 1.22.2
-classes and their Maven metadata were removed, and the fixed releases
-listed above are placed next to it on the `Bundle-ClassPath` instead.
-Nothing else in the JAR was changed. When Tika is upgraded, repeat this
-only if the new uber-jar still embeds a vulnerable release.
+The JAR is the unmodified upstream `tika-app-3.3.3.jar`. The 3.3.2
+release shipped before it had to be repackaged (its embedded Jackson and
+jsoup were replaced by fixed releases on the `Bundle-ClassPath`); 3.3.3
+embeds Jackson 2.22.3, jsoup 1.23.2 and Guava 33.7.2, so nothing is
+repackaged any more. When Tika is upgraded, check whether the new
+uber-jar embeds a vulnerable release and repackage only if it does.
 
 Notable categories that remain embedded include:
 
@@ -252,7 +260,7 @@ Notable categories that remain embedded include:
 - SLF4J: MIT License
 
 Refer to `META-INF/LICENSE` and `META-INF/NOTICE` inside
-`tika-app-3.3.2.jar` for the authoritative attribution list.
+`tika-app-3.3.3.jar` for the authoritative attribution list.
 
 ---
 

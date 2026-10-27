@@ -12,7 +12,7 @@ Bundle-Version / Implementation-Version manifest headers of the JARs
 themselves.
 
 Four bundles in this image — `org.apache.camel_4.18.1.jar`,
-`org.apache.groovy_4.0.25.jar`, `org.apache.tika_3.3.2.jar`, and
+`org.apache.groovy_4.0.25.jar`, `org.apache.tika_3.3.3.jar`, and
 `org.camunda.bpm_7.17.0.jar` — are MintJams-repackaged OSGi wrappers
 that embed the upstream JARs as nested `lib/*.jar` entries. The full
 inventory of the JARs they embed is recorded in
@@ -191,7 +191,7 @@ only the wrapper artifact is shown here.
 | --- | --- | --- |
 | `bundle/org.apache.camel_4.18.1.jar` | [Apache Camel](https://camel.apache.org/) 4.18.1 | Apache License 2.0 |
 | `bundle/org.apache.groovy_4.0.25.jar` | [Apache Groovy](https://groovy.apache.org/) 4.0.25 | Apache License 2.0 |
-| `bundle/org.apache.tika_3.3.2.jar` | [Apache Tika](https://tika.apache.org/) 3.3.2 | Apache License 2.0 |
+| `bundle/org.apache.tika_3.3.3.jar` | [Apache Tika](https://tika.apache.org/) 3.3.3 | Apache License 2.0 |
 | `bundle/org.camunda.bpm_7.17.0.jar` | [Camunda Platform 7](https://camunda.com/products/camunda-platform-7/) 7.17.0 Community Edition | Apache License 2.0 |
 
 ---
