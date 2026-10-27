@@ -754,17 +754,18 @@
 						</th>
 						<!-- The folder of a cloud search result: not the one being browsed. -->
 						<th v-if="cloudSearchActive" class="text-start th-inert">{{ t('app.content-browser.column.folder', undefined, 'Folder') }}</th>
-						<th class="text-start" :class="{ 'c-pointer': canSortColumn('modifiedBy'), 'th-inert': !canSortColumn('modifiedBy') }" @click="sortHeader('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
+						<!-- Who modified, the lock and the version are the repository's: a cloud listing has name, date, kind and size. -->
+						<th v-if="!isCloudLocation" class="text-start" :class="{ 'c-pointer': canSortColumn('modifiedBy'), 'th-inert': !canSortColumn('modifiedBy') }" @click="sortHeader('modifiedBy')">{{ t('app.content-browser.column.modifiedBy') }}
 							<span v-if="sortColumn == 'modifiedBy'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="text-start" :class="{ 'c-pointer': canSortColumn('lockOwner'), 'th-inert': !canSortColumn('lockOwner') }" @click="sortHeader('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
+						<th v-if="!isCloudLocation" class="text-start" :class="{ 'c-pointer': canSortColumn('lockOwner'), 'th-inert': !canSortColumn('lockOwner') }" @click="sortHeader('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
 							<span v-if="sortColumn == 'lockOwner'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
-						<th class="text-start" :class="{ 'c-pointer': canSortColumn('version'), 'th-inert': !canSortColumn('version') }" @click="sortHeader('version')">{{ t('app.content-browser.column.version') }}
+						<th v-if="!isCloudLocation" class="text-start" :class="{ 'c-pointer': canSortColumn('version'), 'th-inert': !canSortColumn('version') }" @click="sortHeader('version')">{{ t('app.content-browser.column.version') }}
 							<span v-if="sortColumn == 'version'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
@@ -808,12 +809,12 @@
 								<span v-else class="text-muted">&mdash;</span>
 							</div>
 						</td>
-						<td class="modified-by-column">
+						<td v-if="!isCloudLocation" class="modified-by-column">
 							<div class="modified-by-block pe-1 text-truncate">
 								<span>{{ item.lastModifiedByDisplayName || item.lastModifiedBy }}</span>
 							</div>
 						</td>
-						<td class="lock-owner-column">
+						<td v-if="!isCloudLocation" class="lock-owner-column">
 							<div class="lock-owner-block pe-1">
 								<span v-if="item.isLocked" class="lock-chip"
 									:class="item.lockInfo?.isLockOwner ? 'lock-chip-self' : 'lock-chip-other'"
@@ -824,7 +825,7 @@
 								<span v-else class="text-muted">&mdash;</span>
 							</div>
 						</td>
-						<td class="version-column">
+						<td v-if="!isCloudLocation" class="version-column">
 							<div class="version-block pe-1 text-truncate">
 								<span v-if="item.isVersionable">{{ displayVersion(item) }}</span>
 								<span v-else class="text-muted">&mdash;</span>
