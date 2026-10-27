@@ -363,8 +363,7 @@ export class CloudSource {
 	 * listing shows as it was answered is done with; a remove lasts its time.
 	 */
 	#applyPending(location: CloudLocation, crumbs: CloudCrumbs, items: CloudContentItem[], order: CloudOrder, firstPage: boolean): CloudContentItem[] {
-		const now = Date.now();
-		this.#pending = this.#pending.filter(c => now - c.at < PENDING_TTL);
+		this.#expirePending();
 		const key = folderKey(location);
 		let result = items;
 		for (const change of this.#pending.slice()) {
@@ -385,7 +384,7 @@ export class CloudSource {
 					this.#pending = this.#pending.filter(c => c !== change);
 				} else {
 					result = result.slice();
-					result[index] = cloudEntryToContentItem(entry, crumbs, this.#labels);
+					result[index] = this.#withEntry(listed, entry);
 				}
 			} else if (firstPage && change.folder === key) {
 				const item = cloudEntryToContentItem(entry, crumbs, this.#labels);
@@ -394,6 +393,44 @@ export class CloudSource {
 			}
 		}
 		return result;
+	}
+
+	/**
+	 * Lays the changes made here over search results, which come from the
+	 * provider's search index and catch up with a change minutes later: an
+	 * entry deleted is left out, one renamed or rewritten shows what the
+	 * provider answered. Nothing is added (the results are not one folder),
+	 * and an entry moved away is still there to find, so it stays.
+	 */
+	overlaySearch(items: CloudContentItem[]): CloudContentItem[] {
+		this.#expirePending();
+		let result = items;
+		for (const change of this.#pending) {
+			const index = result.findIndex(i => i.cloud.provider === change.provider && i.cloud.id === change.id);
+			if (index < 0) continue;
+			if (change.kind === 'remove') {
+				if (change.folder === null) result = result.filter((_, i) => i !== index);
+				continue;
+			}
+			result = result.slice();
+			result[index] = this.#withEntry(result[index], change.entry as CloudEntry);
+		}
+		return result;
+	}
+
+	#expirePending() {
+		const now = Date.now();
+		this.#pending = this.#pending.filter(c => now - c.at < PENDING_TTL);
+	}
+
+	/** A listed item as the provider answered about it; a search result keeps its folder. */
+	#withEntry(item: CloudContentItem, entry: CloudEntry): CloudContentItem {
+		const fresh = cloudEntryToContentItem(entry, item.cloud.crumbs, this.#labels);
+		if (!item.cloud.search) return fresh;
+		const location = item.cloud.location && item.cloud.location.endsWith(item.name)
+			? item.cloud.location.slice(0, -item.name.length) + entry.name
+			: item.cloud.location;
+		return { ...fresh, cloud: { ...fresh.cloud, search: item.cloud.search, location } };
 	}
 
 	/**
@@ -406,7 +443,7 @@ export class CloudSource {
 	async search(location: CloudLocation, crumbs: CloudCrumbs, query: CloudQuery, cursor: string | null, first = 100): Promise<CloudListing> {
 		const page = await this.#cloud.search(location.provider, location.driveId as string, location.id, query, { after: cursor, first });
 		return {
-			items: page.entries.map(e => this.#searchHitItem(e, crumbs)),
+			items: this.overlaySearch(page.entries.map(e => this.#searchHitItem(e, crumbs))),
 			nextCursor: page.nextCursor,
 			crumbs,
 		};

@@ -2,7 +2,7 @@ import { ApplicationInstance } from "../../services/webtop-service.js";
 import { type Node, type JobStatus, type ContentLengthEvent, type CloudEntry, type CloudLink, type CloudStorage, type CloudOrder, type CloudQuery, type CloudKind, type CloudFacet, CLOUD_LINK_MIME_TYPE } from "../../graphql/types.js";
 import { isCloudPath, parseCloudPath, cloudPath, cloudProviderPath, CLOUD_MY_DRIVE, type CloudLocation } from "../../lib/cloud-location.js";
 import { opensAtProvider, type FileRef } from "../../lib/file-handle.js";
-import { CloudSource, cloudLocationText, type CloudCrumbs, type CloudItemInfo, type CloudLabels } from "./sources/cloud-source.js";
+import { CloudSource, cloudLocationText, type CloudContentItem, type CloudCrumbs, type CloudItemInfo, type CloudLabels } from "./sources/cloud-source.js";
 import { RepositorySource } from "./sources/repository-source.js";
 import { isConsentRequired } from "../../services/cloud-service-graphql.js";
 import { GraphQLError } from "../../graphql/client.js";
@@ -5008,7 +5008,12 @@ export const App = {
 				if (item.cloud) {
 					await (vm._cloudSource as CloudSource).rename(item.cloud, newName);
 					vm.closeRenameDialog();
-					await vm.refreshList();
+					// A search result is renamed where it is (see submitDelete).
+					if (vm.cloudSearchActive) {
+						vm._overlayCloudSearch();
+					} else {
+						await vm.refreshList();
+					}
 					return;
 				}
 				// Use GraphQL API to rename the node
@@ -5073,12 +5078,16 @@ export const App = {
 					}
 				}
 				vm.deleteDialog.isLoading = false;
+				// Search results are taken out where they are: searching again
+				// would blank the list and bring them back from the provider's
+				// index, which catches up minutes later.
+				if (vm.cloudSearchActive) vm._overlayCloudSearch();
 				if (errors.length) {
 					vm.deleteDialog.errorMessage = errors[0];
 					return;
 				}
 				vm.closeDeleteDialog();
-				await vm.refreshList();
+				if (!vm.cloudSearchActive) await vm.refreshList();
 				return;
 			}
 
@@ -6733,6 +6742,15 @@ export const App = {
 		},
 		// Re-run whatever produced the current list. Two different queries back
 		// the list, and xpathSearchActive is what says which one is showing.
+		/** The changes just made, laid over the cloud search results on the screen; the selection keeps what is left. */
+		_overlayCloudSearch() {
+			const vm = this;
+			const source = vm._cloudSource as CloudSource | null;
+			if (!source) return;
+			vm.items = vm._stampDates(source.overlaySearch(vm.items as CloudContentItem[]));
+			const ids = new Set((vm.items as ContentItem[]).map(i => i.id));
+			vm.selectedItems = vm.selectedItems.filter((id: string) => ids.has(id));
+		},
 		async refreshList() {
 			if (this.xpathSearchActive) {
 				await this.xpathExecuteSearch();
