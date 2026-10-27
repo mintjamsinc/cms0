@@ -76,9 +76,9 @@ export interface CloudSearchHit {
 /** The labels the virtual rows and the breadcrumbs need, already translated. */
 export interface CloudLabels {
 	providerName: (provider: string) => string;
-	/** "My Drive" / "OneDrive": the row and crumb of the user's own drive. */
+	/** "My Drive" / "My files": the row and crumb of the user's own drive. */
 	myDrive: (provider: string) => string;
-	/** "Shared drives" / "Shared libraries". */
+	/** "Shared drives" / "Libraries". */
 	sharedDrives: (provider: string) => string;
 }
 

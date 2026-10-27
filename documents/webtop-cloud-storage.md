@@ -13,17 +13,17 @@ enables the providers there.
 
 ## Where things are
 
-The sidebar has a **Cloud storage** section listing the providers whose files
-bundle the user allowed. A provider the administrator enabled but the user has
-not allowed yet is not listed; a line below the section says so and opens
-Preferences. The section is absent when no provider is enabled.
+The sidebar's **Places** section lists the **Workspace**, which opens
+`/content`, and below it the providers whose files bundle the user allowed. A
+provider the administrator enabled but the user has not allowed yet is not
+listed.
 
 Clicking a provider shows its **drives**:
 
 | Google | Microsoft | What it is |
 | --- | --- | --- |
-| My Drive | OneDrive | The user's own drive |
-| Shared drives | Shared libraries | The shared drives the user is a member of; the document libraries of the SharePoint sites the user follows |
+| My Drive | My files | The user's own drive |
+| Shared drives | Libraries | The shared drives the user is a member of; the document libraries of the SharePoint sites the user follows |
 
 A shared drive or library looks the same to every member and is named by the
 same ids for everyone, so a location in one can be passed from one person to

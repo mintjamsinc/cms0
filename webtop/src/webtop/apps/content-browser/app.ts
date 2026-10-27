@@ -1375,10 +1375,10 @@ export const App = {
 			return {
 				providerName: (provider: string) => vm.cloudProviderLabel(provider),
 				myDrive: (provider: string) => provider === 'microsoft'
-					? vm.t('app.content-browser.cloud.oneDrive', undefined, 'OneDrive')
+					? vm.t('app.content-browser.cloud.oneDrive', undefined, 'My files')
 					: vm.t('app.content-browser.cloud.myDrive', undefined, 'My Drive'),
 				sharedDrives: (provider: string) => provider === 'microsoft'
-					? vm.t('app.content-browser.cloud.libraries', undefined, 'Shared libraries')
+					? vm.t('app.content-browser.cloud.libraries', undefined, 'Libraries')
 					: vm.t('app.content-browser.cloud.sharedDrives', undefined, 'Shared drives'),
 			};
 		},
