@@ -1,6 +1,6 @@
 # Webtop Number Place
 
-The **Number Place** app (sudoku) is played alone, against the computer, or
+The **Number Place** app is played alone, against the computer, or
 **with another user of the Webtop**, wherever that user is signed in: solving
 one board together, or against each other. A game with another user is a
 **room**: one user invites the other, the other accepts, and the two play

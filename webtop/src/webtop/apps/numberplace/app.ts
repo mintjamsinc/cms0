@@ -1,7 +1,7 @@
 /**
  * Number Place Application
  *
- * Number Place (sudoku) alone, against the computer, or with another user
+ * Number Place alone, against the computer, or with another user
  * of the Webtop, cooperating or against each other. The rules, the solver
  * and the puzzle maker live in core.ts (puzzles are made in gen-worker.js),
  * the computer opponent in ai.ts, the board themes and player colours in
