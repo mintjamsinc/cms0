@@ -711,7 +711,6 @@
 .sidebar-placeholder {
 	color: var(--text-muted-color, #888);
 	font-size: 0.85em;
-	font-style: italic;
 	padding: 0.25rem 0;
 }
 
