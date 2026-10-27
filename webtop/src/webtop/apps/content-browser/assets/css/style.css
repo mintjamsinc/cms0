@@ -339,6 +339,11 @@
 	cursor: text;
 }
 
+/* A cloud location's path cannot be typed into: no text cursor. */
+.nav-breadcrumb-readonly {
+	cursor: default;
+}
+
 .nav-breadcrumb:hover .nav-edit-hint {
 	opacity: 1;
 }

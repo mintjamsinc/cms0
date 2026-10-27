@@ -632,7 +632,7 @@
 			</div>
 
 			<!-- Breadcrumb View -->
-			<div v-if="!xpathSearchActive && !navEditMode" class="nav-breadcrumb" @click="enterEditMode">
+			<div v-if="!xpathSearchActive && !navEditMode" class="nav-breadcrumb" :class="{ 'nav-breadcrumb-readonly': isCloudLocation }" @click="enterEditMode">
 				<!-- Home icon; in cloud storage, the provider's name -->
 				<span v-if="smartBreadcrumb.home" class="nav-item c-pointer" @click.stop="navigateToPath(smartBreadcrumb.home.path)">
 					<i v-if="!isCloudLocation" class="bi bi-folder"></i>
