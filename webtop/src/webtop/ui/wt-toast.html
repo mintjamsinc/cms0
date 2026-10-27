@@ -1,0 +1,10 @@
+<template id="wt-toast">
+	<div class="wt-toast-host" @unmount="onUnmount">
+		<div v-if="message" class="wt-toast" :class="toastClass" role="status" aria-live="polite">
+			<i class="bi" :class="iconClass"></i>
+			<span class="wt-toast-text">{{ message.text }}</span>
+			<a v-if="message.link" :href="message.link.href" target="_blank" rel="noopener">{{ message.link.label }}</a>
+			<button v-if="message.link" type="button" class="btn-icon" @click="dismiss"><i class="bi bi-x-lg"></i></button>
+		</div>
+	</div>
+</template>

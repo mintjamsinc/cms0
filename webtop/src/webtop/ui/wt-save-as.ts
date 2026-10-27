@@ -31,6 +31,7 @@
 // targetMicrosoft, saved ({name}), open, untitled.
 
 import { defineComponent } from '@mintjamsinc/ichigojs';
+import type { WtToastMessage } from './wt-toast.js';
 
 export type SaveAsTarget = 'repository' | 'cloud:google' | 'cloud:microsoft';
 
@@ -122,8 +123,7 @@ defineComponent('wt-save-as', {
 			/** Token of the chip in flight; '' when none. */
 			token: '',
 			error: '',
-			toast: { visible: false, text: '', url: '' },
-			_toastTimer: null as ReturnType<typeof setTimeout> | null,
+			toast: null as WtToastMessage | null,
 		};
 	},
 	computed: {
@@ -168,10 +168,6 @@ defineComponent('wt-save-as', {
 			if (channel) {
 				channel.close();
 				channels.delete(this);
-			}
-			if (this._toastTimer) {
-				clearTimeout(this._toastTimer);
-				this._toastTimer = null;
 			}
 			this.clearDragData();
 		},
@@ -284,18 +280,11 @@ defineComponent('wt-save-as', {
 			}
 		},
 		showToast(this: any, text: string, url: string): void {
-			if (this._toastTimer) {
-				clearTimeout(this._toastTimer);
-			}
-			this.toast = { visible: true, text, url };
-			this._toastTimer = setTimeout(() => { this.hideToast(); }, TOAST_MS);
-		},
-		hideToast(this: any): void {
-			if (this._toastTimer) {
-				clearTimeout(this._toastTimer);
-				this._toastTimer = null;
-			}
-			this.toast = { visible: false, text: '', url: '' };
+			this.toast = {
+				text,
+				link: url ? { href: url, label: this.text('open', 'Open') } : null,
+				duration: TOAST_MS,
+			};
 		},
 		close(this: any): void {
 			this.setOpen(false);

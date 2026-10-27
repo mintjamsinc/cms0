@@ -928,6 +928,9 @@
 			<span class="nav-spacer"></span>
 		</div>
 
+		<!-- Completion toast: a short note that goes away by itself -->
+		<wt-toast v-model:message="toast"></wt-toast>
+
 		<div v-if="uploadMonitor && !conflictDialog.visible" class="upload-overlay flex-column text-center">
 			<span class="loader"></span>
 			<span class="mt-5">{{ uploadMonitor.target?.currentFile }}</span>

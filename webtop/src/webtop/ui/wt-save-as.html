@@ -22,11 +22,6 @@
 				<wt-inline-message v-if="error" type="error" class="mt-2">{{ error }}</wt-inline-message>
 			</template>
 		</wt-dialog>
-		<div v-if="toast.visible" class="wt-save-as-toast" role="status" aria-live="polite">
-			<i class="bi bi-check-circle"></i>
-			<span>{{ toast.text }}</span>
-			<a v-if="toast.url" :href="toast.url" target="_blank" rel="noopener">{{ text('open', 'Open') }}</a>
-			<button type="button" class="btn-icon" @click="hideToast"><i class="bi bi-x-lg"></i></button>
-		</div>
+		<wt-toast v-model:message="toast"></wt-toast>
 	</div>
 </template>

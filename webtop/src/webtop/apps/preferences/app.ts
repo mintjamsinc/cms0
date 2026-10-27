@@ -25,13 +25,12 @@ import {
 	translate,
 } from "../../composables/use-localization.js";
 import { initUi } from "../../ui/index.js";
+import type { WtToastMessage } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 const ACCEPTED_IMAGE_TYPES = /^image\/(png|jpeg|jpg|gif|webp|bmp|svg\+xml)$/;
 const AVATAR_ACCEPTED_TYPES = /^image\/(png|jpeg|jpg|gif)$/;
-// How long the completion toast at the bottom of the window stays.
-const TOAST_MS = 2500;
 
 /**
  * Render a locale code (e.g. "ja-jp", "en-us") as its own native language
@@ -282,9 +281,8 @@ const App = {
 			linkedBusy: '',
 			linkedError: '',
 
-			// Completion toast at the bottom of the window
-			toast: '',
-			_toastTimer: null as ReturnType<typeof setTimeout> | null,
+			// Completion toast at the bottom of the window (<wt-toast>)
+			toast: null as WtToastMessage | null,
 
 			// Confirmation dialog
 			confirmDialog: {
@@ -420,10 +418,6 @@ const App = {
 			if (this.messageListener) {
 				window.removeEventListener('message', this.messageListener);
 			}
-			if (this._toastTimer) {
-				clearTimeout(this._toastTimer);
-				this._toastTimer = null;
-			}
 		},
 
 		// =====================================================================
@@ -438,13 +432,7 @@ const App = {
 		 * inline next to what failed, until the next attempt.
 		 */
 		showToast(text: string) {
-			const vm = this;
-			if (vm._toastTimer) clearTimeout(vm._toastTimer);
-			vm.toast = text;
-			vm._toastTimer = setTimeout(() => {
-				vm.toast = '';
-				vm._toastTimer = null;
-			}, TOAST_MS);
+			this.toast = { text };
 		},
 
 		// =====================================================================

@@ -77,6 +77,7 @@
 	"app.content-browser.facet.saveHint": "Save this search, with its facets, as a smart folder",
 	"app.content-browser.facet.clearCloudHint": "Clear every facet",
 	"app.content-browser.smartFolders.nameJoin": " · ",
+	"app.content-browser.smartFolders.saved": "Saved as a smart folder.",
 	"app.content-browser.facet.kind": "Kind",
 	"app.content-browser.facet.kind.image": "Images",
 	"app.content-browser.facet.kind.video": "Videos",

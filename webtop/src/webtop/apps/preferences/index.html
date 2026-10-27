@@ -597,10 +597,7 @@
 		<div class="status-bar window-drag-region"></div>
 
 		<!-- Completion toast: a short note that goes away by itself -->
-		<div v-if="toast" class="pref-toast" role="status" aria-live="polite">
-			<i class="bi bi-check-circle"></i>
-			<span>{{ toast }}</span>
-		</div>
+		<wt-toast v-model:message="toast"></wt-toast>
 
 		<!-- Confirmation Dialog -->
 		<wt-dialog v-model:open="confirmDialog.visible" size="sm" @close="closeConfirmDialog">

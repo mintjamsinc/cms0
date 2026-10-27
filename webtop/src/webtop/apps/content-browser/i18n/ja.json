@@ -77,6 +77,7 @@
 	"app.content-browser.facet.saveHint": "この検索を絞り込みごとスマートフォルダーとして保存",
 	"app.content-browser.facet.clearCloudHint": "絞り込みをすべて解除",
 	"app.content-browser.smartFolders.nameJoin": "・",
+	"app.content-browser.smartFolders.saved": "スマートフォルダーに保存しました。",
 	"app.content-browser.facet.kind": "種類",
 	"app.content-browser.facet.kind.image": "画像",
 	"app.content-browser.facet.kind.video": "動画",

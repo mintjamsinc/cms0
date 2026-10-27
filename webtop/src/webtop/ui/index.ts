@@ -26,6 +26,7 @@ export type {
 	UiSuggestionPopupRequest,
 } from './ui-config.js';
 export type { WtAutocompleteItem } from './wt-autocomplete.js';
+export type { WtToastMessage } from './wt-toast.js';
 
 // Component registrations (side effects). Each module calls defineComponent
 // for one wt-* tag; index.ts is the single place that decides what ships.
@@ -33,6 +34,7 @@ import './wt-badge.js';
 import './wt-spinner.js';
 import './wt-empty-state.js';
 import './wt-inline-message.js';
+import './wt-toast.js';
 import './wt-field.js';
 import './wt-checkbox.js';
 import './wt-search-box.js';
@@ -62,6 +64,7 @@ const COMPONENT_TAGS = [
 	'wt-spinner',
 	'wt-empty-state',
 	'wt-inline-message',
+	'wt-toast',
 	'wt-field',
 	'wt-checkbox',
 	'wt-search-box',

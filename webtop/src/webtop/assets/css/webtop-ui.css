@@ -933,6 +933,66 @@
 	}
 
 	/* ------------------------------------------------------------------------
+	 * <wt-toast> — a short note at the bottom of the window that goes away by
+	 * itself; lifts as a card over the status bar. A plain note lets clicks
+	 * through, one with a link (.wt-interactive) takes them.
+	 * ---------------------------------------------------------------------- */
+	.wt-toast {
+		position: fixed;
+		left: 50%;
+		bottom: 0.75rem;
+		transform: translateX(-50%);
+		z-index: var(--wt-z-toast);
+		max-width: calc(100% - 2rem);
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.5rem 0.875rem;
+		border-radius: var(--wt-radius-lg);
+		background: var(--island-bg);
+		border: 1.5px solid var(--island-rim-color);
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+		color: var(--text-color);
+		font-size: 12px;
+		line-height: 1.5;
+		pointer-events: none;
+		animation: wt-toast-in 180ms ease-out;
+
+		> .bi { flex-shrink: 0; color: var(--info-color); }
+		&.wt-success > .bi { color: var(--success-color); }
+		&.wt-warning > .bi { color: var(--warning-color); }
+		&.wt-error > .bi { color: var(--danger-color); }
+
+		> .wt-toast-text {
+			min-width: 0;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		> a {
+			flex-shrink: 0;
+			font-weight: 600;
+		}
+		> .btn-icon {
+			flex-shrink: 0;
+		}
+		&.wt-interactive {
+			padding-right: 0.5rem;
+			pointer-events: auto;
+		}
+	}
+	@keyframes wt-toast-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, 0.5rem);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, 0);
+		}
+	}
+
+	/* ------------------------------------------------------------------------
 	 * <wt-file-tabs> — document tab strip with close / add buttons
 	 * ---------------------------------------------------------------------- */
 	wt-file-tabs {
@@ -1218,32 +1278,6 @@
 		}
 		&:active {
 			cursor: grabbing;
-		}
-	}
-	.wt-save-as-toast {
-		position: fixed;
-		left: 50%;
-		bottom: 0.75rem;
-		transform: translateX(-50%);
-		z-index: var(--wt-z-toast);
-		max-width: calc(100% - 2rem);
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		padding: 0.5rem 0.5rem 0.5rem 0.875rem;
-		border-radius: var(--wt-radius-lg);
-		background: var(--island-bg);
-		border: 1.5px solid var(--island-rim-color);
-		box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
-		color: var(--text-color);
-		font-size: 12px;
-		line-height: 1.5;
-
-		> .bi-check-circle {
-			color: var(--success-color);
-		}
-		> a {
-			font-weight: 600;
 		}
 	}
 }

@@ -39,6 +39,7 @@ import "../../components/wt-inspector.js";
 // present in this document too. initUi() is awaited next to the inspector
 // template injection in appLaunch, ahead of the readiness gate.
 import { initUi } from "../../ui/index.js";
+import type { WtToastMessage } from "../../ui/index.js";
 
 // Fetch and inject the wt-inspector <template> tag. Mirrors the shell's
 // loadComponent() helper but scoped to this app since the inspector template
@@ -873,6 +874,8 @@ export const App = {
 			smartFolderNextID: 1,
 			smartFolderEditing: null as number | null,
 			smartFolderEditName: '' as string,
+			// Completion toast at the bottom of the window (<wt-toast>)
+			toast: null as WtToastMessage | null,
 			_suppressServerSync: false,
 			// Sidebar collapsible sections (true = expanded)
 			sidebarSectionExpanded: {
@@ -6980,6 +6983,9 @@ export const App = {
 			};
 			this.smartFolders.push(folder);
 			this.persistSmartFolders();
+			// The new folder lands in a sidebar section that may be collapsed
+			// or scrolled away: say that it was saved.
+			this.toast = { text: this.t('app.content-browser.smartFolders.saved', undefined, 'Saved as a smart folder.') };
 		},
 		// The selected facets as the labels the sidebar shows them with, in
 		// the sidebar's order.
