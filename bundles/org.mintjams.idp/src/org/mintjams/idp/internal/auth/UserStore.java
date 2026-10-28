@@ -56,4 +56,16 @@ public interface UserStore {
 	 */
 	IdpUser findSignInUser(String username);
 
+	/**
+	 * Records that the user's current email address is theirs: a code sent to
+	 * it was entered. Sets {@code mailVerifiedAt} when it is not set yet.
+	 */
+	void markMailVerified(String username);
+
+	/**
+	 * How many users holding the {@code administrator} role have a verified
+	 * email address.
+	 */
+	int countAdministratorsWithVerifiedMail();
+
 }

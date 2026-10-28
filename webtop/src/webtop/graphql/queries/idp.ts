@@ -38,6 +38,7 @@ const USER_BASIC_FIELDS = `
   givenName
   displayName
   mail
+  mailVerifiedAt
   enabled
   isService
   hasAvatar

@@ -1290,6 +1290,8 @@ export interface IdpUser {
   givenName: string | null;
   displayName: string | null;
   mail: string | null;
+  /** When the address was confirmed by a code sent to it; null when never, or changed since. */
+  mailVerifiedAt: string | null;
   enabled: boolean;
   /**
    * Whether this is a service account: a non-interactive identity used by
@@ -1706,6 +1708,39 @@ export interface UserSecurity {
   backupCodesRemaining: number;
   passkeysAvailable: boolean;
   passkeys: Passkey[];
+}
+
+/** The state of one sign-in method on this server. */
+export type SignInMethodState = 'AVAILABLE' | 'DISABLED' | 'UNAVAILABLE';
+
+/** Which ways of signing in the server offers right now. */
+export interface SignInPolicy {
+  password: SignInMethodState;
+  emailCode: SignInMethodState;
+  passkey: SignInMethodState;
+  /** Whether a changed email address is confirmed by a code before it is saved. */
+  mailVerification: boolean;
+}
+
+export interface BeginMailChangeInput {
+  mail: string;
+  /** ja or en for the message; English when omitted. */
+  lang?: string;
+}
+
+export interface ConfirmMailChangeInput {
+  code: string;
+}
+
+export interface MailChangePayload {
+  /** True when a code was sent and confirmMailChange has to follow. */
+  verificationRequired: boolean;
+  /** Whether this call sent a message (false within the resend interval). */
+  sent: boolean;
+  expiresInSeconds: number | null;
+  resendAfterSeconds: number | null;
+  user: IdpUser | null;
+  errors: IdpMutationError[] | null;
 }
 
 export interface BeginTotpEnrollmentInput {

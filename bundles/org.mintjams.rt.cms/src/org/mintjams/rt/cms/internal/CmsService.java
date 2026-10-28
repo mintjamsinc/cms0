@@ -46,6 +46,7 @@ import javax.jcr.security.Privilege;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.felix.webconsole.WebConsoleSecurityProvider;
+import org.mintjams.cms.mail.MailService;
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.Encryptors;
 import org.mintjams.cms.security.SecretKeyProvider;
@@ -67,6 +68,7 @@ import org.mintjams.rt.cms.internal.eip.WorkspaceIntegrationEngineProvider;
 import org.mintjams.rt.cms.internal.job.JobManager;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.mail.MailTransport;
 import org.mintjams.rt.cms.internal.operations.WorkspaceReconciler;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
@@ -396,6 +398,12 @@ public class CmsService {
 		// The default identity provider
 		fCloser.register(Registration.newBuilder(IdentityProvider.class)
 				.setService(new DefaultIdentityProvider())
+				.setBundleContext(getBundleContext())
+				.build());
+
+		// The outgoing mail transport (etc/mail.yml; optional)
+		fCloser.register(Registration.newBuilder(MailService.class)
+				.setService(new MailTransport())
 				.setBundleContext(getBundleContext())
 				.build());
 

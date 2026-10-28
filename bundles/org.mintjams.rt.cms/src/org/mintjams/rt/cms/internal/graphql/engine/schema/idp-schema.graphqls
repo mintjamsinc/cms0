@@ -47,6 +47,8 @@ type User {
   givenName: String
   displayName: String
   mail: String
+  """When the address was confirmed by a code sent to it (null: never, or changed since)."""
+  mailVerifiedAt: DateTime
   enabled: Boolean!
   """A non-interactive service account (no password, never signs in)."""
   isService: Boolean!

@@ -81,6 +81,10 @@ public class SamlResponseBuilder {
 	public static final String AUTHN_CONTEXT_TIME_SYNC_TOKEN = "urn:oasis:names:tc:SAML:2.0:ac:classes:TimeSyncToken";
 	/** A passkey (WebAuthn assertion with user verification); SAML defines no class for this, so it is ours. */
 	public static final String AUTHN_CONTEXT_WEBAUTHN = "urn:mintjams:idp:ac:classes:WebAuthn";
+	/** A one-time code sent to the user's email address; ours too, like the passkey class. */
+	public static final String AUTHN_CONTEXT_EMAIL_CODE = "urn:mintjams:idp:ac:classes:EmailCode";
+	/** An email code plus a time-based one-time password. */
+	public static final String AUTHN_CONTEXT_EMAIL_CODE_TIME_SYNC_TOKEN = "urn:mintjams:idp:ac:classes:EmailCodeTimeSyncToken";
 	private static final String CM_BEARER = "urn:oasis:names:tc:SAML:2.0:cm:bearer";
 
 	private final IdpConfiguration config;

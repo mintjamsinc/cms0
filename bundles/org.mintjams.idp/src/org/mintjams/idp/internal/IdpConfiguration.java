@@ -103,36 +103,40 @@ public class IdpConfiguration {
 							.setIndent(4)
 							.setIndicatorIndent(2)
 							.setDefaultFlowStyle(FlowStyle.BLOCK)
-							.build()).dumpToString(Map.of(
+							.build()).dumpToString(Map.ofEntries(
 							// Blank baseUrl/entityId on first boot so getBaseURL() falls
 							// through to the CMS_PUBLIC_BASE_URL env var. The container
 							// is the only source of truth for the external host name.
-							"entityId", "",
-							"baseUrl", "",
-							"contextPath", DEFAULT_CONTEXT_PATH, // Servlet context path (default: /idp)
-							"roleAttribute", DEFAULT_ROLE_ATTRIBUTE, // SAML attribute name for roles (default: Role)
-							"keystore", Map.of(
+							Map.entry("entityId", ""),
+							Map.entry("baseUrl", ""),
+							Map.entry("contextPath", DEFAULT_CONTEXT_PATH), // Servlet context path (default: /idp)
+							Map.entry("roleAttribute", DEFAULT_ROLE_ATTRIBUTE), // SAML attribute name for roles (default: Role)
+							Map.entry("keystore", Map.of(
 								"type", DEFAULT_KEYSTORE_TYPE, // Keystore type (default: PKCS12)
 								"password", Activator.getDefault().getEncryptor().encrypt(idpKeystorePassword), // Keystore password (generated or supplied via CMS_IDP_KEYSTORE_PASSWORD)
 								"alias", DEFAULT_KEYSTORE_ALIAS // Alias of the signing key in the keystore (default: idp-signing)
-								),
-							"certificateTemplate", Map.of(
+								)),
+							Map.entry("certificateTemplate", Map.of(
 								"subjectDN", DEFAULT_CERTIFICATE_SUBJECT_DN, // Subject DN for the self-signed certificate (default: CN=Sample Identity Provider, OU=Quick Start, O=Open Components Project)
 								"keyAlgorithm", DEFAULT_CERTIFICATE_KEY_ALGORITHM, // Key algorithm for the signing key (default: RSA)
 								"keySize", DEFAULT_CERTIFICATE_KEY_SIZE, // Key size for the signing key (default: 2048)
 								"signatureAlgorithm", DEFAULT_CERTIFICATE_SIGNATURE_ALGORITHM, // Signature algorithm for certificate generation (default: SHA256withRSA)
 								"validity", DEFAULT_CERTIFICATE_VALIDITY // Validity period of the self-signed certificate in days (default: 7300, i.e., 20 years)
-								),
-							"assertionValiditySeconds", DEFAULT_ASSERTION_VALIDITY_SECONDS, // Validity period of SAML assertions in seconds (default: 300)
-							"webauthn", Map.of(
+								)),
+							Map.entry("assertionValiditySeconds", DEFAULT_ASSERTION_VALIDITY_SECONDS), // Validity period of SAML assertions in seconds (default: 300)
+							Map.entry("signIn", Map.of(
+								"password", true, // Offer username and password; false disables it (needs emailCode or the server ignores it)
+								"emailCode", true // Offer a one-time code sent to the user's email address (needs etc/mail.yml)
+								)),
+							Map.entry("webauthn", Map.of(
 								"rpId", "", // Relying-party id for passkeys; blank means the host of the base URL
 								"rpName", DEFAULT_WEBAUTHN_RP_NAME, // Relying-party name shown by authenticators
 								"origins", Collections.emptyList() // Extra allowed origins; the base URL is always allowed
-								),
-							"totp", Map.of(
+								)),
+							Map.entry("totp", Map.of(
 								"issuer", DEFAULT_TOTP_ISSUER // Issuer shown in authenticator apps
-								),
-							"trustedSPs", Collections.emptyList() // List of trusted Service Providers (default: empty list)
+								)),
+							Map.entry("trustedSPs", Collections.emptyList()) // List of trusted Service Providers (default: empty list)
 						));
 					out.append(yamlString);
 				}
@@ -451,6 +455,38 @@ public class IdpConfiguration {
 			log.warn("The totp.issuer parameter is invalid. Default values will be used instead.");
 		}
 		return DEFAULT_TOTP_ISSUER;
+	}
+
+	/**
+	 * Whether {@code signIn.password} allows username-and-password sign-in
+	 * (default {@code true}). This is the administrator's wish; whether the
+	 * server honours it is decided by {@code SignInPolicyImpl}.
+	 */
+	public boolean isPasswordSignInConfigured() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getBoolean("config.signIn.password", true);
+		} catch (Throwable ex) {
+			log.warn("The signIn.password parameter is invalid. Default values will be used instead.");
+		}
+		return true;
+	}
+
+	/**
+	 * Whether {@code signIn.emailCode} allows signing in with a one-time code
+	 * sent to the user's email address (default {@code true}). It also needs
+	 * a mail transport ({@code etc/mail.yml}).
+	 */
+	public boolean isEmailCodeSignInConfigured() {
+		try {
+			return ExpressionContext.create()
+					.setVariable("config", getConfig())
+					.getBoolean("config.signIn.emailCode", true);
+		} catch (Throwable ex) {
+			log.warn("The signIn.emailCode parameter is invalid. Default values will be used instead.");
+		}
+		return true;
 	}
 
 	public String getCustomLoginPageURL() {

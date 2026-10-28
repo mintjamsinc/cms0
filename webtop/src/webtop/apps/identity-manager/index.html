@@ -101,6 +101,8 @@
 						</div>
 						<span v-if="u.isService" class="service-badge">{{ t('app.identity-manager.user.serviceBadge', undefined, 'Service') }}</span>
 						<span v-if="!u.enabled" class="disabled-badge">{{ t('app.identity-manager.status.disabled', undefined, 'Disabled') }}</span>
+						<span v-if="!u.isService && u.mail && !u.mailVerifiedAt" class="disabled-badge">{{ t('app.identity-manager.user.mailUnverifiedBadge', undefined, 'Email unconfirmed') }}</span>
+						<span v-if="!u.isService && !u.mail && passwordDisabled" class="disabled-badge">{{ t('app.identity-manager.user.mailMissingBadge', undefined, 'No email') }}</span>
 					</div>
 					<div v-if="displayedUsers.length === 0" class="list-empty-message">
 						{{ t('app.identity-manager.empty.users', undefined, 'No users found') }}
@@ -181,8 +183,20 @@
 										</wt-field>
 										<wt-field class="flex-grow-1" :label="t('app.identity-manager.field.email', undefined, 'Email')">
 											<input type="email" class="wt w-100" v-model="editForm.mail" :disabled="isSelf">
+											<div v-if="selectedUser.mail && selectedUser.mailVerifiedAt && editForm.mail === selectedUser.mail" class="text-muted fs-small mt-1">
+												<i class="bi bi-patch-check me-1"></i>{{ t('app.identity-manager.field.emailVerified', { date: formatDate(selectedUser.mailVerifiedAt) }, 'Confirmed on {date}') }}
+											</div>
+											<div v-else-if="editForm.mail" class="text-muted fs-small mt-1">
+												{{ t('app.identity-manager.field.emailUnverified', undefined, 'Not confirmed by the user yet') }}
+											</div>
 										</wt-field>
 									</div>
+									<wt-inline-message v-if="passwordDisabled && !selectedUser.isService && !editForm.mail" type="warning" class="mb-3">
+										{{ t('app.identity-manager.warn.passwordDisabledNoMail', undefined, 'Signing in with a password is turned off on this server. Without an email address this user can sign in only with a passkey.') }}
+									</wt-inline-message>
+									<wt-inline-message v-else-if="passwordDisabled && !selectedUser.isService && !(selectedUser.mailVerifiedAt && editForm.mail === selectedUser.mail)" type="warning" class="mb-3">
+										{{ t('app.identity-manager.warn.passwordDisabledUnverified', undefined, 'Signing in with a password is turned off on this server. The user should confirm this address in Preferences so that a sign-in code reaches them.') }}
+									</wt-inline-message>
 									<div class="form-row">
 										<wt-field class="flex-grow-1" :label="t('app.identity-manager.field.familyName', undefined, 'Family Name (sn)')">
 											<input type="text" class="wt w-100" v-model="editForm.sn" :disabled="isSelf">

@@ -7,9 +7,9 @@
  *   <script type="module" src="/idp/login/app.js"></script>
  *
  * and owns everything around that element (layout, logo, colours through the
- * --idp-* custom properties). The sign-in flow itself (password, one-time
- * code, passkey) lives here, so a branded page keeps working when the flow
- * grows.
+ * --idp-* custom properties). The sign-in flow itself (password, a code sent
+ * by email, one-time code, passkey) lives here, so a branded page keeps
+ * working when the flow grows.
  *
  * Optional page hooks, set before the script loads:
  *   window.IDP_LOGIN = {
@@ -35,6 +35,8 @@ const API = {
 	methods: BASE + 'api/login',
 	login: BASE + 'api/login',
 	mfa: BASE + 'api/login/mfa',
+	codeRequest: BASE + 'api/login/code/request',
+	code: BASE + 'api/login/code',
 	sp: BASE + 'api/sp',
 	webauthnOptions: BASE + 'api/webauthn/options',
 	webauthnVerify: BASE + 'api/webauthn/verify',
@@ -45,7 +47,11 @@ const LANG_KEY = 'idp.login.lang';
 // Server error codes (see AuthnFlow.sendError) and the label shown for each.
 const CODE_LABELS = {
 	MISSING_CREDENTIALS: 'errMissingCredentials',
+	MISSING_USERNAME: 'errUsername',
 	INVALID_CREDENTIALS: 'errInvalidCredentials',
+	PASSWORD_DISABLED: 'errPasswordDisabled',
+	EMAIL_CODE_UNAVAILABLE: 'errEmailCodeUnavailable',
+	MAIL_FAILED: 'errMailFailed',
 	MISSING_CODE: 'errCode',
 	INVALID_CODE: 'errInvalidCode',
 	TOO_MANY_ATTEMPTS: 'errTooManyAttempts',
@@ -69,10 +75,14 @@ const LABELS = {
 		usePasskeyHint: 'Face, fingerprint, PIN or security key',
 		usePassword: 'Sign in with a password',
 		usePasswordHint: 'Username and password',
+		usePasswordDisabledHint: 'Turned off by the administrator',
+		useEmailCode: 'Sign in with a code sent by email',
+		useEmailCodeHint: 'A one-time code goes to the address on your account',
 		username: 'Username',
 		usernamePlaceholder: 'Enter your username',
 		password: 'Password',
 		next: 'Next',
+		sendCode: 'Send code',
 		signIn: 'Sign in',
 		verify: 'Verify',
 		changeUsername: 'Change username',
@@ -85,6 +95,12 @@ const LABELS = {
 		backupCode: 'Backup code',
 		useBackupCode: 'Use a backup code',
 		useAuthenticator: 'Use your authenticator app',
+		emailCodeTitle: 'Check your email',
+		emailCodeHint: 'If the account has an email address, a 6-digit code was sent to it. Enter the code below; it works once and expires in a few minutes.',
+		emailCode: 'Sign-in code',
+		resendCode: 'Send a new code',
+		resendIn: 'You can ask for a new code in {seconds} s',
+		codeResent: 'A new code was sent.',
 		startOver: 'Start over',
 		passkeyWaiting: 'Follow the prompt from your browser or device.',
 		passkeyCancelled: 'The passkey prompt was closed. You can try again.',
@@ -102,6 +118,9 @@ const LABELS = {
 		errRestart: 'Please sign in again.',
 		errMissingCredentials: 'Please enter your username and password',
 		errInvalidCredentials: 'Invalid username or password',
+		errPasswordDisabled: 'Signing in with a password has been turned off by the administrator.',
+		errEmailCodeUnavailable: 'Signing in with an emailed code is not available right now.',
+		errMailFailed: 'The code could not be sent. Please try again later or use another way to sign in.',
 		errInvalidCode: 'The code is not valid',
 		errTooManyAttempts: 'Too many attempts. Please sign in again.',
 		errSessionExpired: 'Your sign-in timed out. Please sign in again.',
@@ -119,10 +138,14 @@ const LABELS = {
 		usePasskeyHint: '顔認証・指紋・PIN・セキュリティキー',
 		usePassword: 'パスワードでサインイン',
 		usePasswordHint: 'ユーザー名とパスワード',
+		usePasswordDisabledHint: '管理者により無効になっています',
+		useEmailCode: 'メールで届く認証コードでサインイン',
+		useEmailCodeHint: 'アカウントに登録されたメールアドレスに 1 回限りのコードを送ります',
 		username: 'ユーザー名',
 		usernamePlaceholder: 'ユーザー名を入力',
 		password: 'パスワード',
 		next: '次へ',
+		sendCode: 'コードを送る',
 		signIn: 'サインイン',
 		verify: '確認',
 		changeUsername: 'ユーザー名を変更',
@@ -135,6 +158,12 @@ const LABELS = {
 		backupCode: 'バックアップコード',
 		useBackupCode: 'バックアップコードを使う',
 		useAuthenticator: '認証アプリのコードを使う',
+		emailCodeTitle: 'メールを確認してください',
+		emailCodeHint: 'アカウントにメールアドレスが登録されていれば、6 桁の認証コードを送りました。下に入力してください。コードは 1 回だけ使え、数分で期限が切れます。',
+		emailCode: '認証コード',
+		resendCode: '新しいコードを送る',
+		resendIn: '新しいコードは {seconds} 秒後に送れます',
+		codeResent: '新しいコードを送りました。',
 		startOver: '最初からやり直す',
 		passkeyWaiting: 'ブラウザーまたはデバイスの案内に従ってください。',
 		passkeyCancelled: 'パスキーの操作が中断されました。もう一度お試しください。',
@@ -152,6 +181,9 @@ const LABELS = {
 		errRestart: 'もう一度サインインしてください。',
 		errMissingCredentials: 'ユーザー名とパスワードを入力してください',
 		errInvalidCredentials: 'ユーザー名またはパスワードが正しくありません',
+		errPasswordDisabled: 'パスワードでのサインインは管理者により無効になっています。',
+		errEmailCodeUnavailable: 'メールで届く認証コードでのサインインは現在利用できません。',
+		errMailFailed: 'コードを送信できませんでした。しばらくしてからもう一度試すか、他の方法でサインインしてください。',
 		errInvalidCode: 'コードが正しくありません',
 		errTooManyAttempts: '試行回数が上限に達しました。もう一度サインインしてください。',
 		errSessionExpired: 'サインインの有効期限が切れました。もう一度サインインしてください。',
@@ -177,6 +209,7 @@ const STYLE = `
 .idp-method{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px 16px;background:var(--idp-input-bg,rgba(255,255,255,0.04));border:1px solid var(--idp-input-border,rgba(255,255,255,0.08));border-radius:var(--idp-radius,10px);color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,background .2s}
 .idp-method:hover,.idp-method:focus-visible{border-color:var(--idp-focus,rgba(99,153,34,0.5));outline:none}
 .idp-method.is-last{border-color:var(--idp-accent-border,rgba(99,153,34,0.3))}
+.idp-method.is-disabled,.idp-method.is-disabled:hover{opacity:.45;cursor:not-allowed;border-color:var(--idp-input-border,rgba(255,255,255,0.08))}
 .idp-method-icon{flex:none;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--idp-accent-glow,rgba(99,153,34,0.1));color:var(--idp-accent-text,#97C459)}
 .idp-method-title{font-size:14px;font-weight:500}
 .idp-method-hint{font-size:12px;color:var(--idp-muted,#6B6961);margin-top:2px}
@@ -194,12 +227,14 @@ const STYLE = `
 .idp-icon-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;display:flex;color:var(--idp-muted,#6B6961)}
 .idp-icon-btn:hover{color:inherit}
 .idp-error{display:flex;align-items:center;gap:6px;margin-top:12px;font-size:12px;color:var(--idp-error,#E24B4A)}
+.idp-notice{margin-top:12px;font-size:12px;color:var(--idp-accent-text,#97C459)}
 .idp-submit{width:100%;padding:13px 20px;background:var(--idp-accent,linear-gradient(135deg,#639922,#4A7318));border:none;border-radius:var(--idp-radius,10px);color:var(--idp-accent-contrast,#fff);font-size:14px;font-weight:500;font-family:inherit;cursor:pointer;transition:opacity .15s;letter-spacing:0.01em;margin-top:20px}
 .idp-submit:hover{opacity:.9}
 .idp-submit:disabled{opacity:.5;cursor:not-allowed}
-.idp-links{display:flex;justify-content:center;gap:20px;margin-top:18px;font-size:12px}
+.idp-links{display:flex;justify-content:center;flex-wrap:wrap;gap:20px;margin-top:18px;font-size:12px}
 .idp-link{background:none;border:none;padding:0;color:var(--idp-muted,#6B6961);font:inherit;font-size:12px;cursor:pointer;text-decoration:none}
 .idp-link:hover{color:inherit;text-decoration:underline}
+.idp-link:disabled{cursor:default;text-decoration:none;color:var(--idp-dim,#4A4940)}
 .idp-wait{text-align:center;padding:24px 0}
 .idp-spinner{width:48px;height:48px;margin:0 auto 20px;animation:idp-spin 1.2s linear infinite}
 .idp-wait-title{font-size:14px;font-weight:500;margin-bottom:6px}
@@ -209,6 +244,7 @@ const STYLE = `
 
 const ICON_PASSKEY = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><circle cx="17.5" cy="14.5" r="2.5"/><path d="M17.5 17v5l1.5-1.5M17.5 22l-1.5-1.5"/></svg>';
 const ICON_PASSWORD = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+const ICON_MAIL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
 const ICON_ERROR = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>';
 const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 const ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -228,13 +264,21 @@ const TEMPLATE = `
   <div v-if="step === 'method'">
     <p class="idp-hint">{{ t.chooseMethod }}</p>
     <div class="idp-methods">
-      <button type="button" class="idp-method" :class="{ 'is-last': lastMethod === 'webauthn' }" @click="chooseWebAuthn">
+      <button type="button" class="idp-method" v-if="methods.webauthn" :class="{ 'is-last': lastMethod === 'webauthn' }" @click="chooseWebAuthn">
         <span class="idp-method-icon">${ICON_PASSKEY}</span>
         <span><span class="idp-method-title">{{ t.usePasskey }}</span><br><span class="idp-method-hint">{{ t.usePasskeyHint }}</span></span>
       </button>
-      <button type="button" class="idp-method" :class="{ 'is-last': lastMethod === 'password' }" @click="choosePassword">
+      <button type="button" class="idp-method" v-if="methods.emailCode" :class="{ 'is-last': lastMethod === 'emailCode' }" @click="chooseEmailCode">
+        <span class="idp-method-icon">${ICON_MAIL}</span>
+        <span><span class="idp-method-title">{{ t.useEmailCode }}</span><br><span class="idp-method-hint">{{ t.useEmailCodeHint }}</span></span>
+      </button>
+      <button type="button" class="idp-method" v-if="methods.password" :class="{ 'is-last': lastMethod === 'password' }" @click="choosePassword">
         <span class="idp-method-icon">${ICON_PASSWORD}</span>
         <span><span class="idp-method-title">{{ t.usePassword }}</span><br><span class="idp-method-hint">{{ t.usePasswordHint }}</span></span>
+      </button>
+      <button type="button" class="idp-method is-disabled" v-if="passwordDisabled" disabled aria-disabled="true">
+        <span class="idp-method-icon">${ICON_PASSWORD}</span>
+        <span><span class="idp-method-title">{{ t.usePassword }}</span><br><span class="idp-method-hint">{{ t.usePasswordDisabledHint }}</span></span>
       </button>
     </div>
   </div>
@@ -264,9 +308,37 @@ const TEMPLATE = `
       </div>
     </div>
     <div class="idp-error" v-if="hasError">${ICON_ERROR}<span>{{ errorMessage }}</span></div>
-    <button type="button" class="idp-submit" @click="submit" :disabled="busy">{{ step === 'username' ? t.next : t.signIn }}</button>
-    <div class="idp-links" v-if="methods.webauthn">
+    <button type="button" class="idp-submit" @click="submit" :disabled="busy">{{ submitLabel }}</button>
+    <div class="idp-links" v-if="hasChoice">
       <button type="button" class="idp-link" @click="backToMethods">{{ t.otherMethods }}</button>
+    </div>
+  </div>
+
+  <div v-if="step === 'emailCode'">
+    <p class="idp-title">{{ t.emailCodeTitle }}</p>
+    <p class="idp-hint">{{ t.emailCodeHint }}</p>
+    <div class="idp-field">
+      <label class="idp-label">{{ t.username }}</label>
+      <div class="idp-input-wrap">
+        <input type="text" class="idp-input is-readonly" :value="username" readonly>
+        <button type="button" class="idp-icon-btn" @click="backToUsername" :title="t.changeUsername">${ICON_EDIT}</button>
+      </div>
+    </div>
+    <div class="idp-field">
+      <label class="idp-label">{{ t.emailCode }}</label>
+      <div class="idp-input-wrap">
+        <input type="text" class="idp-input is-code" :class="{ 'has-error': hasError }" v-model="code"
+          inputmode="numeric" placeholder="000000" autocomplete="one-time-code" data-idp-focus="code"
+          @input="clearError" @keydown="onEnter">
+      </div>
+    </div>
+    <div class="idp-error" v-if="hasError">${ICON_ERROR}<span>{{ errorMessage }}</span></div>
+    <div class="idp-notice" v-if="notice">{{ notice }}</div>
+    <button type="button" class="idp-submit" @click="submit" :disabled="busy">{{ t.verify }}</button>
+    <div class="idp-links">
+      <button type="button" class="idp-link" @click="resendCode" :disabled="busy || resendRemaining > 0">{{ resendLabel }}</button>
+      <button type="button" class="idp-link" v-if="hasChoice" @click="backToMethods">{{ t.otherMethods }}</button>
+      <button type="button" class="idp-link" v-else @click="startOver">{{ t.startOver }}</button>
     </div>
   </div>
 
@@ -300,7 +372,8 @@ const TEMPLATE = `
       <div class="idp-error">${ICON_ERROR}<span>{{ errorMessage }}</span></div>
       <button type="button" class="idp-submit" @click="chooseWebAuthn">{{ t.tryAgain }}</button>
       <div class="idp-links">
-        <button type="button" class="idp-link" @click="choosePassword">{{ t.usePasswordInstead }}</button>
+        <button type="button" class="idp-link" v-if="methods.password" @click="choosePassword">{{ t.usePasswordInstead }}</button>
+        <button type="button" class="idp-link" v-if="hasChoice" @click="backToMethods">{{ t.otherMethods }}</button>
       </div>
     </div>
   </div>
@@ -428,8 +501,10 @@ function mount() {
 		data() {
 			return {
 				t: labels,
-				step: 'loading',      // method | username | password | totp | webauthn | redirecting
-				methods: { password: true, webauthn: false },
+				step: 'loading',      // method | username | password | emailCode | totp | webauthn | redirecting
+				methods: { password: true, webauthn: false, emailCode: false },
+				states: { password: 'available', passkey: 'unavailable', emailCode: 'unavailable' },
+				chosen: 'password',   // the first factor the username step leads to: password | emailCode
 				lastMethod: recallMethod(),
 				sp: null,
 				username: '',
@@ -438,13 +513,38 @@ function mount() {
 				useBackupCode: false,
 				showPassword: false,
 				errorMessage: '',
+				notice: '',
 				busy: false,
+				resendRemaining: 0,
+				resendTimer: null,
 			};
 		},
 
 		computed: {
 			hasError() {
 				return !!this.errorMessage;
+			},
+			passwordDisabled() {
+				return this.states.password === 'disabled';
+			},
+			// Whether the method chooser has anything to choose from (or to
+			// explain): more than one usable method, or a password that the
+			// administrator turned off.
+			hasChoice() {
+				const usable = ['password', 'webauthn', 'emailCode'].filter(m => this.methods[m]).length;
+				return usable > 1 || this.passwordDisabled;
+			},
+			submitLabel() {
+				if (this.step === 'username') {
+					return this.chosen === 'emailCode' ? this.t.sendCode : this.t.next;
+				}
+				return this.t.signIn;
+			},
+			resendLabel() {
+				if (this.resendRemaining > 0) {
+					return this.t.resendIn.replace('{seconds}', String(this.resendRemaining));
+				}
+				return this.t.resendCode;
 			},
 		},
 
@@ -458,19 +558,25 @@ function mount() {
 					this.methods = {
 						password: methods.data.password !== false,
 						webauthn: !!methods.data.webauthn && !!window.PublicKeyCredential,
+						emailCode: !!methods.data.emailCode,
 					};
+					if (methods.data.states) {
+						this.states = Object.assign({}, this.states, methods.data.states);
+					}
 				}
 				if (sp && sp.status === 'success' && sp.data) {
 					this.sp = sp.data;
 				}
-				this.step = this.methods.webauthn ? 'method' : 'username';
+				this.chosen = this.methods.password ? 'password' : 'emailCode';
+				this.step = this.hasChoice ? 'method' : 'username';
 				this.focus();
 				root.dispatchEvent(new CustomEvent('idp-login-ready', { bubbles: true, detail: { lang: lang, labels: labels } }));
 			},
 
 			focus() {
 				this.$nextTick(() => {
-					const target = root.querySelector('[data-idp-focus="' + (this.step === 'totp' ? 'code' : this.step) + '"]');
+					const name = (this.step === 'totp' || this.step === 'emailCode') ? 'code' : this.step;
+					const target = root.querySelector('[data-idp-focus="' + name + '"]');
 					if (target) {
 						target.focus();
 					}
@@ -500,19 +606,33 @@ function mount() {
 			},
 
 			backToMethods() {
+				this.stopResendTimer();
 				this.step = 'method';
 				this.password = '';
+				this.code = '';
 				this.errorMessage = '';
+				this.notice = '';
 			},
 
 			backToUsername() {
+				this.stopResendTimer();
 				this.step = 'username';
 				this.password = '';
+				this.code = '';
 				this.errorMessage = '';
+				this.notice = '';
 				this.focus();
 			},
 
 			choosePassword() {
+				this.chosen = 'password';
+				this.errorMessage = '';
+				this.step = 'username';
+				this.focus();
+			},
+
+			chooseEmailCode() {
+				this.chosen = 'emailCode';
 				this.errorMessage = '';
 				this.step = 'username';
 				this.focus();
@@ -586,10 +706,16 @@ function mount() {
 						return;
 					}
 					this.errorMessage = '';
+					if (this.chosen === 'emailCode') {
+						this.requestCode(false);
+						return;
+					}
 					this.step = 'password';
 					this.focus();
 				} else if (this.step === 'password') {
 					this.signInWithPassword();
+				} else if (this.step === 'emailCode') {
+					this.verifyEmailCode();
 				} else if (this.step === 'totp') {
 					this.verifyCode();
 				}
@@ -611,11 +737,34 @@ function mount() {
 						return;
 					}
 					if (result.ok && result.json.status === 'mfa_required') {
+						this.toSecondFactor('password');
+						return;
+					}
+					this.failWith(result.json);
+				} catch (_) {
+					this.fail(this.t.errNetwork);
+				}
+			},
+
+			// Asks the server to send a code to the account's address. The
+			// answer is the same whether or not the account exists, so the
+			// page always moves on to the code step.
+			async requestCode(resend) {
+				this.errorMessage = '';
+				this.notice = '';
+				this.busy = true;
+				try {
+					const result = await postJson(API.codeRequest, { username: this.username.trim(), lang: lang });
+					if (result.ok && result.json.status === 'success') {
 						this.busy = false;
-						this.password = '';
-						this.code = '';
-						this.useBackupCode = false;
-						this.step = 'totp';
+						const data = result.json.data || {};
+						this.startResendTimer(data.resendAfterSeconds || 60);
+						if (resend) {
+							this.notice = this.t.codeResent;
+						} else {
+							this.code = '';
+							this.step = 'emailCode';
+						}
 						this.focus();
 						return;
 					}
@@ -623,6 +772,78 @@ function mount() {
 				} catch (_) {
 					this.fail(this.t.errNetwork);
 				}
+			},
+
+			resendCode() {
+				if (this.busy || this.resendRemaining > 0) {
+					return;
+				}
+				this.code = '';
+				this.requestCode(true);
+			},
+
+			startResendTimer(seconds) {
+				this.stopResendTimer();
+				this.resendRemaining = seconds;
+				this.resendTimer = setInterval(() => {
+					this.resendRemaining = Math.max(0, this.resendRemaining - 1);
+					if (this.resendRemaining === 0) {
+						this.stopResendTimer();
+					}
+				}, 1000);
+			},
+
+			stopResendTimer() {
+				if (this.resendTimer) {
+					clearInterval(this.resendTimer);
+					this.resendTimer = null;
+				}
+				this.resendRemaining = 0;
+			},
+
+			async verifyEmailCode() {
+				if (!this.code.trim()) {
+					this.fail(this.t.errCode);
+					return;
+				}
+				this.errorMessage = '';
+				this.notice = '';
+				this.busy = true;
+				try {
+					const result = await postJson(API.code, { code: this.code.trim() });
+					if (result.ok && result.json.status === 'success') {
+						rememberMethod('emailCode');
+						this.stopResendTimer();
+						this.step = 'redirecting';
+						postSamlResponse(result.json.data);
+						return;
+					}
+					if (result.ok && result.json.status === 'mfa_required') {
+						this.stopResendTimer();
+						this.toSecondFactor('emailCode');
+						return;
+					}
+					if (RESTART_CODES.includes(result.json.code)) {
+						this.startOver();
+						this.failWith(result.json, 'errRestart');
+						return;
+					}
+					this.code = '';
+					this.failWith(result.json);
+					this.focus();
+				} catch (_) {
+					this.fail(this.t.errNetwork);
+				}
+			},
+
+			toSecondFactor(firstFactor) {
+				this.busy = false;
+				this.password = '';
+				this.code = '';
+				this.useBackupCode = false;
+				this.chosen = firstFactor;
+				this.step = 'totp';
+				this.focus();
 			},
 
 			async verifyCode() {
@@ -638,7 +859,7 @@ function mount() {
 						code: this.code.trim(),
 					});
 					if (result.ok && result.json.status === 'success') {
-						rememberMethod('password');
+						rememberMethod(this.chosen);
 						this.step = 'redirecting';
 						postSamlResponse(result.json.data);
 						return;
@@ -664,11 +885,13 @@ function mount() {
 			},
 
 			startOver() {
+				this.stopResendTimer();
 				this.step = 'username';
 				this.password = '';
 				this.code = '';
 				this.useBackupCode = false;
 				this.errorMessage = '';
+				this.notice = '';
 				this.busy = false;
 				this.focus();
 			},

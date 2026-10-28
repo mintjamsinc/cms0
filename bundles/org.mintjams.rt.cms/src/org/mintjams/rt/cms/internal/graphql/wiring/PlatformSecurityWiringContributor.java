@@ -25,22 +25,29 @@ package org.mintjams.rt.cms.internal.graphql.wiring;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
+import javax.jcr.Node;
 import javax.jcr.Session;
 
+import org.mintjams.cms.mail.MailService;
+import org.mintjams.cms.security.SignInPolicy;
 import org.mintjams.cms.security.UserCredentials;
 import org.mintjams.cms.security.mfa.MultiFactorException;
 import org.mintjams.cms.security.mfa.MultiFactorService;
 import org.mintjams.cms.security.mfa.MultiFactorStatus;
 import org.mintjams.cms.security.mfa.PasskeyInfo;
 import org.mintjams.cms.security.mfa.TotpEnrollment;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.GraphQLExecutionContext;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
+import org.mintjams.rt.cms.internal.security.MailChange;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
@@ -87,7 +94,175 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 				.dataFetcher("Mutation", "finishPasskeyRegistration",
 						(DataFetcher<Object>) PlatformSecurityWiringContributor::finishPasskeyRegistration)
 				.dataFetcher("Mutation", "renamePasskey", (DataFetcher<Object>) PlatformSecurityWiringContributor::renamePasskey)
-				.dataFetcher("Mutation", "deletePasskey", (DataFetcher<Object>) PlatformSecurityWiringContributor::deletePasskey);
+				.dataFetcher("Mutation", "deletePasskey", (DataFetcher<Object>) PlatformSecurityWiringContributor::deletePasskey)
+				.dataFetcher("Query", "signInPolicy", (DataFetcher<Object>) PlatformSecurityWiringContributor::signInPolicy)
+				.dataFetcher("Mutation", "beginMailChange", (DataFetcher<Object>) PlatformSecurityWiringContributor::beginMailChange)
+				.dataFetcher("Mutation", "confirmMailChange", (DataFetcher<Object>) PlatformSecurityWiringContributor::confirmMailChange);
+	}
+
+	// ---- sign-in policy ---------------------------------------------------------
+
+	/**
+	 * What the IdP offers right now. Without an IdP (none published the
+	 * service) only the password is reported, as before the policy existed.
+	 */
+	private static Object signInPolicy(DataFetchingEnvironment environment) {
+		SignInPolicy policy = signInPolicyService();
+		Map<String, Object> map = new LinkedHashMap<>();
+		map.put("password", policy == null ? SignInPolicy.State.AVAILABLE.name() : policy.getPassword().name());
+		map.put("emailCode", policy == null ? SignInPolicy.State.UNAVAILABLE.name() : policy.getEmailCode().name());
+		map.put("passkey", policy == null ? SignInPolicy.State.UNAVAILABLE.name() : policy.getPasskey().name());
+		map.put("mailVerification", mailAvailable());
+		return map;
+	}
+
+	static SignInPolicy signInPolicyService() {
+		BundleContext context = CmsService.getDefault().getBundleContext();
+		if (context == null) {
+			return null;
+		}
+		ServiceReference<SignInPolicy> ref = context.getServiceReference(SignInPolicy.class);
+		return (ref == null) ? null : context.getService(ref);
+	}
+
+	/** The platform mail transport when one is configured, else null. */
+	static MailService mailService() {
+		BundleContext context = CmsService.getDefault().getBundleContext();
+		if (context == null) {
+			return null;
+		}
+		ServiceReference<MailService> ref = context.getServiceReference(MailService.class);
+		MailService mail = (ref == null) ? null : context.getService(ref);
+		return (mail != null && mail.isAvailable()) ? mail : null;
+	}
+
+	/** Whether a changed email address is confirmed by a code before it is saved. */
+	static boolean mailAvailable() {
+		return mailService() != null;
+	}
+
+	// ---- email address change --------------------------------------------------
+
+	private static final Pattern MAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
+	/**
+	 * Starts changing the caller's address. With a mail transport a code is
+	 * sent to the new address and the change waits for
+	 * {@link #confirmMailChange}; the current address, when there is one and
+	 * it differs, is told. Without a transport the address is written at once
+	 * and {@code mailVerifiedAt} is dropped.
+	 */
+	private static Object beginMailChange(DataFetchingEnvironment environment) throws Exception {
+		Session session = callerSession(environment);
+		Map<String, Object> input = inputArg(environment);
+		String username = session.getUserID();
+		String mail = input.get("mail") instanceof String ? ((String) input.get("mail")).trim() : "";
+		String lang = MailChange.language(input.get("lang") instanceof String ? (String) input.get("lang") : null);
+		if (mail.isEmpty() || !MAIL_PATTERN.matcher(mail).matches()) {
+			return errorResult("Invalid email address", "INVALID_INPUT");
+		}
+		String profilePath = "/home/users/" + username + "/profile";
+		if (username == null || !session.nodeExists(profilePath)) {
+			return errorResult("User not found: " + username, "NOT_FOUND");
+		}
+		Node profileNode = session.getNode(profilePath);
+		Node contentNode = JCRs.getContentNode(profileNode);
+		String currentMail = contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : "";
+		String displayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : username;
+
+		MailService transport = mailService();
+		if (transport == null) {
+			// No way to confirm: save at once, unverified.
+			if (!mail.equals(currentMail)) {
+				contentNode.setProperty("mail", mail);
+				if (contentNode.hasProperty("mailVerifiedAt")) {
+					contentNode.getProperty("mailVerifiedAt").remove();
+				}
+				session.save();
+			}
+			Node saved = session.getNode(profilePath);
+			Map<String, Object> result = new HashMap<>();
+			result.put("verificationRequired", false);
+			result.put("sent", false);
+			result.put("user", PlatformIdpWiringContributor.mapUser(session, username, saved, JCRs.getContentNode(saved)));
+			result.put("errors", null);
+			return result;
+		}
+
+		Session systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+		try {
+			MailChange.Pending pending = MailChange.read(systemSession, username);
+			boolean send = pending == null || !mail.equals(pending.getMail()) || pending.canResend();
+			if (send) {
+				String code = MailChange.generateCode();
+				transport.send(MailChange.confirmationCode(mail, displayName, code, lang));
+				MailChange.start(systemSession, username, mail, code);
+				if (!currentMail.isBlank() && !currentMail.equalsIgnoreCase(mail)) {
+					MailChange.trySend(transport, MailChange.changeNotice(currentMail, displayName, mail, lang));
+				}
+				CmsService.getLogger(PlatformSecurityWiringContributor.class).info("Confirmation code sent for the new email address of " + username);
+			}
+			Map<String, Object> result = new HashMap<>();
+			result.put("verificationRequired", true);
+			result.put("sent", send);
+			result.put("expiresInSeconds", (int) (MailChange.TTL_MILLIS / 1000));
+			result.put("resendAfterSeconds", (int) (MailChange.RESEND_MILLIS / 1000));
+			result.put("user", null);
+			result.put("errors", null);
+			return result;
+		} catch (org.mintjams.cms.mail.MailException ex) {
+			return errorResult("The code could not be sent: " + ex.getMessage(), "MAIL_FAILED");
+		} finally {
+			systemSession.logout();
+		}
+	}
+
+	/** Finishes a change with the code sent to the new address. */
+	private static Object confirmMailChange(DataFetchingEnvironment environment) throws Exception {
+		Session session = callerSession(environment);
+		Map<String, Object> input = inputArg(environment);
+		String username = session.getUserID();
+		String code = input.get("code") instanceof String ? (String) input.get("code") : "";
+		if (code.isBlank()) {
+			return errorResult("A code is required", "INVALID_INPUT");
+		}
+		String profilePath = "/home/users/" + username + "/profile";
+		if (username == null || !session.nodeExists(profilePath)) {
+			return errorResult("User not found: " + username, "NOT_FOUND");
+		}
+
+		Session systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+		try {
+			MailChange.Pending pending = MailChange.read(systemSession, username);
+			if (pending == null) {
+				return errorResult("There is no address waiting to be confirmed; ask for a new code", "NONE_PENDING");
+			}
+			switch (MailChange.verify(systemSession, username, code)) {
+			case VERIFIED:
+				break;
+			case INVALID:
+				return errorResult("The code is not valid", "INVALID_CODE");
+			case TOO_MANY_ATTEMPTS:
+				return errorResult("Too many attempts; ask for a new code", "TOO_MANY_ATTEMPTS");
+			case EXPIRED:
+				return errorResult("The code has expired; ask for a new one", "CODE_EXPIRED");
+			case NONE_PENDING:
+			default:
+				return errorResult("There is no address waiting to be confirmed; ask for a new code", "NONE_PENDING");
+			}
+			Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
+			contentNode.setProperty("mail", pending.getMail());
+			contentNode.setProperty("mailVerifiedAt", Calendar.getInstance());
+			session.save();
+			CmsService.getLogger(PlatformSecurityWiringContributor.class).info("Email address of " + username + " confirmed by a code");
+		} finally {
+			systemSession.logout();
+		}
+		Node saved = session.getNode(profilePath);
+		Map<String, Object> result = new HashMap<>();
+		result.put("user", PlatformIdpWiringContributor.mapUser(session, username, saved, JCRs.getContentNode(saved)));
+		result.put("errors", null);
+		return result;
 	}
 
 	// ---- query ----------------------------------------------------------------

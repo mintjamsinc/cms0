@@ -22,6 +22,11 @@ import type {
   PasskeyPayload,
   RenamePasskeyInput,
   DeletePasskeyInput,
+  SignInPolicy,
+  BeginMailChangeInput,
+  MailChangePayload,
+  ConfirmMailChangeInput,
+  UpdateUserPayload,
 } from '../graphql/types.js';
 
 export class SecurityServiceGraphQL {
@@ -37,6 +42,38 @@ export class SecurityServiceGraphQL {
       { username }
     );
     return data.userSecurity;
+  }
+
+  // =========================================================================
+  // Sign-in policy and email address confirmation
+  // =========================================================================
+
+  /** Which ways of signing in the server offers, and whether a changed address is confirmed by a code. */
+  async getSignInPolicy(): Promise<SignInPolicy> {
+    const data = await this.#client.query<{ signInPolicy: SignInPolicy }>(SECURITY_QUERIES.SIGN_IN_POLICY);
+    return data.signInPolicy;
+  }
+
+  /**
+   * Starts changing the caller's email address. When `verificationRequired`
+   * is true a code went to the new address and confirmMailChange has to
+   * follow; otherwise the address was saved at once and `user` is refreshed.
+   */
+  async beginMailChange(input: BeginMailChangeInput): Promise<MailChangePayload> {
+    const data = await this.#client.mutation<{ beginMailChange: MailChangePayload }>(
+      SECURITY_MUTATIONS.BEGIN_MAIL_CHANGE,
+      { input }
+    );
+    return data.beginMailChange;
+  }
+
+  /** Finishes the change with the code that was sent. */
+  async confirmMailChange(input: ConfirmMailChangeInput): Promise<UpdateUserPayload> {
+    const data = await this.#client.mutation<{ confirmMailChange: UpdateUserPayload }>(
+      SECURITY_MUTATIONS.CONFIRM_MAIL_CHANGE,
+      { input }
+    );
+    return data.confirmMailChange;
   }
 
   // =========================================================================

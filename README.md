@@ -133,7 +133,7 @@ the auto-generated defaults.
 
 ### Sign-in methods and second factors
 
-The built-in IdP offers two ways to sign in, chosen on the login page:
+The built-in IdP offers three ways to sign in, chosen on the login page:
 
 - **Passkey** (WebAuthn): face or fingerprint recognition, a device PIN, or
   a security key. Passkeys are registered as discoverable credentials with
@@ -143,8 +143,15 @@ The built-in IdP offers two ways to sign in, chosen on the login page:
   the user has turned on two-step verification (TOTP, RFC 6238). Ten
   single-use backup codes are issued with it for when the app is not at
   hand.
+- **A code sent by email**: a 6-digit code goes to the address on the
+  account, valid for five minutes and once. It needs the outgoing mail
+  transport (`etc/mail.yml`, see
+  [`documents/mail-transport.md`](documents/mail-transport.md)) and is
+  followed by the authenticator code too when TOTP is on. An administrator
+  can turn passwords off and leave this as the way in; see
+  [`documents/sign-in-methods.md`](documents/sign-in-methods.md).
 
-Users manage both in **Preferences › Security** (turn TOTP on or off, get
+Users manage the second factors in **Preferences › Security** (turn TOTP on or off, get
 new backup codes and download them, add, rename and remove passkeys). Every
 step that starts an enrollment or weakens a sign-in asks for the current
 password again. An administrator can turn off a user's TOTP and remove their
@@ -153,16 +160,20 @@ or through the GraphQL mutations `disableTotp` and `deletePasskey`; neither
 needs the user's password.
 
 The SAML assertion tells the SP how the user authenticated
-(`AuthnContextClassRef`: `PasswordProtectedTransport`, `TimeSyncToken`, or
-`urn:mintjams:idp:ac:classes:WebAuthn`), and the SP records the factors in
-the session and the authentication token (`saml2,password`,
-`saml2,password,totp`, `saml2,webauthn`).
+(`AuthnContextClassRef`: `PasswordProtectedTransport`, `TimeSyncToken`,
+`urn:mintjams:idp:ac:classes:WebAuthn`, `urn:mintjams:idp:ac:classes:EmailCode`
+or `urn:mintjams:idp:ac:classes:EmailCodeTimeSyncToken`), and the SP records
+the factors in the session and the authentication token (`saml2,password`,
+`saml2,password,totp`, `saml2,webauthn`, `saml2,emailCode`,
+`saml2,emailCode,totp`).
 
 `etc/idp.yml` settings (all optional; the defaults are written on first
 boot):
 
 | Key | Default | Purpose |
 |---|---|---|
+| `signIn.password` | `true` | Offer username and password. `false` is honoured only while a code sent by email can be offered; otherwise passwords stay on and the log says so. `CMS_IDP_ALLOW_PASSWORD=true` (or `-Dcms.idp.allowPassword=true`) turns them back on for one run. |
+| `signIn.emailCode` | `true` | Offer a code sent to the user's email address. Needs `etc/mail.yml`. |
 | `webauthn.rpId` | host of `baseUrl` | The WebAuthn relying-party id. Passkeys are bound to it; changing it invalidates every registered passkey. Leave blank unless the IdP is served under a different host than the one users see. |
 | `webauthn.rpName` | `MintJams` | The name authenticators show when a passkey is created. |
 | `webauthn.origins` | `[]` | Extra origins allowed to run WebAuthn ceremonies. The origin of `baseUrl` is always allowed. |

@@ -12,6 +12,7 @@ import { initUi } from "../../ui/index.js";
 import { createShellPopupAdapter } from "../../ui/shell-popup-adapter.js";
 import { IdpServiceGraphQL } from "../../services/idp-service-graphql.js";
 import { SecurityServiceGraphQL } from "../../services/security-service-graphql.js";
+import type { SignInPolicy } from "../../graphql/types.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -98,6 +99,9 @@ export const App = {
 			securityService: null as SecurityServiceGraphQL | null,
 			userSecurity: null as UserSecurity | null,
 			securityLoading: false,
+			// What the IdP offers: when passwords are off, users without a
+			// confirmed email address are flagged (they cannot get a sign-in code).
+			signInPolicy: { password: 'AVAILABLE', emailCode: 'UNAVAILABLE', passkey: 'UNAVAILABLE', mailVerification: false } as SignInPolicy,
 			pendingRoleChanges: {} as Record<string, boolean>,
 
 			// Groups
@@ -278,6 +282,9 @@ export const App = {
 			return !!this.selectedUser && !!this.currentUserId
 				&& this.selectedUser.username === this.currentUserId;
 		},
+		passwordDisabled(): boolean {
+			return this.signInPolicy.password === 'DISABLED';
+		},
 	},
 
 	methods: {
@@ -311,6 +318,9 @@ export const App = {
 				vm.currentUserId = instance.currentUser?.id || '';
 				vm.idp = vm.$markRaw(new IdpServiceGraphQL());
 				vm.securityService = vm.$markRaw(new SecurityServiceGraphQL());
+				vm.securityService.getSignInPolicy()
+					.then((policy: SignInPolicy) => { vm.signInPolicy = policy; })
+					.catch((e: unknown) => console.warn('[IdentityManager] Failed to load the sign-in policy:', e));
 
 				const theme = vm.instance.api.theme.currentTheme || 'light';
 				document.documentElement.dataset.theme = theme;

@@ -152,3 +152,71 @@ type PasskeyPayload {
   security: UserSecurity
   errors: [IdpMutationError!]
 }
+
+# -----------------------------------------------------------------------------
+# Sign-in methods and email address confirmation
+#
+# The IdP decides which first factors it offers (idp.yml `signIn`, the mail
+# transport, the passkey relying party); `signInPolicy` reports that so that
+# Preferences and Identity Manager can tell users what applies to them.
+#
+# When the server can send mail, a new email address is confirmed by a code
+# sent to it before it is saved (beginMailChange / confirmMailChange); the
+# address then carries User.mailVerifiedAt. Without a transport the address is
+# saved at once and stays unverified.
+# -----------------------------------------------------------------------------
+
+extend type Query {
+  """Which ways of signing in this server offers right now, and whether a changed email address is confirmed by a code."""
+  signInPolicy: SignInPolicy!
+}
+
+enum SignInMethodState {
+  """Offered on the sign-in page."""
+  AVAILABLE
+  """Switched off by the administrator."""
+  DISABLED
+  """Not possible in this installation (no mail transport, no passkey relying party)."""
+  UNAVAILABLE
+}
+
+type SignInPolicy {
+  """Username and password."""
+  password: SignInMethodState!
+  """A one-time code sent to the user's registered email address."""
+  emailCode: SignInMethodState!
+  """A passkey (WebAuthn)."""
+  passkey: SignInMethodState!
+  """Whether the server can send mail, so that a changed address is confirmed by a code before it is saved."""
+  mailVerification: Boolean!
+}
+
+extend type Mutation {
+  """Start changing the caller's email address. With a mail transport a code goes to the new address and the change waits for confirmMailChange; without one the address is saved at once (unverified). The same address may be given to confirm the current one."""
+  beginMailChange(input: BeginMailChangeInput!): MailChangePayload!
+
+  """Finish the change with the code that was sent: saves the address and marks it verified."""
+  confirmMailChange(input: ConfirmMailChangeInput!): UserMutationPayload!
+}
+
+input BeginMailChangeInput {
+  mail: String!
+  """Language of the message (ja or en); English when omitted."""
+  lang: String
+}
+
+input ConfirmMailChangeInput {
+  code: String!
+}
+
+type MailChangePayload {
+  """True when a code was sent and confirmMailChange has to follow; false when the address was saved at once."""
+  verificationRequired: Boolean!
+  """Whether this call sent a message; false when one went out less than resendAfterSeconds ago (that code stays valid)."""
+  sent: Boolean!
+  expiresInSeconds: Int
+  resendAfterSeconds: Int
+  """The refreshed user when the address was saved at once."""
+  user: User
+  errors: [IdpMutationError!]
+}

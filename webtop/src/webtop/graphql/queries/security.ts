@@ -30,6 +30,17 @@ export const USER_SECURITY_FIELDS = `
 `;
 
 export const SECURITY_QUERIES = {
+  SIGN_IN_POLICY: `
+    query SignInPolicy {
+      signInPolicy {
+        password
+        emailCode
+        passkey
+        mailVerification
+      }
+    }
+  `,
+
   USER_SECURITY: `
     query UserSecurity($username: String!) {
       userSecurity(username: $username) {
@@ -40,6 +51,42 @@ export const SECURITY_QUERIES = {
 };
 
 export const SECURITY_MUTATIONS = {
+  BEGIN_MAIL_CHANGE: `
+    mutation BeginMailChange($input: BeginMailChangeInput!) {
+      beginMailChange(input: $input) {
+        verificationRequired
+        sent
+        expiresInSeconds
+        resendAfterSeconds
+        user {
+          username
+          displayName
+          mail
+          mailVerifiedAt
+        }
+        errors {
+          ${MUTATION_ERROR_FIELDS}
+        }
+      }
+    }
+  `,
+
+  CONFIRM_MAIL_CHANGE: `
+    mutation ConfirmMailChange($input: ConfirmMailChangeInput!) {
+      confirmMailChange(input: $input) {
+        user {
+          username
+          displayName
+          mail
+          mailVerifiedAt
+        }
+        errors {
+          ${MUTATION_ERROR_FIELDS}
+        }
+      }
+    }
+  `,
+
   BEGIN_TOTP_ENROLLMENT: `
     mutation BeginTotpEnrollment($input: BeginTotpEnrollmentInput!) {
       beginTotpEnrollment(input: $input) {

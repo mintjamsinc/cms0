@@ -6,6 +6,7 @@ Bundle-Vendor: %Plugin.provider
 Bundle-Version: 1.0.0
 Export-Package: org.mintjams.cms;version="1.0.0",
  org.mintjams.cms.config;version="1.0.0",
+ org.mintjams.cms.mail;version="1.0.0",
  org.mintjams.cms.security;version="1.0.0",
  org.mintjams.cms.security.mfa;version="1.0.0",
  org.mintjams.cms.security.saml2;version="1.0.0"

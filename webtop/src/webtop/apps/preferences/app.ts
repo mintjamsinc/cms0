@@ -16,7 +16,7 @@ import type { LinkedAccount, LinkedAccountProvider, LinkedAccounts } from "../..
 
 // The channel the grant popup reports on; kept out of reactive data.
 let linkedChannel: BroadcastChannel | null = null;
-import type { IdpMutationError, McpConnection, Passkey, UserSecurity } from "../../graphql/types.js";
+import type { IdpMutationError, McpConnection, Passkey, SignInPolicy, UserSecurity } from "../../graphql/types.js";
 import qrcode from 'qrcode-generator';
 import {
 	createLocalizationSnapshot,
@@ -202,7 +202,21 @@ const App = {
 			displayName: '',
 			originalDisplayName: '',
 			mail: '',
-			originalMail: '',
+			mailVerifiedAt: null as string | null,
+			// What the IdP offers (password may be off; a changed address may need a code).
+			signInPolicy: { password: 'AVAILABLE', emailCode: 'UNAVAILABLE', passkey: 'UNAVAILABLE', mailVerification: false } as SignInPolicy,
+			mailDialog: {
+				visible: false,
+				step: 'address' as 'address' | 'code',
+				verifyOnly: false,
+				mail: '',
+				confirm: '',
+				code: '',
+				error: '',
+				busy: false,
+				resendRemaining: 0,
+				timer: null as ReturnType<typeof setInterval> | null,
+			},
 			profileSaving: false,
 			profileError: '',
 
@@ -308,8 +322,16 @@ const App = {
 		displayNameChanged() {
 			return this.displayName !== this.originalDisplayName;
 		},
-		mailChanged() {
-			return this.mail.trim() !== this.originalMail;
+		passwordDisabled() {
+			return this.signInPolicy.password === 'DISABLED';
+		},
+		canSubmitMailDialog() {
+			const d = this.mailDialog;
+			if (d.step === 'code') {
+				return d.code.trim().length > 0;
+			}
+			const mail = d.mail.trim();
+			return mail.length > 0 && mail === d.confirm.trim();
 		},
 		// Item lists for the localization wt-selects. '' encodes each "Auto"
 		// choice (the label helpers already render the auto wording for '').
@@ -489,6 +511,7 @@ const App = {
 				vm.loadThemeSetting(),
 				vm.loadWallpaperCatalog(),
 				vm.loadProfile(),
+				vm.loadSignInPolicy(),
 				vm.loadLocalization(),
 			]);
 		},
@@ -848,7 +871,7 @@ const App = {
 					vm.displayName = me.displayName || '';
 					vm.originalDisplayName = vm.displayName;
 					vm.mail = me.mail || '';
-					vm.originalMail = vm.mail;
+					vm.mailVerifiedAt = me.mailVerifiedAt || null;
 				}
 			} catch (e) {
 				console.warn('[Preferences] Failed to load profile:', e);
@@ -899,30 +922,201 @@ const App = {
 			}
 		},
 
-		async saveMail() {
+		// ---- email address: change with confirmation, verify, remove ----
+
+		async loadSignInPolicy() {
 			const vm = this;
-			const mail = vm.mail.trim();
-			if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-				vm.profileError = vm.t('app.preferences.msg.invalidEmail', undefined, 'Enter a valid email address.');
+			if (!vm.securityService) return;
+			try {
+				vm.signInPolicy = await vm.securityService.getSignInPolicy();
+			} catch (e) {
+				console.warn('[Preferences] Failed to load the sign-in policy:', e);
+			}
+		},
+
+		/** Applies a refreshed user from a mail mutation and tells the shell. */
+		applyMailResult(user: { mail?: string | null; mailVerifiedAt?: string | null } | null | undefined) {
+			const vm = this;
+			vm.mail = user?.mail || '';
+			vm.mailVerifiedAt = user?.mailVerifiedAt || null;
+			vm.instance.api.webtop.postMessage({ type: 'profile-changed', mail: vm.mail });
+		},
+
+		openMailDialog() {
+			const d = this.mailDialog;
+			this.stopMailResendTimer();
+			d.visible = true;
+			d.step = 'address';
+			d.verifyOnly = false;
+			d.mail = '';
+			d.confirm = '';
+			d.code = '';
+			d.error = '';
+			d.busy = false;
+		},
+		closeMailDialog() {
+			this.stopMailResendTimer();
+			this.mailDialog.visible = false;
+			this.mailDialog.mail = '';
+			this.mailDialog.confirm = '';
+			this.mailDialog.code = '';
+		},
+		onMailDialogKeydown(e: KeyboardEvent) {
+			if (e.key === 'Enter') this.submitMailDialog();
+		},
+		submitMailDialog() {
+			if (!this.canSubmitMailDialog || this.mailDialog.busy) return;
+			if (this.mailDialog.step === 'address') {
+				this.sendMailCode(false);
+			} else {
+				this.confirmMailCode();
+			}
+		},
+
+		/** Sends a code to the current address so it can be marked verified. */
+		verifyCurrentMail() {
+			const d = this.mailDialog;
+			this.openMailDialog();
+			d.verifyOnly = true;
+			d.mail = this.mail;
+			d.confirm = this.mail;
+			this.sendMailCode(false);
+		},
+
+		/**
+		 * Asks the server to start the change. With a mail transport a code goes
+		 * to the new address and the dialog moves to the code step; without one
+		 * the address is saved at once.
+		 */
+		async sendMailCode(resend: boolean) {
+			const vm = this;
+			const d = vm.mailDialog;
+			const mail = d.mail.trim();
+			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+				d.error = vm.t('app.preferences.msg.invalidEmail', undefined, 'Enter a valid email address.');
 				return;
 			}
-			vm.profileSaving = true;
-			vm.profileError = '';
+			d.busy = true;
+			d.error = '';
 			try {
-				const result = await vm.idp.updateMyProfile({ mail });
+				const result = await vm.securityService.beginMailChange({ mail, lang: vm.localization.locale || undefined });
 				if (result.errors?.length) {
-					vm.profileError = result.errors[0].message;
-				} else {
-					vm.mail = result.user?.mail || '';
-					vm.originalMail = vm.mail;
+					d.error = vm.mailErrorMessage(result.errors);
+					return;
+				}
+				if (!result.verificationRequired) {
+					vm.applyMailResult(result.user);
+					vm.closeMailDialog();
 					vm.showToast(vm.t('app.preferences.msg.emailUpdated', undefined, 'Email address updated.'));
-					vm.instance.api.webtop.postMessage({ type: 'profile-changed', mail: vm.mail });
+					return;
+				}
+				d.step = 'code';
+				d.code = '';
+				vm.startMailResendTimer(result.resendAfterSeconds || 60);
+				if (resend && result.sent) {
+					vm.showToast(vm.t('app.preferences.msg.codeResent', undefined, 'A new code was sent.'));
 				}
 			} catch (e: any) {
-				vm.profileError = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
+				d.error = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
 			} finally {
-				vm.profileSaving = false;
+				d.busy = false;
 			}
+		},
+		resendMailCode() {
+			if (this.mailDialog.busy || this.mailDialog.resendRemaining > 0) return;
+			this.mailDialog.code = '';
+			this.sendMailCode(true);
+		},
+		startMailResendTimer(seconds: number) {
+			const d = this.mailDialog;
+			this.stopMailResendTimer();
+			d.resendRemaining = seconds;
+			d.timer = setInterval(() => {
+				d.resendRemaining = Math.max(0, d.resendRemaining - 1);
+				if (d.resendRemaining === 0) this.stopMailResendTimer();
+			}, 1000);
+		},
+		stopMailResendTimer() {
+			const d = this.mailDialog;
+			if (d.timer) {
+				clearInterval(d.timer);
+				d.timer = null;
+			}
+			d.resendRemaining = 0;
+		},
+
+		async confirmMailCode() {
+			const vm = this;
+			const d = vm.mailDialog;
+			d.busy = true;
+			d.error = '';
+			try {
+				const result = await vm.securityService.confirmMailChange({ code: d.code.trim() });
+				if (result.errors?.length) {
+					d.error = vm.mailErrorMessage(result.errors);
+					// A spent code (too many tries, expired) wants a new one.
+					const code = result.errors[0].code;
+					if (code === 'TOO_MANY_ATTEMPTS' || code === 'CODE_EXPIRED' || code === 'NONE_PENDING') {
+						d.step = 'address';
+						vm.stopMailResendTimer();
+					}
+					return;
+				}
+				vm.applyMailResult(result.user);
+				vm.closeMailDialog();
+				vm.showToast(vm.t(d.verifyOnly ? 'app.preferences.msg.emailVerified' : 'app.preferences.msg.emailUpdated', undefined,
+					d.verifyOnly ? 'Email address verified.' : 'Email address updated.'));
+			} catch (e: any) {
+				d.error = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
+			} finally {
+				d.busy = false;
+			}
+		},
+
+		/** The message for an in-band error of the mail mutations. */
+		mailErrorMessage(errors: IdpMutationError[]): string {
+			const code = errors[0]?.code;
+			const keys: Record<string, [string, string]> = {
+				INVALID_CODE: ['app.preferences.msg.invalidCode', 'The code is not valid.'],
+				TOO_MANY_ATTEMPTS: ['app.preferences.msg.tooManyAttempts', 'Too many attempts. Ask for a new code.'],
+				CODE_EXPIRED: ['app.preferences.msg.codeExpired', 'The code has expired. Ask for a new one.'],
+				NONE_PENDING: ['app.preferences.msg.codeExpired', 'The code has expired. Ask for a new one.'],
+				MAIL_FAILED: ['app.preferences.msg.mailFailed', 'The code could not be sent. Try again later.'],
+				INVALID_INPUT: ['app.preferences.msg.invalidEmail', 'Enter a valid email address.'],
+			};
+			const entry = code ? keys[code] : undefined;
+			return entry ? this.t(entry[0], undefined, entry[1]) : (errors[0]?.message || this.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.'));
+		},
+
+		removeMail() {
+			const vm = this;
+			vm.openConfirmDialog({
+				title: vm.t('app.preferences.profile.removeEmail', undefined, 'Remove email address'),
+				message: vm.t(vm.passwordDisabled ? 'app.preferences.profile.removeEmailLockoutMessage' : 'app.preferences.profile.removeEmailMessage', undefined,
+					vm.passwordDisabled
+						? 'Signing in with a password is turned off, so without an email address you will not be able to sign in except with a passkey. Remove the address anyway?'
+						: 'Notifications and sign-in codes can no longer reach you. Remove the address?'),
+				confirmLabel: vm.t('app.preferences.profile.removeEmail', undefined, 'Remove'),
+				iconClass: 'bi-envelope-slash',
+				danger: true,
+				onConfirm: async () => {
+					vm.profileSaving = true;
+					vm.profileError = '';
+					try {
+						const result = await vm.idp.updateMyProfile({ mail: '' });
+						if (result.errors?.length) {
+							vm.profileError = result.errors[0].message;
+						} else {
+							vm.applyMailResult(result.user);
+							vm.showToast(vm.t('app.preferences.msg.emailRemoved', undefined, 'Email address removed.'));
+						}
+					} catch (e: any) {
+						vm.profileError = e.message || vm.t('app.preferences.msg.saveFailed', undefined, 'Failed to save.');
+					} finally {
+						vm.profileSaving = false;
+					}
+				},
+			});
 		},
 
 		triggerAvatarUpload() {

@@ -401,8 +401,8 @@ public class Saml2ServiceProviderConfiguration {
 	 * by the session and the authentication token. {@code saml2} is always
 	 * present (the assertion itself); the rest names what the user proved to
 	 * the IdP. Classes come from the SAML 2.0 authentication context
-	 * specification, plus the MintJams IdP's own class for passkeys, for which
-	 * the specification has none.
+	 * specification, plus the MintJams IdP's own classes for passkeys and for
+	 * codes sent by email, for which the specification has none.
 	 */
 	static String authenticatedFactors(String authnContextClassRef) {
 		if (authnContextClassRef == null) {
@@ -416,6 +416,10 @@ public class Saml2ServiceProviderConfiguration {
 			return "saml2,password,totp";
 		case "urn:mintjams:idp:ac:classes:WebAuthn":
 			return "saml2,webauthn";
+		case "urn:mintjams:idp:ac:classes:EmailCode":
+			return "saml2,emailCode";
+		case "urn:mintjams:idp:ac:classes:EmailCodeTimeSyncToken":
+			return "saml2,emailCode,totp";
 		default:
 			return "saml2";
 		}

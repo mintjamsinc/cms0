@@ -605,7 +605,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		setStringIfPresent(contentNode, "sn", input);
 		setStringIfPresent(contentNode, "givenName", input);
 		setStringIfPresent(contentNode, "displayName", input);
-		setStringIfPresent(contentNode, "mail", input);
+		setMailIfPresent(contentNode, input);
 		if (input.get("enabled") instanceof Boolean) {
 			boolean enabled = (Boolean) input.get("enabled");
 			contentNode.setProperty("enabled", enabled);
@@ -631,19 +631,26 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (username == null || !session.nodeExists(profilePath)) {
 			return errorResult("User not found: " + username, "NOT_FOUND");
 		}
+		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
 		if (input.get("mail") instanceof String) {
 			String mail = ((String) input.get("mail")).trim();
 			if (!mail.isEmpty() && !MAIL_PATTERN.matcher(mail).matches()) {
 				return errorResult("Invalid email address", "INVALID_INPUT");
+			}
+			String current = contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : "";
+			// When the server can send mail, a new address is proven by a code
+			// (beginMailChange / confirmMailChange) before it is saved; only
+			// clearing the address stays a plain write.
+			if (!mail.isEmpty() && !mail.equals(current) && PlatformSecurityWiringContributor.mailAvailable()) {
+				return errorResult("A new email address has to be confirmed by a code: use beginMailChange", "MAIL_VERIFICATION_REQUIRED");
 			}
 			input.put("mail", mail);
 		}
 		if (input.get("displayName") instanceof String) {
 			input.put("displayName", ((String) input.get("displayName")).trim());
 		}
-		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
 		setStringIfPresent(contentNode, "displayName", input);
-		setStringIfPresent(contentNode, "mail", input);
+		setMailIfPresent(contentNode, input);
 		session.save();
 		Node savedProfile = session.getNode(profilePath);
 		return userResult(mapUser(session, username, savedProfile, JCRs.getContentNode(savedProfile)));
@@ -1363,6 +1370,23 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}
 	}
 
+	/**
+	 * Writes {@code mail} when present and, when the address actually
+	 * changes, drops {@code mailVerifiedAt}: the stamp belongs to the address
+	 * that received a code, not to the account.
+	 */
+	private static void setMailIfPresent(Node node, Map<String, Object> input) throws Exception {
+		if (!(input.get("mail") instanceof String)) {
+			return;
+		}
+		String mail = (String) input.get("mail");
+		String current = node.hasProperty("mail") ? node.getProperty("mail").getString() : "";
+		node.setProperty("mail", mail);
+		if (!mail.equals(current) && node.hasProperty("mailVerifiedAt")) {
+			node.getProperty("mailVerifiedAt").remove();
+		}
+	}
+
 	private static void setRoleReferences(Session session, Node contentNode, List<String> roleIds) throws Exception {
 		List<Value> values = new ArrayList<>();
 		for (String roleId : roleIds) {
@@ -1434,6 +1458,8 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		user.put("displayName",
 				contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null);
 		user.put("mail", contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null);
+		user.put("mailVerifiedAt", contentNode.hasProperty("mailVerifiedAt")
+				? formatDate(contentNode.getProperty("mailVerifiedAt").getDate()) : null);
 		user.put("enabled", contentNode.hasProperty("enabled") ? contentNode.getProperty("enabled").getBoolean() : true);
 		// Service accounts are non-interactive identities; the marker defaults to false.
 		user.put("isService",

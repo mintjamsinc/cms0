@@ -40,13 +40,16 @@ import javax.jcr.Value;
 import javax.jcr.security.Privilege;
 
 import org.mintjams.cms.CmsService;
+import org.mintjams.cms.mail.MailService;
 import org.mintjams.cms.security.BCrypt;
 import org.mintjams.cms.security.Encryptor;
 import org.mintjams.cms.security.PasswordGenerator;
+import org.mintjams.cms.security.SignInPolicy;
 import org.mintjams.cms.security.UserCredentials;
 import org.mintjams.cms.security.mfa.MultiFactorService;
 import org.mintjams.cms.security.saml2.LocalIdentityProvider;
 import org.mintjams.idp.internal.auth.JcrUserStore;
+import org.mintjams.idp.internal.auth.SignInPolicyImpl;
 import org.mintjams.idp.internal.auth.UserStore;
 import org.mintjams.idp.internal.mfa.MultiFactorServiceImpl;
 import org.mintjams.idp.internal.security.FileKeyStoreManager;
@@ -65,6 +68,7 @@ import org.mintjams.tools.osgi.Registration;
 import org.mintjams.tools.osgi.Tracker;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceReference;
 import org.osgi.service.http.HttpContext;
 import org.osgi.service.http.HttpService;
 import org.slf4j.Logger;
@@ -93,6 +97,7 @@ public class Activator implements BundleActivator {
 	private KeyStoreManager fKeyStoreManager;
 	private Encryptor fEncryptor;
 	private UserStore fUserStore;
+	private SignInPolicyImpl fSignInPolicy;
 	private final ObjectMapper fObjectMapper = new ObjectMapper();
 
 	private Tracker.Listener<Object> fTrackerListener = new Tracker.Listener<Object>() {
@@ -205,6 +210,16 @@ public class Activator implements BundleActivator {
 					.setService(new MultiFactorServiceImpl())
 					.setBundleContext(fBundleContext)
 					.build());
+
+			// Which sign-in methods are offered (idp.yml signIn, the mail
+			// transport, the passkey relying party), for the login page and
+			// the platform GraphQL layer alike.
+			fSignInPolicy = new SignInPolicyImpl();
+			fCloser.register(Registration.newBuilder(SignInPolicy.class)
+					.setService(fSignInPolicy)
+					.setBundleContext(fBundleContext)
+					.build());
+			fSignInPolicy.logStartup(fUserStore);
 
 			log.info("IdP servlets registered at: {}", fConfig.getBaseURL());
 			log.info("  Entity ID : {}", fConfig.getEntityId());
@@ -554,6 +569,30 @@ public class Activator implements BundleActivator {
 
 	public UserStore getUserStore() {
 		return fUserStore;
+	}
+
+	/** The sign-in methods offered right now (never null once the IdP is open). */
+	public SignInPolicyImpl getSignInPolicy() {
+		return fSignInPolicy;
+	}
+
+	/**
+	 * The platform's outgoing mail, or null when the platform publishes none.
+	 * Looked up on every call: the service is optional and may come and go.
+	 */
+	public MailService getMailService() {
+		BundleContext context = fBundleContext;
+		if (context == null) {
+			return null;
+		}
+		ServiceReference<MailService> ref = context.getServiceReference(MailService.class);
+		return (ref == null) ? null : context.getService(ref);
+	}
+
+	/** Whether a sign-in code could be sent now. */
+	public boolean isMailTransportAvailable() {
+		MailService mail = getMailService();
+		return mail != null && mail.isAvailable();
 	}
 
 	public String toJSON(Object value) throws IOException {

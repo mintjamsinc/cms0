@@ -24,6 +24,10 @@ package org.mintjams.idp.internal.servlet;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -50,9 +54,11 @@ import org.slf4j.LoggerFactory;
  * <p>Session attributes:</p>
  * <ul>
  *   <li>{@code idp.user} - the signed-in user (set only once every factor passed)</li>
- *   <li>{@code idp.pendingUser} - a user whose password verified and who still owes a second factor</li>
+ *   <li>{@code idp.pendingUser} - a user whose first factor verified and who still owes a second factor</li>
  *   <li>{@code idp.pendingSince} - when that happened (the step expires)</li>
+ *   <li>{@code idp.firstFactor} - which first factor that was ({@code password} or {@code emailCode})</li>
  *   <li>{@code idp.mfaAttempts} - failed second-factor attempts in this step</li>
+ *   <li>{@code idp.emailCode} - the sign-in code sent by email that is still waiting to be entered</li>
  *   <li>{@code idp.webauthnChallenge} - the challenge issued for a passkey sign-in</li>
  *   <li>{@code idp.webauthnChallengeSince} - when it was issued</li>
  * </ul>
@@ -67,12 +73,29 @@ final class AuthnFlow {
 	static final String SESSION_MFA_ATTEMPTS = "idp.mfaAttempts";
 	static final String SESSION_WEBAUTHN_CHALLENGE = "idp.webauthnChallenge";
 	static final String SESSION_WEBAUTHN_CHALLENGE_SINCE = "idp.webauthnChallengeSince";
+	static final String SESSION_FIRST_FACTOR = "idp.firstFactor";
+	static final String SESSION_EMAIL_CODE = "idp.emailCode";
+
+	/** The first factor a pending second-factor step followed. */
+	static final String FIRST_FACTOR_PASSWORD = "password";
+	static final String FIRST_FACTOR_EMAIL_CODE = "emailCode";
 
 	/** How long a second-factor step or a passkey challenge stays valid. */
 	static final long STEP_TTL_MILLIS = 5L * 60 * 1000;
 
 	/** Failed second-factor attempts before the user has to start over. */
 	static final int MAX_MFA_ATTEMPTS = 5;
+
+	/** How long a sign-in code sent by email stays valid. */
+	static final long EMAIL_CODE_TTL_MILLIS = 5L * 60 * 1000;
+
+	/** How long after a code was sent another one may be asked for. */
+	static final long EMAIL_CODE_RESEND_MILLIS = 60L * 1000;
+
+	/** Wrong codes before the user has to ask for a new one. */
+	static final int MAX_EMAIL_CODE_ATTEMPTS = 5;
+
+	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private AuthnFlow() {}
 
@@ -127,7 +150,9 @@ final class AuthnFlow {
 	 * visitor can see carries one:
 	 * <ul>
 	 * <li>{@code MISSING_CREDENTIALS}, {@code INVALID_CREDENTIALS} — password step</li>
-	 * <li>{@code MISSING_CODE}, {@code INVALID_CODE}, {@code TOO_MANY_ATTEMPTS} — second factor</li>
+	 * <li>{@code MISSING_CODE}, {@code INVALID_CODE}, {@code TOO_MANY_ATTEMPTS} — second factor, or a sign-in code</li>
+	 * <li>{@code PASSWORD_DISABLED}, {@code EMAIL_CODE_UNAVAILABLE} — the method is not offered</li>
+	 * <li>{@code MISSING_USERNAME}, {@code MAIL_FAILED} — asking for a sign-in code</li>
 	 * <li>{@code SESSION_EXPIRED} — the step the client is on is no longer pending; start over</li>
 	 * <li>{@code NOT_AVAILABLE}, {@code INVALID_CREDENTIAL}, {@code UNKNOWN_CREDENTIAL} — passkey</li>
 	 * <li>{@code ACCOUNT_DISABLED}, {@code NO_REQUEST}, {@code UNTRUSTED_SP}</li>
@@ -148,9 +173,25 @@ final class AuthnFlow {
 	 * Marks the user as owing a second factor.
 	 */
 	static void startSecondFactor(HttpSession session, IdpUser user) {
+		startSecondFactor(session, user, FIRST_FACTOR_PASSWORD);
+	}
+
+	/**
+	 * Marks the user as owing a second factor, remembering which first
+	 * factor ({@link #FIRST_FACTOR_PASSWORD} or {@link #FIRST_FACTOR_EMAIL_CODE})
+	 * they passed, so that the completed sign-in reports the right context.
+	 */
+	static void startSecondFactor(HttpSession session, IdpUser user, String firstFactor) {
 		session.setAttribute(SESSION_PENDING_USER, user);
 		session.setAttribute(SESSION_PENDING_SINCE, System.currentTimeMillis());
 		session.setAttribute(SESSION_MFA_ATTEMPTS, 0);
+		session.setAttribute(SESSION_FIRST_FACTOR, firstFactor);
+	}
+
+	/** The first factor of the pending second-factor step; the password when unknown. */
+	static String firstFactor(HttpSession session) {
+		Object value = session.getAttribute(SESSION_FIRST_FACTOR);
+		return (value instanceof String) ? (String) value : FIRST_FACTOR_PASSWORD;
 	}
 
 	/**
@@ -190,6 +231,133 @@ final class AuthnFlow {
 		session.removeAttribute(SESSION_PENDING_USER);
 		session.removeAttribute(SESSION_PENDING_SINCE);
 		session.removeAttribute(SESSION_MFA_ATTEMPTS);
+		session.removeAttribute(SESSION_FIRST_FACTOR);
+	}
+
+	// ---- sign-in code sent by email ----------------------------------------
+
+	/** A sign-in code waiting to be entered: never the code itself, only its salted hash. */
+	static final class EmailCodeState implements Serializable {
+		private static final long serialVersionUID = 1L;
+		/** The username the page asked for (what the cool-down is keyed on). */
+		String requestedUsername;
+		/** The account the code was sent to, or null when there was none (a decoy that never verifies). */
+		String username;
+		String salt;
+		String hash;
+		long sentAt;
+		int attempts;
+	}
+
+	/** The outcome of entering a sign-in code. */
+	enum EmailCodeOutcome {
+		VERIFIED, INVALID, TOO_MANY_ATTEMPTS, NO_CODE
+	}
+
+	static final class EmailCodeResult {
+		private final EmailCodeOutcome fOutcome;
+		private final String fUsername;
+
+		EmailCodeResult(EmailCodeOutcome outcome, String username) {
+			fOutcome = outcome;
+			fUsername = username;
+		}
+
+		EmailCodeOutcome getOutcome() {
+			return fOutcome;
+		}
+
+		/** The verified account, set only for {@link EmailCodeOutcome#VERIFIED}. */
+		String getUsername() {
+			return fUsername;
+		}
+	}
+
+	/**
+	 * Whether a code may be sent now: not when one went to the same username
+	 * less than {@link #EMAIL_CODE_RESEND_MILLIS} ago and is still valid.
+	 */
+	static boolean canSendEmailCode(HttpSession session, String requestedUsername) {
+		EmailCodeState state = emailCodeState(session);
+		if (state == null || !requestedUsername.equals(state.requestedUsername)) {
+			return true;
+		}
+		return System.currentTimeMillis() - state.sentAt >= EMAIL_CODE_RESEND_MILLIS;
+	}
+
+	/**
+	 * Records a code that was just sent (or, when {@code username} is null,
+	 * a decoy for an account that got nothing). Replaces any earlier code.
+	 */
+	static void startEmailCode(HttpSession session, String requestedUsername, String username, String code) {
+		EmailCodeState state = new EmailCodeState();
+		state.requestedUsername = requestedUsername;
+		state.username = username;
+		byte[] salt = new byte[16];
+		RANDOM.nextBytes(salt);
+		state.salt = hex(salt);
+		state.hash = hashCode(state.salt, code);
+		state.sentAt = System.currentTimeMillis();
+		state.attempts = 0;
+		session.setAttribute(SESSION_EMAIL_CODE, state);
+	}
+
+	/**
+	 * Checks an entered code against the one that was sent. A verified or
+	 * exhausted code is removed; a wrong one counts an attempt.
+	 */
+	static EmailCodeResult verifyEmailCode(HttpSession session, String code) {
+		EmailCodeState state = emailCodeState(session);
+		if (state == null) {
+			return new EmailCodeResult(EmailCodeOutcome.NO_CODE, null);
+		}
+		String entered = code.replaceAll("[^0-9]", "");
+		boolean matches = state.username != null && MessageDigest.isEqual(
+				hashCode(state.salt, entered).getBytes(StandardCharsets.US_ASCII),
+				state.hash.getBytes(StandardCharsets.US_ASCII));
+		if (matches) {
+			session.removeAttribute(SESSION_EMAIL_CODE);
+			return new EmailCodeResult(EmailCodeOutcome.VERIFIED, state.username);
+		}
+		state.attempts++;
+		if (state.attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
+			session.removeAttribute(SESSION_EMAIL_CODE);
+			return new EmailCodeResult(EmailCodeOutcome.TOO_MANY_ATTEMPTS, null);
+		}
+		// Write the attribute back so a shared session store sees the count.
+		session.setAttribute(SESSION_EMAIL_CODE, state);
+		return new EmailCodeResult(EmailCodeOutcome.INVALID, null);
+	}
+
+	/** The pending code, or null when there is none or it has expired (in which case it is cleared). */
+	private static EmailCodeState emailCodeState(HttpSession session) {
+		Object value = session.getAttribute(SESSION_EMAIL_CODE);
+		if (!(value instanceof EmailCodeState)) {
+			return null;
+		}
+		EmailCodeState state = (EmailCodeState) value;
+		if (System.currentTimeMillis() - state.sentAt > EMAIL_CODE_TTL_MILLIS) {
+			session.removeAttribute(SESSION_EMAIL_CODE);
+			return null;
+		}
+		return state;
+	}
+
+	private static String hashCode(String salt, String code) {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			return hex(digest.digest((salt + ":" + code).getBytes(StandardCharsets.UTF_8)));
+		} catch (java.security.NoSuchAlgorithmException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private static String hex(byte[] bytes) {
+		StringBuilder sb = new StringBuilder(bytes.length * 2);
+		for (byte b : bytes) {
+			sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+		}
+		return sb.toString();
 	}
 
 	/**
@@ -203,6 +371,7 @@ final class AuthnFlow {
 		clearSecondFactor(session);
 		session.removeAttribute(SESSION_WEBAUTHN_CHALLENGE);
 		session.removeAttribute(SESSION_WEBAUTHN_CHALLENGE_SINCE);
+		session.removeAttribute(SESSION_EMAIL_CODE);
 		user.setAuthnContextClassRef(authnContextClassRef);
 		session.setAttribute(SESSION_USER, user);
 
