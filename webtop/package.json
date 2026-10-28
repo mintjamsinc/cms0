@@ -109,7 +109,7 @@
 	},
 	"dependencies": {
 		"@fontsource/m-plus-rounded-1c": "^5.3.0",
-		"@mintjamsinc/ichigojs": "^0.1.89",
+		"@mintjamsinc/ichigojs": "^0.1.90",
 		"@tiptap/extension-image": "^3.32.0",
 		"intl-messageformat": "^11.2.6",
 		"qrcode-generator": "^2.0.4"
