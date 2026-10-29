@@ -144,9 +144,11 @@ The built-in IdP offers three ways to sign in, chosen on the login page:
   single-use backup codes are issued with it for when the app is not at
   hand.
 - **A code sent by email**: a 6-digit code goes to the address on the
-  account, valid for five minutes and once. It needs the outgoing mail
-  transport (`etc/mail.yml`, see
-  [`documents/mail-transport.md`](documents/mail-transport.md)) and is
+  account, valid for five minutes and once. Only an address the user has
+  confirmed (by entering a code sent to it in Preferences › Profile)
+  receives sign-in codes; an address an administrator enters waits for
+  that confirmation. It needs the outgoing mail transport (`etc/mail.yml`,
+  see [`documents/mail-transport.md`](documents/mail-transport.md)) and is
   followed by the authenticator code too when TOTP is on. An administrator
   can turn passwords off and leave this as the way in; see
   [`documents/sign-in-methods.md`](documents/sign-in-methods.md).

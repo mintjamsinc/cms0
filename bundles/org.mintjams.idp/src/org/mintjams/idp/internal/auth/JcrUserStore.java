@@ -22,7 +22,6 @@
 
 package org.mintjams.idp.internal.auth;
 
-import java.util.Calendar;
 
 import javax.jcr.ItemNotFoundException;
 import javax.jcr.Node;
@@ -163,6 +162,7 @@ public class JcrUserStore implements UserStore {
 		}
 		if (contentNode.hasProperty("mail")) {
 			user.setEmail(contentNode.getProperty("mail").getString());
+			user.setMailVerified(contentNode.hasProperty("mailVerifiedAt"));
 		}
 		if (contentNode.hasProperty("memberOf")) {
 			for (Value v : contentNode.getProperty("memberOf").getValues()) {
@@ -208,37 +208,6 @@ public class JcrUserStore implements UserStore {
 		} catch (Exception e) {
 			LOG.error("Failed to resolve weak reference", e);
 			return null;
-		}
-	}
-
-	@Override
-	public void markMailVerified(String username) {
-		Session jcrSession = null;
-		try {
-			jcrSession = Activator.getDefault().getRepository().login(new IdpServiceCredentials(), "system");
-			String profilePath = USERS_ROOT + "/" + username + "/profile";
-			if (!jcrSession.nodeExists(profilePath)) {
-				return;
-			}
-			Node contentNode = JCRs.getContentNode(jcrSession.getNode(profilePath));
-			if (!contentNode.hasProperty("mail") || contentNode.getProperty("mail").getString().isBlank()) {
-				return;
-			}
-			if (contentNode.hasProperty("mailVerifiedAt")) {
-				// The first confirmation is the one worth keeping: it says since
-				// when the address has been known to be the user's.
-				return;
-			}
-			contentNode.setProperty("mailVerifiedAt", Calendar.getInstance());
-			jcrSession.save();
-			LOG.info("Email address of {} verified by a sign-in code", username);
-		} catch (RepositoryException ex) {
-			LOG.error("Failed to record the verified email address of {}", username, ex);
-			throw new RuntimeException(ex);
-		} finally {
-			try {
-				jcrSession.logout();
-			} catch (Throwable ignore) {}
 		}
 	}
 

@@ -48,16 +48,19 @@ methods follow it, and each change is logged as above.
 ### Before turning passwords off
 
 A code sent by email reaches a user only if the address on their account is
-right. The server records an address as *confirmed* once a code sent to it
-was entered (`mailVerifiedAt` on the profile): by signing in with a code, or
-by confirming the address in Preferences › Profile. Before setting
-`password: false`:
+right, and a wrong address would hand the code to a stranger. So the server
+sends sign-in codes only to an address that is *confirmed*: one whose owner,
+signed in, entered a code sent to it in Preferences › Profile
+(`mailVerifiedAt` on the profile). An unconfirmed address gets no code; a
+notice goes to it instead, saying how to confirm it, and the login page
+answers as it always does. Before setting `password: false`:
 
-1. Place `etc/mail.yml` and check that a code arrives (sign in with one).
-2. Confirm your own address: Preferences › Profile shows *Confirmed on …*
-   next to it, or a *Confirm now* link when it is not.
-3. Look at the user list in the Identity Manager. Users without an address
-   or with an unconfirmed one carry a badge once passwords are off.
+1. Place `etc/mail.yml` and confirm your own address: Preferences › Profile
+   shows *Confirmed on …* next to it, or a *Confirm now* link when it is not.
+   The code arriving proves the transport works.
+2. Look at the user list in the Identity Manager. Users without an address
+   or with an unconfirmed one carry a badge once passwords are off; they
+   cannot sign in with a code until they confirm their address.
 
 At start-up the server counts the administrators with a confirmed address;
 when passwords are off and there are none, it warns:
@@ -78,8 +81,11 @@ Profile with its confirmation code), and restart without the variable.
 
 A user who cannot get a code because their address is wrong is helped by an
 administrator, who corrects the address in the Identity Manager. The
-corrected address counts as confirmed as soon as the user signs in with a
-code sent to it.
+corrected address does not replace the current one at once: it waits as
+*pending* until the user, signed in with a password or a passkey, confirms it
+in Preferences › Profile (*Send a confirmation code*). When the user has no
+other way in, the administrator can tick *Register as confirmed* to save the
+address at once on their own word; the log records who did so.
 
 ## Signing in with a code sent by email
 
@@ -93,7 +99,8 @@ the account and the page asks for it.
   and the earlier code stays valid.
 - The page shows the same message whether or not the username exists or has
   an address, so it cannot be used to find out which accounts exist. An
-  unknown account gets no message.
+  unknown account gets no message; an unconfirmed address gets a notice
+  instead of a code, with nothing in it that could be entered anywhere.
 - The message is in Japanese when the login page is, English otherwise.
 - When the user has two-step verification, the authenticator code follows
   as it does after a password.
@@ -125,13 +132,20 @@ dialog says so.
 Removing the address asks for confirmation, with a stronger warning when
 passwords are off.
 
-An administrator sets addresses in the Identity Manager without any code;
-such an address is unconfirmed until the user signs in with a code sent to
-it or confirms it in Preferences. The form warns when passwords are off and
-the user has no address, or an unconfirmed one.
+An address an administrator enters in the Identity Manager does not replace
+the current one. It is kept as pending, the user sees it in Preferences ›
+Profile with *Send a confirmation code*, and it becomes the address,
+confirmed, once the code is entered. Entering the current address again
+withdraws a pending one; clearing the field removes the address. *Register
+as confirmed* saves the address at once on the administrator's word, which
+the log records. Without a mail transport every address is saved at once,
+unconfirmed. The form warns when passwords are off and the user has no
+address, or an unconfirmed one.
 
 For other clients, the platform GraphQL API has `signInPolicy` (the three
 states and whether addresses are confirmed by a code), `beginMailChange`
 and `confirmMailChange`; `updateMyProfile` refuses a new address with
 `MAIL_VERIFICATION_REQUIRED` while a transport is configured, and still
-clears one. `User.mailVerifiedAt` says when an address was confirmed.
+clears one. `createUser` and `updateUser` take `mail` (kept as
+`User.pendingMail` while a transport is configured) and `mailVerified`.
+`User.mailVerifiedAt` says when an address was confirmed.

@@ -40,6 +40,7 @@ public class IdpUser implements Serializable {
 	private String fUsername;
 	private String fDisplayName;
 	private String fEmail;
+	private boolean fMailVerified;
 	private List<String> fGroups = new ArrayList<>();
 	private List<String> fRoles = new ArrayList<>();
 	private Map<String, List<String>> fAttributes = new HashMap<>();
@@ -79,6 +80,15 @@ public class IdpUser implements Serializable {
 
 	public void setEmail(String email) {
 		fEmail = email;
+	}
+
+	/** Whether a code sent to the address was entered by its owner. */
+	public boolean isMailVerified() {
+		return fMailVerified;
+	}
+
+	public void setMailVerified(boolean mailVerified) {
+		fMailVerified = mailVerified;
 	}
 
 	public List<String> getGroups() {

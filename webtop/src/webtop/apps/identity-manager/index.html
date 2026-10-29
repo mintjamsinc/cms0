@@ -101,8 +101,8 @@
 						</div>
 						<span v-if="u.isService" class="service-badge">{{ t('app.identity-manager.user.serviceBadge', undefined, 'Service') }}</span>
 						<span v-if="!u.enabled" class="disabled-badge">{{ t('app.identity-manager.status.disabled', undefined, 'Disabled') }}</span>
-						<span v-if="!u.isService && u.mail && !u.mailVerifiedAt" class="disabled-badge">{{ t('app.identity-manager.user.mailUnverifiedBadge', undefined, 'Email unconfirmed') }}</span>
-						<span v-if="!u.isService && !u.mail && passwordDisabled" class="disabled-badge">{{ t('app.identity-manager.user.mailMissingBadge', undefined, 'No email') }}</span>
+						<span v-if="!u.isService && ((u.mail && !u.mailVerifiedAt) || (!u.mail && u.pendingMail))" class="disabled-badge">{{ t('app.identity-manager.user.mailUnverifiedBadge', undefined, 'Email unconfirmed') }}</span>
+						<span v-if="!u.isService && !u.mail && !u.pendingMail && passwordDisabled" class="disabled-badge">{{ t('app.identity-manager.user.mailMissingBadge', undefined, 'No email') }}</span>
 					</div>
 					<div v-if="displayedUsers.length === 0" class="list-empty-message">
 						{{ t('app.identity-manager.empty.users', undefined, 'No users found') }}
@@ -186,9 +186,19 @@
 											<div v-if="selectedUser.mail && selectedUser.mailVerifiedAt && editForm.mail === selectedUser.mail" class="text-muted fs-small mt-1">
 												<i class="bi bi-patch-check me-1"></i>{{ t('app.identity-manager.field.emailVerified', { date: formatDate(selectedUser.mailVerifiedAt) }, 'Confirmed on {date}') }}
 											</div>
-											<div v-else-if="editForm.mail" class="text-muted fs-small mt-1">
+											<div v-else-if="editForm.mail && editForm.mail === selectedUser.mail" class="text-muted fs-small mt-1">
 												{{ t('app.identity-manager.field.emailUnverified', undefined, 'Not confirmed by the user yet') }}
 											</div>
+											<div v-else-if="editForm.mail && signInPolicy.mailVerification" class="text-muted fs-small mt-1">
+												{{ t('app.identity-manager.field.emailWillBePending', undefined, 'Saved as waiting for the user to confirm it in Preferences; the current address stays until then.') }}
+											</div>
+											<div v-if="selectedUser.pendingMail" class="text-muted fs-small mt-1">
+												<i class="bi bi-hourglass me-1"></i>{{ t('app.identity-manager.field.emailPending', { mail: selectedUser.pendingMail }, 'Waiting for the user to confirm {mail}') }}
+												<a v-if="!isSelf" href="#" class="ms-1" @click.prevent="withdrawPendingMail">{{ t('app.identity-manager.action.withdrawPendingMail', undefined, 'Withdraw') }}</a>
+											</div>
+											<wt-checkbox v-if="!isSelf && signInPolicy.mailVerification && editForm.mail && !(selectedUser.mailVerifiedAt && editForm.mail === selectedUser.mail)"
+												class="mt-1" v-model="editForm.mailVerified"
+												:label="t('app.identity-manager.field.markMailVerified', undefined, 'Register as confirmed on your word (no code is sent)')"></wt-checkbox>
 										</wt-field>
 									</div>
 									<wt-inline-message v-if="passwordDisabled && !selectedUser.isService && !editForm.mail" type="warning" class="mb-3">
@@ -585,6 +595,12 @@
 					</wt-field>
 					<wt-field class="flex-grow-1" :label="t('app.identity-manager.field.email', undefined, 'Email')">
 						<input type="email" class="wt w-100" v-model="dialog.data.mail" :disabled="dialog.data.service">
+						<div v-if="dialog.data.mail && !dialog.data.service && signInPolicy.mailVerification && !dialog.data.mailVerified" class="text-muted fs-small mt-1">
+							{{ t('app.identity-manager.field.emailWillBePendingNew', undefined, 'Waits for the user to confirm it in Preferences before it is used.') }}
+						</div>
+						<wt-checkbox v-if="dialog.data.mail && !dialog.data.service && signInPolicy.mailVerification"
+							class="mt-1" v-model="dialog.data.mailVerified"
+							:label="t('app.identity-manager.field.markMailVerified', undefined, 'Register as confirmed on your word (no code is sent)')"></wt-checkbox>
 					</wt-field>
 				</div>
 				<wt-field class="mt-2"

@@ -525,6 +525,9 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (!service && password == null) {
 			return errorResult("password is required", "INVALID_INPUT");
 		}
+		if (!isValidMailInput(input)) {
+			return errorResult("Invalid email address", "INVALID_INPUT");
+		}
 		try {
 			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(username);
 			return errorResult("User or group with the same name already exists: " + username, "ALREADY_EXISTS");
@@ -544,7 +547,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		setStringIfPresent(contentNode, "sn", input);
 		setStringIfPresent(contentNode, "givenName", input);
 		setStringIfPresent(contentNode, "displayName", input);
-		setStringIfPresent(contentNode, "mail", input);
+		applyAdminMail(session, contentNode, username, input);
 		contentNode.setProperty("enabled", getBoolInput(input, "enabled", true));
 
 		List<String> roleIds = (List<String>) input.get("roles");
@@ -601,11 +604,14 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (!session.nodeExists(profilePath)) {
 			return errorResult("User not found: " + username, "NOT_FOUND");
 		}
+		if (!isValidMailInput(input)) {
+			return errorResult("Invalid email address", "INVALID_INPUT");
+		}
 		Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
 		setStringIfPresent(contentNode, "sn", input);
 		setStringIfPresent(contentNode, "givenName", input);
 		setStringIfPresent(contentNode, "displayName", input);
-		setMailIfPresent(contentNode, input);
+		applyAdminMail(session, contentNode, username, input);
 		if (input.get("enabled") instanceof Boolean) {
 			boolean enabled = (Boolean) input.get("enabled");
 			contentNode.setProperty("enabled", enabled);
@@ -1370,10 +1376,21 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}
 	}
 
+	/** Whether {@code mail}, when given and not empty, looks like an address. */
+	private static boolean isValidMailInput(Map<String, Object> input) {
+		if (!(input.get("mail") instanceof String)) {
+			return true;
+		}
+		String mail = ((String) input.get("mail")).trim();
+		return mail.isEmpty() || MAIL_PATTERN.matcher(mail).matches();
+	}
+
 	/**
-	 * Writes {@code mail} when present and, when the address actually
-	 * changes, drops {@code mailVerifiedAt}: the stamp belongs to the address
-	 * that received a code, not to the account.
+	 * The user's own write of {@code mail} (only reached when the address is
+	 * cleared, or when no mail transport exists to confirm it). When the
+	 * address actually changes, drops {@code mailVerifiedAt}: the stamp
+	 * belongs to the address that received a code, not to the account. An
+	 * address waiting in {@code pendingMail} is withdrawn too.
 	 */
 	private static void setMailIfPresent(Node node, Map<String, Object> input) throws Exception {
 		if (!(input.get("mail") instanceof String)) {
@@ -1382,8 +1399,64 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		String mail = (String) input.get("mail");
 		String current = node.hasProperty("mail") ? node.getProperty("mail").getString() : "";
 		node.setProperty("mail", mail);
-		if (!mail.equals(current) && node.hasProperty("mailVerifiedAt")) {
-			node.getProperty("mailVerifiedAt").remove();
+		if (!mail.equals(current)) {
+			removeIfPresent(node, "mailVerifiedAt");
+			removeIfPresent(node, "pendingMail");
+		}
+	}
+
+	/**
+	 * Applies an address an administrator entered. Only its owner can prove
+	 * an address: while the server can send mail, a different address waits
+	 * in {@code pendingMail} until the user confirms it in Preferences
+	 * (confirmMailChange), and {@code mail} is left as it is, so a slip of
+	 * the finger cannot hand the account to a stranger. With
+	 * {@code mailVerified} the administrator vouches for the address and it
+	 * is written at once, confirmed (logged). Entering the current address
+	 * withdraws a pending one; an empty address clears everything. Without a
+	 * transport nothing could ever be confirmed, so the address is written at
+	 * once, unconfirmed.
+	 */
+	private static void applyAdminMail(Session session, Node node, String username, Map<String, Object> input) throws Exception {
+		if (!(input.get("mail") instanceof String)) {
+			return;
+		}
+		String mail = ((String) input.get("mail")).trim();
+		String current = node.hasProperty("mail") ? node.getProperty("mail").getString() : "";
+		boolean vouched = getBoolInput(input, "mailVerified", false);
+		if (mail.isEmpty()) {
+			removeIfPresent(node, "mail");
+			removeIfPresent(node, "mailVerifiedAt");
+			removeIfPresent(node, "pendingMail");
+			return;
+		}
+		if (mail.equals(current)) {
+			removeIfPresent(node, "pendingMail");
+			if (vouched && !node.hasProperty("mailVerifiedAt")) {
+				node.setProperty("mailVerifiedAt", Calendar.getInstance());
+				CmsService.getLogger(PlatformIdpWiringContributor.class).info(
+						"Email address of " + username + " marked confirmed by " + session.getUserID() + " without a code");
+			}
+			return;
+		}
+		if (vouched || !PlatformSecurityWiringContributor.mailAvailable()) {
+			node.setProperty("mail", mail);
+			removeIfPresent(node, "pendingMail");
+			if (vouched) {
+				node.setProperty("mailVerifiedAt", Calendar.getInstance());
+				CmsService.getLogger(PlatformIdpWiringContributor.class).info(
+						"Email address of " + username + " set and marked confirmed by " + session.getUserID() + " without a code");
+			} else {
+				removeIfPresent(node, "mailVerifiedAt");
+			}
+			return;
+		}
+		node.setProperty("pendingMail", mail);
+	}
+
+	static void removeIfPresent(Node node, String name) throws Exception {
+		if (node.hasProperty(name)) {
+			node.getProperty(name).remove();
 		}
 	}
 
@@ -1460,6 +1533,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		user.put("mail", contentNode.hasProperty("mail") ? contentNode.getProperty("mail").getString() : null);
 		user.put("mailVerifiedAt", contentNode.hasProperty("mailVerifiedAt")
 				? formatDate(contentNode.getProperty("mailVerifiedAt").getDate()) : null);
+		user.put("pendingMail", contentNode.hasProperty("pendingMail") ? contentNode.getProperty("pendingMail").getString() : null);
 		user.put("enabled", contentNode.hasProperty("enabled") ? contentNode.getProperty("enabled").getBoolean() : true);
 		// Service accounts are non-interactive identities; the marker defaults to false.
 		user.put("isService",

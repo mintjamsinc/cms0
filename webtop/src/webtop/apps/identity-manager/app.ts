@@ -90,6 +90,8 @@ export const App = {
 				givenName: '',
 				displayName: '',
 				mail: '',
+				// Save the address as confirmed on the administrator's word.
+				mailVerified: false,
 				enabled: true,
 			},
 			passwordForm: {
@@ -475,6 +477,7 @@ export const App = {
 					givenName: fullUser.givenName || '',
 					displayName: fullUser.displayName || '',
 					mail: fullUser.mail || '',
+					mailVerified: false,
 					enabled: fullUser.enabled,
 				};
 				this.passwordForm.newPassword = '';
@@ -483,6 +486,14 @@ export const App = {
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}
+		},
+
+		/** Takes back an address that waits for the user's confirmation. */
+		async withdrawPendingMail() {
+			if (!this.selectedUser || this.isSelf) return;
+			this.editForm.mail = this.selectedUser.mail || '';
+			this.editForm.mailVerified = false;
+			await this.saveUser();
 		},
 
 		userHasRole(roleId: string): boolean {
@@ -513,7 +524,10 @@ export const App = {
 					sn: this.editForm.sn || undefined,
 					givenName: this.editForm.givenName || undefined,
 					displayName: this.editForm.displayName || undefined,
-					mail: this.editForm.mail || undefined,
+					// The address as entered: a cleared field clears it, the current
+					// one withdraws a pending address, a new one waits for the user.
+					mail: this.editForm.mail.trim(),
+					mailVerified: this.editForm.mailVerified || undefined,
 					enabled: this.editForm.enabled,
 				});
 				if (result.errors) {
@@ -1087,7 +1101,7 @@ export const App = {
 			if (this.activeSection === 'users') {
 				this.dialog = {
 					type: 'createUser',
-					data: { username: '', password: '', displayName: '', mail: '', service: false },
+					data: { username: '', password: '', displayName: '', mail: '', mailVerified: false, service: false },
 				};
 			} else if (this.activeSection === 'groups') {
 				this.dialog = {
@@ -1126,6 +1140,7 @@ export const App = {
 					password: service ? undefined : (d.password as string),
 					displayName: (d.displayName as string) || undefined,
 					mail: service ? undefined : (d.mail as string) || undefined,
+					mailVerified: !service && d.mail && d.mailVerified ? true : undefined,
 					service: service || undefined,
 				});
 				if (result.errors) {

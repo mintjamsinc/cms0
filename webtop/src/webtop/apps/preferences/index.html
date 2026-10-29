@@ -290,6 +290,10 @@
 									{{ t('app.preferences.profile.emailUnverified') }}
 									<a href="#" class="ms-1" @click.prevent="verifyCurrentMail">{{ t('app.preferences.profile.verifyEmail') }}</a>
 								</div>
+								<div v-if="pendingMail" class="text-muted fs-small mt-2">
+									<i class="bi bi-hourglass me-1"></i>{{ t('app.preferences.profile.emailPending', { mail: pendingMail }) }}
+									<a href="#" class="ms-1" @click.prevent="verifyPendingMail">{{ t('app.preferences.profile.confirmPending') }}</a>
+								</div>
 								<wt-inline-message v-if="passwordDisabled && mail && !mailVerifiedAt" type="warning" class="mt-2">
 									{{ t('app.preferences.profile.emailVerifyWarning') }}
 								</wt-inline-message>

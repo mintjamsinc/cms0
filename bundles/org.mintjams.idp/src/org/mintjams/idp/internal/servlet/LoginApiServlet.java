@@ -74,7 +74,8 @@ import org.slf4j.LoggerFactory;
  * sends a code to the user's registered address and answers
  * {@code {"status": "success", "data": {"expiresInSeconds": 300, "resendAfterSeconds": 60}}}
  * whether or not the username exists or has an address (so the page cannot
- * be used to enumerate accounts). {@code POST /idp/api/login/code} with
+ * be used to enumerate accounts). An address that was never confirmed by
+ * its owner gets a notice instead of a code. {@code POST /idp/api/login/code} with
  * {@code {"code": "..."}} verifies it and continues exactly like the
  * password: success, or {@code mfa_required} when the user has TOTP.</p>
  *
@@ -203,9 +204,27 @@ public class LoginApiServlet extends HttpServlet {
 		}
 
 		String lang = SignInCodeMail.language(body.getString("lang"), request.getHeader("Accept-Language"));
+		MailService mail = Activator.getDefault().getMailService();
+		if (!user.isMailVerified()) {
+			// Nobody has proven this address yet, so no code goes to it: a
+			// wrong address would let a stranger in. The owner is told how to
+			// confirm it; the page's answer stays the same as for a sent code.
+			LOG.info("Sign-in code requested for {}: email address not confirmed; a notice sent instead", username);
+			if (mail != null) {
+				try {
+					mail.send(SignInCodeMail.unconfirmedNotice(user.getEmail(), user.getDisplayName(),
+							Activator.getDefault().getConfiguration().getTotpIssuer(), lang));
+				} catch (MailException ex) {
+					LOG.warn("Could not send the unconfirmed-address notice to the address of {}", username, ex);
+				}
+			}
+			AuthnFlow.startEmailCode(session, username, null, code);
+			AuthnFlow.sendSuccess(response, data);
+			return;
+		}
+
 		int minutes = (int) (AuthnFlow.EMAIL_CODE_TTL_MILLIS / 60000);
 		try {
-			MailService mail = Activator.getDefault().getMailService();
 			if (mail == null) {
 				throw new MailException(MailException.NOT_CONFIGURED, "No mail transport is available.");
 			}
@@ -258,12 +277,6 @@ public class LoginApiServlet extends HttpServlet {
 			// unknown account (which never verifies; this is belt and braces).
 			AuthnFlow.sendError(response, HttpServletResponse.SC_UNAUTHORIZED, "This account cannot sign in.", "ACCOUNT_DISABLED");
 			return;
-		}
-		try {
-			// Receiving the code proves the address: that is what "verified" means.
-			Activator.getDefault().getUserStore().markMailVerified(user.getUsername());
-		} catch (Throwable ex) {
-			LOG.warn("Could not record the verified email address of {}", user.getUsername(), ex);
 		}
 
 		continueAfterFirstFactor(request, response, user, AuthnFlow.FIRST_FACTOR_EMAIL_CODE, SamlResponseBuilder.AUTHN_CONTEXT_EMAIL_CODE);

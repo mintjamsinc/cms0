@@ -39,6 +39,7 @@ const USER_BASIC_FIELDS = `
   displayName
   mail
   mailVerifiedAt
+  pendingMail
   enabled
   isService
   hasAvatar

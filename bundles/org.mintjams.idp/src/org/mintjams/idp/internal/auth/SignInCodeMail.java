@@ -102,4 +102,39 @@ public final class SignInCodeMail {
 						+ issuer + "\n");
 	}
 
+	/**
+	 * Sent instead of a code when the account's address has not been
+	 * confirmed by its owner. It carries nothing that could be entered
+	 * anywhere.
+	 *
+	 * @param to          the user's registered, unconfirmed address
+	 * @param displayName the name to greet the user by
+	 * @param issuer      the name signed under the message (the TOTP issuer)
+	 * @param lang        {@code ja} or {@code en}
+	 */
+	public static MailMessage unconfirmedNotice(String to, String displayName, String issuer, String lang) {
+		String name = (displayName == null || displayName.isBlank()) ? "" : displayName.trim();
+		if ("ja".equals(lang)) {
+			return MailMessage.to(to)
+					.setSubject("メールアドレスの確認が必要です")
+					.setText((name.isEmpty() ? "" : name + " さん\n\n")
+							+ "このアドレスで認証コードによるサインインが要求されましたが、"
+							+ "アドレスの確認がまだ済んでいないため、認証コードは送っていません。\n\n"
+							+ "パスワードまたはパスキーでサインインし、環境設定のプロフィールでこのアドレスを確認すると、"
+							+ "次回から認証コードが届きます。どちらも使えない場合は管理者に連絡してください。\n\n"
+							+ "サインインを試みた覚えがなければ、このメールは無視してください。\n\n"
+							+ issuer + "\n");
+		}
+		return MailMessage.to(to)
+				.setSubject("Your email address needs to be confirmed")
+				.setText((name.isEmpty() ? "Hello,\n\n" : "Hello " + name + ",\n\n")
+						+ "A sign-in code was requested for this address, but no code was sent: "
+						+ "the address has not been confirmed yet.\n\n"
+						+ "Sign in with your password or a passkey and confirm this address under "
+						+ "Preferences > Profile; sign-in codes will reach you from then on. "
+						+ "If neither is possible, please contact your administrator.\n\n"
+						+ "If you did not try to sign in, you can ignore this message.\n\n"
+						+ issuer + "\n");
+	}
+
 }

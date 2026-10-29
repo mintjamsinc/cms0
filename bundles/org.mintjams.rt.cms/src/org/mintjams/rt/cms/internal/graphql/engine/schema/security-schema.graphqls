@@ -162,8 +162,10 @@ type PasskeyPayload {
 #
 # When the server can send mail, a new email address is confirmed by a code
 # sent to it before it is saved (beginMailChange / confirmMailChange); the
-# address then carries User.mailVerifiedAt. Without a transport the address is
-# saved at once and stays unverified.
+# address then carries User.mailVerifiedAt, and only such an address receives
+# sign-in codes. An address an administrator enters waits as User.pendingMail
+# for the same confirmation. Without a transport the address is saved at once
+# and stays unverified.
 # -----------------------------------------------------------------------------
 
 extend type Query {
@@ -195,7 +197,7 @@ extend type Mutation {
   """Start changing the caller's email address. With a mail transport a code goes to the new address and the change waits for confirmMailChange; without one the address is saved at once (unverified). The same address may be given to confirm the current one."""
   beginMailChange(input: BeginMailChangeInput!): MailChangePayload!
 
-  """Finish the change with the code that was sent: saves the address and marks it verified."""
+  """Finish the change with the code that was sent: saves the address, marks it verified and drops any pendingMail."""
   confirmMailChange(input: ConfirmMailChangeInput!): UserMutationPayload!
 }
 

@@ -63,6 +63,7 @@ export const SECURITY_MUTATIONS = {
           displayName
           mail
           mailVerifiedAt
+          pendingMail
         }
         errors {
           ${MUTATION_ERROR_FIELDS}
@@ -79,6 +80,7 @@ export const SECURITY_MUTATIONS = {
           displayName
           mail
           mailVerifiedAt
+          pendingMail
         }
         errors {
           ${MUTATION_ERROR_FIELDS}

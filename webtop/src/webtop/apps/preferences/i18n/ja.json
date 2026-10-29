@@ -45,6 +45,8 @@
 	"app.preferences.profile.emailVerified": "{date} に確認済み",
 	"app.preferences.profile.emailUnverified": "このアドレスはまだ確認されていません。",
 	"app.preferences.profile.verifyEmail": "今すぐ確認",
+	"app.preferences.profile.emailPending": "管理者が {mail} を設定しました。確認すると、このアドレスに置き換わります。",
+	"app.preferences.profile.confirmPending": "確認コードを送る",
 	"app.preferences.profile.emailVerifyWarning": "パスワードでのサインインは無効になっています。認証コードが届くよう、メールアドレスを確認してください。",
 	"app.preferences.profile.emailMissingWarning": "パスワードでのサインインは無効になっています。メールアドレスが無いと、パスキー以外ではサインインできません。",
 	"app.preferences.profile.newEmail": "新しいメールアドレス",

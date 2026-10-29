@@ -175,9 +175,8 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 			// No way to confirm: save at once, unverified.
 			if (!mail.equals(currentMail)) {
 				contentNode.setProperty("mail", mail);
-				if (contentNode.hasProperty("mailVerifiedAt")) {
-					contentNode.getProperty("mailVerifiedAt").remove();
-				}
+				PlatformIdpWiringContributor.removeIfPresent(contentNode, "mailVerifiedAt");
+				PlatformIdpWiringContributor.removeIfPresent(contentNode, "pendingMail");
 				session.save();
 			}
 			Node saved = session.getNode(profilePath);
@@ -253,6 +252,9 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 			Node contentNode = JCRs.getContentNode(session.getNode(profilePath));
 			contentNode.setProperty("mail", pending.getMail());
 			contentNode.setProperty("mailVerifiedAt", Calendar.getInstance());
+			// The owner has proven an address; whatever an administrator had
+			// entered for them to confirm is superseded.
+			PlatformIdpWiringContributor.removeIfPresent(contentNode, "pendingMail");
 			session.save();
 			CmsService.getLogger(PlatformSecurityWiringContributor.class).info("Email address of " + username + " confirmed by a code");
 		} finally {

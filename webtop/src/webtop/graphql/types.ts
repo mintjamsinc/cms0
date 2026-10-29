@@ -1290,8 +1290,10 @@ export interface IdpUser {
   givenName: string | null;
   displayName: string | null;
   mail: string | null;
-  /** When the address was confirmed by a code sent to it; null when never, or changed since. */
+  /** When the address was confirmed by a code sent to it; null when never, or changed since. Only a confirmed address receives sign-in codes. */
   mailVerifiedAt: string | null;
+  /** An address an administrator entered that waits for the user to confirm it in Preferences; mail is unchanged until then. */
+  pendingMail: string | null;
   enabled: boolean;
   /**
    * Whether this is a service account: a non-interactive identity used by
@@ -1379,7 +1381,10 @@ export interface CreateUserInput {
   sn?: string;
   givenName?: string;
   displayName?: string;
+  /** Waits as pendingMail until the user confirms it, while the server can send mail. */
   mail?: string;
+  /** Save the address at once and mark it confirmed on the administrator's word. */
+  mailVerified?: boolean;
   enabled?: boolean;
   /**
    * Create a service account: a non-interactive identity used by integrations
@@ -1400,7 +1405,14 @@ export interface UpdateUserInput {
   sn?: string;
   givenName?: string;
   displayName?: string;
+  /**
+   * The address wanted on the account. While the server can send mail, a
+   * different address waits as pendingMail until the user confirms it;
+   * the current address withdraws a pending one; '' clears the address.
+   */
   mail?: string;
+  /** Save the address at once and mark it confirmed on the administrator's word. */
+  mailVerified?: boolean;
   enabled?: boolean;
 }
 

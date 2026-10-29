@@ -203,6 +203,8 @@ const App = {
 			originalDisplayName: '',
 			mail: '',
 			mailVerifiedAt: null as string | null,
+			// An address an administrator entered; it replaces `mail` once confirmed here.
+			pendingMail: null as string | null,
 			// What the IdP offers (password may be off; a changed address may need a code).
 			signInPolicy: { password: 'AVAILABLE', emailCode: 'UNAVAILABLE', passkey: 'UNAVAILABLE', mailVerification: false } as SignInPolicy,
 			mailDialog: {
@@ -872,6 +874,7 @@ const App = {
 					vm.originalDisplayName = vm.displayName;
 					vm.mail = me.mail || '';
 					vm.mailVerifiedAt = me.mailVerifiedAt || null;
+					vm.pendingMail = me.pendingMail || null;
 				}
 			} catch (e) {
 				console.warn('[Preferences] Failed to load profile:', e);
@@ -935,10 +938,11 @@ const App = {
 		},
 
 		/** Applies a refreshed user from a mail mutation and tells the shell. */
-		applyMailResult(user: { mail?: string | null; mailVerifiedAt?: string | null } | null | undefined) {
+		applyMailResult(user: { mail?: string | null; mailVerifiedAt?: string | null; pendingMail?: string | null } | null | undefined) {
 			const vm = this;
 			vm.mail = user?.mail || '';
 			vm.mailVerifiedAt = user?.mailVerifiedAt || null;
+			vm.pendingMail = user?.pendingMail || null;
 			vm.instance.api.webtop.postMessage({ type: 'profile-changed', mail: vm.mail });
 		},
 
@@ -980,6 +984,20 @@ const App = {
 			d.verifyOnly = true;
 			d.mail = this.mail;
 			d.confirm = this.mail;
+			this.sendMailCode(false);
+		},
+
+		/**
+		 * Sends a code to the address an administrator entered, so that it can
+		 * replace the current one once the user proves it is theirs.
+		 */
+		verifyPendingMail() {
+			const mail = this.pendingMail;
+			if (!mail) return;
+			const d = this.mailDialog;
+			this.openMailDialog();
+			d.mail = mail;
+			d.confirm = mail;
 			this.sendMailCode(false);
 		},
 

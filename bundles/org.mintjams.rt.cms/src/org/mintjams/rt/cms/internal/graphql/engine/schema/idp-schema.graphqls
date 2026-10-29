@@ -47,8 +47,10 @@ type User {
   givenName: String
   displayName: String
   mail: String
-  """When the address was confirmed by a code sent to it (null: never, or changed since)."""
+  """When the address was confirmed by a code sent to it (null: never, or changed since). Only a confirmed address receives sign-in codes."""
   mailVerifiedAt: DateTime
+  """An address an administrator entered that waits for the user to confirm it in Preferences; mail is unchanged until then."""
+  pendingMail: String
   enabled: Boolean!
   """A non-interactive service account (no password, never signs in)."""
   isService: Boolean!
@@ -241,7 +243,10 @@ input CreateUserInput {
   sn: String
   givenName: String
   displayName: String
+  """The address wanted on the account. While the server can send mail it waits as pendingMail until the user confirms it in Preferences; without a transport it is saved at once, unconfirmed."""
   mail: String
+  """Save the address at once and mark it confirmed on the administrator's word (logged). Default false."""
+  mailVerified: Boolean
   enabled: Boolean
   """Create a non-interactive service account (no password); defaults false."""
   service: Boolean
@@ -254,7 +259,10 @@ input UpdateUserInput {
   sn: String
   givenName: String
   displayName: String
+  """The address wanted on the account. While the server can send mail, a different address waits as pendingMail until the user confirms it in Preferences and mail is left as it is; entering the current address withdraws a pending one; an empty string clears the address. Without a transport the address is saved at once, unconfirmed."""
   mail: String
+  """Save the address at once and mark it confirmed on the administrator's word (logged). Default false."""
+  mailVerified: Boolean
   enabled: Boolean
 }
 

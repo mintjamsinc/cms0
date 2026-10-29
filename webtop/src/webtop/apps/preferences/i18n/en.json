@@ -45,6 +45,8 @@
 	"app.preferences.profile.emailVerified": "Confirmed on {date}.",
 	"app.preferences.profile.emailUnverified": "This address has not been confirmed.",
 	"app.preferences.profile.verifyEmail": "Confirm now",
+	"app.preferences.profile.emailPending": "An administrator entered {mail} for you. Once confirmed, it replaces the current address.",
+	"app.preferences.profile.confirmPending": "Send a confirmation code",
 	"app.preferences.profile.emailVerifyWarning": "Signing in with a password is turned off. Confirm your email address now, so that a sign-in code can reach you.",
 	"app.preferences.profile.emailMissingWarning": "Signing in with a password is turned off. Without an email address you can only sign in with a passkey.",
 	"app.preferences.profile.newEmail": "New email address",
