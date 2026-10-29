@@ -23,6 +23,7 @@
 package org.mintjams.rt.cms.internal.mail;
 
 import java.util.Date;
+import java.util.Map;
 import java.util.Properties;
 
 import javax.mail.Authenticator;
@@ -100,8 +101,8 @@ public class MailTransport implements MailService {
 			MimeMessage mime = new MimeMessage(session);
 			mime.setFrom(from);
 			mime.setRecipients(Message.RecipientType.TO, to);
-			mime.setSubject(message.getSubject(), "UTF-8");
-			mime.setText(message.getText(), "UTF-8");
+			mime.setSubject(message.getSubject(), message.getEncoding());
+			mime.setText(message.getText(), message.getEncoding(), message.getMimeType().substring("text/".length()));
 			mime.setSentDate(new Date());
 			Transport.send(mime);
 		} catch (Exception ex) {
@@ -111,6 +112,11 @@ public class MailTransport implements MailService {
 		} finally {
 			thread.setContextClassLoader(previous);
 		}
+	}
+
+	@Override
+	public MailMessage applyTemplate(String name, String lang, Map<String, Object> variables, MailMessage builtin) {
+		return MailTemplates.apply(name, lang, variables, builtin);
 	}
 
 	private static Properties properties(MailConfiguration config) {

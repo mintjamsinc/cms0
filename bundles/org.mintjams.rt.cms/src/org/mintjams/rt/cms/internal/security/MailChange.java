@@ -26,6 +26,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Calendar;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import javax.jcr.Node;
 import javax.jcr.RepositoryException;
@@ -188,13 +190,60 @@ public final class MailChange {
 
 	// ---- messages -------------------------------------------------------------
 
+	/** The template of {@link #confirmationCode}. */
+	public static final String TEMPLATE_CONFIRMATION_CODE = "mail-confirmation";
+	/** The template of {@link #changeNotice}. */
+	public static final String TEMPLATE_CHANGE_NOTICE = "mail-change-notice";
+
 	/** {@code ja} or {@code en} from a language tag; English otherwise. */
 	public static String language(String lang) {
 		return (lang != null && lang.trim().toLowerCase().startsWith("ja")) ? "ja" : "en";
 	}
 
-	/** The message that carries the confirmation code to the new address. */
-	public static MailMessage confirmationCode(String to, String displayName, String code, String lang) {
+	/**
+	 * The message that carries the confirmation code to the new address: the
+	 * template {@value #TEMPLATE_CONFIRMATION_CODE} when an administrator
+	 * wrote one, else the built-in text.
+	 *
+	 * @param mail        the transport that looks up the template
+	 * @param to          the new address
+	 * @param username    the account
+	 * @param displayName the name to greet the user by
+	 * @param code        the code
+	 * @param issuer      the name the server signs with, or {@code null}
+	 * @param tag         the user's language tag, or {@code null}
+	 */
+	public static MailMessage confirmationCode(MailService mail, String to, String username, String displayName, String code, String issuer, String tag) {
+		Map<String, Object> variables = variables(to, username, displayName, issuer, tag);
+		variables.put("code", code);
+		variables.put("minutes", (int) (TTL_MILLIS / 60000));
+		return mail.applyTemplate(TEMPLATE_CONFIRMATION_CODE, tag, variables, builtinConfirmationCode(to, displayName, code, language(tag)));
+	}
+
+	/**
+	 * The notice sent to the address being replaced: the template
+	 * {@value #TEMPLATE_CHANGE_NOTICE} when an administrator wrote one, else
+	 * the built-in text. Parameters as for {@link #confirmationCode}.
+	 */
+	public static MailMessage changeNotice(MailService mail, String to, String username, String displayName, String newMail, String issuer, String tag) {
+		Map<String, Object> variables = variables(to, username, displayName, issuer, tag);
+		variables.put("newMail", newMail);
+		return mail.applyTemplate(TEMPLATE_CHANGE_NOTICE, tag, variables, builtinChangeNotice(to, displayName, newMail, language(tag)));
+	}
+
+	/** The values every template of this class gets. */
+	private static Map<String, Object> variables(String to, String username, String displayName, String issuer, String tag) {
+		Map<String, Object> variables = new LinkedHashMap<>();
+		variables.put("mail", to);
+		variables.put("username", username);
+		variables.put("displayName", (displayName == null || displayName.isBlank()) ? "" : displayName.trim());
+		variables.put("issuer", issuer);
+		variables.put("lang", tag);
+		return variables;
+	}
+
+	/** The built-in message that carries the confirmation code to the new address. */
+	static MailMessage builtinConfirmationCode(String to, String displayName, String code, String lang) {
 		int minutes = (int) (TTL_MILLIS / 60000);
 		String name = (displayName == null || displayName.isBlank()) ? "" : displayName.trim();
 		if ("ja".equals(lang)) {
@@ -215,8 +264,8 @@ public final class MailChange {
 						+ "If you did not ask for this, you can ignore this message; the address is not registered.\n");
 	}
 
-	/** The notice sent to the address being replaced. */
-	public static MailMessage changeNotice(String to, String displayName, String newMail, String lang) {
+	/** The built-in notice sent to the address being replaced. */
+	static MailMessage builtinChangeNotice(String to, String displayName, String newMail, String lang) {
 		String name = (displayName == null || displayName.isBlank()) ? "" : displayName.trim();
 		if ("ja".equals(lang)) {
 			return MailMessage.to(to)

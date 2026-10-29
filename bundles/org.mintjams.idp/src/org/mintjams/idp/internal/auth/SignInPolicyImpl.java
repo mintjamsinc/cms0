@@ -119,6 +119,11 @@ public class SignInPolicyImpl implements SignInPolicy {
 		return evaluate().getPasskey();
 	}
 
+	@Override
+	public String getIssuer() {
+		return Activator.getDefault().getConfiguration().getTotpIssuer();
+	}
+
 	/**
 	 * Whether the password the administrator switched off is being accepted
 	 * because of the start-up override (so that each such sign-in can be

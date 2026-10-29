@@ -157,7 +157,7 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 		Map<String, Object> input = inputArg(environment);
 		String username = session.getUserID();
 		String mail = input.get("mail") instanceof String ? ((String) input.get("mail")).trim() : "";
-		String lang = MailChange.language(input.get("lang") instanceof String ? (String) input.get("lang") : null);
+		String lang = (input.get("lang") instanceof String tag && !tag.isBlank()) ? tag.trim() : null;
 		if (mail.isEmpty() || !MAIL_PATTERN.matcher(mail).matches()) {
 			return errorResult("Invalid email address", "INVALID_INPUT");
 		}
@@ -194,10 +194,12 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 			boolean send = pending == null || !mail.equals(pending.getMail()) || pending.canResend();
 			if (send) {
 				String code = MailChange.generateCode();
-				transport.send(MailChange.confirmationCode(mail, displayName, code, lang));
+				SignInPolicy policy = signInPolicyService();
+				String issuer = (policy == null) ? null : policy.getIssuer();
+				transport.send(MailChange.confirmationCode(transport, mail, username, displayName, code, issuer, lang));
 				MailChange.start(systemSession, username, mail, code);
 				if (!currentMail.isBlank() && !currentMail.equalsIgnoreCase(mail)) {
-					MailChange.trySend(transport, MailChange.changeNotice(currentMail, displayName, mail, lang));
+					MailChange.trySend(transport, MailChange.changeNotice(transport, currentMail, username, displayName, mail, issuer, lang));
 				}
 				CmsService.getLogger(PlatformSecurityWiringContributor.class).info("Confirmation code sent for the new email address of " + username);
 			}

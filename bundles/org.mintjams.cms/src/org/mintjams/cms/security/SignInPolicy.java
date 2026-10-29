@@ -67,4 +67,12 @@ public interface SignInPolicy {
 		return getPassword() == State.DISABLED;
 	}
 
+	/**
+	 * The name the server signs its messages with, the one authenticator
+	 * apps show for its TOTP entries; {@code null} when the IdP names none.
+	 */
+	default String getIssuer() {
+		return null;
+	}
+
 }

@@ -22,6 +22,8 @@
 
 package org.mintjams.cms.mail;
 
+import java.util.Map;
+
 /**
  * The platform's outgoing mail: messages the server itself sends, such as a
  * sign-in code or an address confirmation. The transport is configured by the
@@ -53,5 +55,27 @@ public interface MailService {
 	 *                       incomplete, or the transport refused it
 	 */
 	void send(MailMessage message) throws MailException;
+
+	/**
+	 * The message an administrator wrote for {@code name}, addressed to the
+	 * recipients of {@code builtin}; {@code builtin} itself when there is no
+	 * such template or it cannot be used (the reason is logged).
+	 *
+	 * <p>Templates are files in {@code /etc/mail/templates} of the system
+	 * workspace, {@code <name>.<language>.<extension>} or
+	 * {@code <name>.<extension>} for every language: a front matter with the
+	 * {@code subject}, then the body, both written like a GSP with
+	 * {@code variables} in scope. The body's type and charset are the file's
+	 * {@code jcr:mimeType} and {@code jcr:encoding}.</p>
+	 *
+	 * @param name      the template name, such as {@code sign-in-code}
+	 * @param lang      the recipient's language tag ({@code ja}, {@code en-US});
+	 *                  {@code null} picks the file for every language
+	 * @param variables the values the template may use
+	 * @param builtin   the message sent when no template applies
+	 */
+	default MailMessage applyTemplate(String name, String lang, Map<String, Object> variables, MailMessage builtin) {
+		return builtin;
+	}
 
 }

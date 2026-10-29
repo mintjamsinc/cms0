@@ -40,7 +40,9 @@ from: MintJams CMS <no-reply@example.com>
 | `from` | the sender, as `Name <address>` or a bare address | required |
 
 Messages are plain text, in the language of the person they are sent to:
-Japanese when the browser asked for it, English otherwise.
+Japanese when the browser asked for it, English otherwise. An administrator
+can replace each text, in any language and as HTML too, with a template in
+the system workspace; see [mail-templates.md](mail-templates.md).
 
 ### Secrets
 

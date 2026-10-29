@@ -151,7 +151,10 @@ The built-in IdP offers three ways to sign in, chosen on the login page:
   see [`documents/mail-transport.md`](documents/mail-transport.md)) and is
   followed by the authenticator code too when TOTP is on. An administrator
   can turn passwords off and leave this as the way in; see
-  [`documents/sign-in-methods.md`](documents/sign-in-methods.md).
+  [`documents/sign-in-methods.md`](documents/sign-in-methods.md). The texts
+  of these messages can be rewritten per language in
+  `/etc/mail/templates`; see
+  [`documents/mail-templates.md`](documents/mail-templates.md).
 
 Users manage the second factors in **Preferences › Security** (turn TOTP on or off, get
 new backup codes and download them, add, rename and remove passkeys). Every

@@ -203,7 +203,7 @@ public class LoginApiServlet extends HttpServlet {
 			return;
 		}
 
-		String lang = SignInCodeMail.language(body.getString("lang"), request.getHeader("Accept-Language"));
+		String lang = SignInCodeMail.languageTag(body.getString("lang"), request.getHeader("Accept-Language"));
 		MailService mail = Activator.getDefault().getMailService();
 		if (!user.isMailVerified()) {
 			// Nobody has proven this address yet, so no code goes to it: a
@@ -212,7 +212,7 @@ public class LoginApiServlet extends HttpServlet {
 			LOG.info("Sign-in code requested for {}: email address not confirmed; a notice sent instead", username);
 			if (mail != null) {
 				try {
-					mail.send(SignInCodeMail.unconfirmedNotice(user.getEmail(), user.getDisplayName(),
+					mail.send(SignInCodeMail.unconfirmedNotice(mail, user.getEmail(), user.getUsername(), user.getDisplayName(),
 							Activator.getDefault().getConfiguration().getTotpIssuer(), lang));
 				} catch (MailException ex) {
 					LOG.warn("Could not send the unconfirmed-address notice to the address of {}", username, ex);
@@ -228,7 +228,7 @@ public class LoginApiServlet extends HttpServlet {
 			if (mail == null) {
 				throw new MailException(MailException.NOT_CONFIGURED, "No mail transport is available.");
 			}
-			mail.send(SignInCodeMail.signInCode(user.getEmail(), user.getDisplayName(), code, minutes,
+			mail.send(SignInCodeMail.signInCode(mail, user.getEmail(), user.getUsername(), user.getDisplayName(), code, minutes,
 					Activator.getDefault().getConfiguration().getTotpIssuer(), lang));
 		} catch (MailException ex) {
 			LOG.error("Failed to send a sign-in code to the address of {}", username, ex);
