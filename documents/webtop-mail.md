@@ -184,7 +184,7 @@ parts below are deployed to every workspace by the seed
 
 | Path | What |
 |---|---|
-| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`secret-key.yml`, see [clustering](clustering.md)); they are never returned by the API. The schedule of the background synchronization is in its `mail:*` properties too: `mail:accountId`, `mail:enabled`, `mail:intervalMinutes`, `mail:requested` ("run now"), `mail:followUp` (one more pass at that time) and `mail:nextRun`. |
+| `/home/users/<user>/mail/accounts/<account>.json` | Account settings. Passwords are properties of this file, encrypted with the installation key (`etc/secret.key`, see [secrets](secrets.md)); they are never returned by the API. The schedule of the background synchronization is in its `mail:*` properties too: `mail:accountId`, `mail:enabled`, `mail:intervalMinutes`, `mail:requested` ("run now"), `mail:followUp` (one more pass at that time) and `mail:nextRun`. |
 | `/home/users/<user>/mail/state/<account>.json` | Synchronization state: per folder UIDVALIDITY, highest UID, oldest date, CONDSTORE mark; the last run and error. |
 | `/home/users/<user>/mail/messages/<account>/<folder>/<UIDVALIDITY>/<UID/1000>/<UID>.eml` | The messages. What the list shows is kept in `mail:*` properties; the search index reads the full text from the `.eml`. |
 | `/home/users/<user>/mail/messages/<account>/local/sent/<yyyy>/<MM>/<id>.eml` | Copies of the mail sent from the Webtop (`mail:local`); never synchronized. |

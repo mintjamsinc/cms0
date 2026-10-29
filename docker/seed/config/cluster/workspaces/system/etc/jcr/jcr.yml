@@ -21,8 +21,11 @@ defaultNodes:
 # the tables). The PostgreSQL driver bundle has to be installed for
 # driverClassName to load.
 #
-# The password has three interchangeable forms — use whichever the deployment
+# The password has four interchangeable forms — use whichever the deployment
 # is set up for:
+#   password: ${secrets.DB_PASSWORD}     a key of <repository>/etc/secrets.yml,
+#                                         written there in the clear; the server
+#                                         encrypts it in place (documents/secrets.md)
 #   password: ${env.CMS_DB_PASSWORD}      the environment variable itself
 #   CMS_DB_PASSWORD_FILE=/run/secrets/…   a Docker secret or a mounted
 #                                         Kubernetes Secret, which keeps the

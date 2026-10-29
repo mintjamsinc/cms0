@@ -26,13 +26,17 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.mintjams.cms.security.DefaultEncryptor;
 import org.mintjams.cms.security.Encryptors;
 
 /**
  * The parts of configuration value resolution that every configuration file
- * shares: the {@code ${env.NAME}} variable and {@code ENC[...]} decryption.
+ * shares: the {@code ${env.NAME}} and {@code ${secrets.KEY}} variables and
+ * {@code ENC[...]} decryption.
  *
  * <p>A clustered deployment keeps one copy of each configuration file on
  * shared storage, so values that differ per environment or per node cannot be
@@ -46,12 +50,13 @@ import org.mintjams.cms.security.Encryptors;
  *     password: ${env.CMS_DB_PASSWORD}
  * </pre>
  *
- * <p>Secrets have three interchangeable forms, all ending up in the same
+ * <p>Secrets have four interchangeable forms, all ending up in the same
  * field: the environment variable itself, a file named by {@code NAME_FILE}
- * (a Docker secret or a mounted Kubernetes Secret), or an {@code ENC[...]}
- * value written straight into the file and decrypted with the installation's
- * secret key. The value of an environment variable may itself be
- * {@code ENC[...]}.
+ * (a Docker secret or a mounted Kubernetes Secret), a key of
+ * {@code etc/secrets.yml} named as {@code ${secrets.KEY}} (see
+ * {@link Secrets}), or an {@code ENC[...]} value written straight into the
+ * file and decrypted with the installation's secret key. The value of an
+ * environment variable may itself be {@code ENC[...]}.
  *
  * <p>No method here puts a resolved value into an exception message: these
  * values are passwords more often than not.
@@ -61,11 +66,16 @@ public final class ConfigValues {
 	/** Marks a variable as naming an environment variable. */
 	public static final String ENVIRONMENT_PREFIX = "env.";
 
+	/** Marks a variable as naming a key of {@code etc/secrets.yml}. */
+	public static final String SECRETS_PREFIX = "secrets.";
+
 	/** Appended to the variable name to name a file holding the value. */
 	public static final String FILE_SUFFIX = "_FILE";
 
 	/** Separates the variable name from its default value, spelled as in a shell. */
 	private static final String DEFAULT_SEPARATOR = ":-";
+
+	private static final Pattern VARIABLE = Pattern.compile("\\$\\{(.+?)\\}");
 
 	private ConfigValues() {}
 
@@ -75,6 +85,78 @@ public final class ConfigValues {
 	 */
 	public static boolean isEnvironmentVariable(String name) {
 		return name != null && name.startsWith(ENVIRONMENT_PREFIX);
+	}
+
+	/**
+	 * Returns whether the given variable name (the text between {@code ${}
+	 * and }{@code }}) names a secret of {@code etc/secrets.yml}.
+	 */
+	public static boolean isSecretReference(String name) {
+		return name != null && name.startsWith(SECRETS_PREFIX);
+	}
+
+	/**
+	 * Resolves {@code secrets.KEY} to the value of that key in
+	 * {@code etc/secrets.yml}, decrypted when the file holds it encrypted.
+	 * There is no default value form: a secret that may be absent is not one.
+	 *
+	 * @throws IllegalArgumentException when the file or the key is missing or
+	 *         the key is empty; the message names the key, never a value
+	 * @throws IllegalStateException when the value cannot be decrypted
+	 */
+	public static String getSecret(String name) {
+		String key = name.substring(SECRETS_PREFIX.length()).trim();
+		if (key.isEmpty()) {
+			throw new IllegalArgumentException("No secret is named in '${" + name + "}'.");
+		}
+		return Secrets.get(key);
+	}
+
+	/**
+	 * Resolves a configured value: every {@code ${env.NAME}} and
+	 * {@code ${secrets.KEY}} in the text is replaced, any other
+	 * {@code ${...}} is left as it is, and the result is decrypted when it is
+	 * an {@code ENC[...]} one.
+	 *
+	 * @param source where the value came from, for the error message
+	 *               (e.g. {@code mail.yml#smtp.password})
+	 */
+	public static String resolve(String text, String source) {
+		return resolve(text, source, null);
+	}
+
+	/**
+	 * Resolves a configured value as {@link #resolve(String, String)} does,
+	 * asking {@code others} for every {@code ${...}} that is neither an
+	 * environment variable nor a secret: a replacement, {@code null} to leave
+	 * the text as it is, or an exception to reject it.
+	 */
+	public static String resolve(String text, String source, Function<String, String> others) {
+		if (text == null) {
+			return null;
+		}
+		Matcher m = VARIABLE.matcher(text);
+		StringBuilder sb = new StringBuilder();
+		while (m.find()) {
+			String name = m.group(1).trim();
+			String replacement;
+			try {
+				if (isEnvironmentVariable(name)) {
+					replacement = getEnvironmentVariable(name);
+				} else if (isSecretReference(name)) {
+					replacement = getSecret(name);
+				} else {
+					replacement = (others == null) ? null : others.apply(name);
+				}
+			} catch (IllegalArgumentException ex) {
+				throw new IllegalArgumentException(source + ": " + ex.getMessage(), ex);
+			} catch (IllegalStateException ex) {
+				throw new IllegalStateException(source + ": " + ex.getMessage(), ex);
+			}
+			m.appendReplacement(sb, Matcher.quoteReplacement((replacement == null) ? m.group(0) : replacement));
+		}
+		m.appendTail(sb);
+		return decrypt(sb.toString(), source);
 	}
 
 	/**

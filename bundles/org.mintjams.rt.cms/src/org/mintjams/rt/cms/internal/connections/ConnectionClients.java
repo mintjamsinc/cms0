@@ -27,14 +27,13 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.Session;
 
 import org.mintjams.cms.config.ConfigValues;
+import org.mintjams.cms.config.Secrets;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
@@ -51,7 +50,7 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  * <pre>
  * google:
  *   clientID: ...
- *   clientSecret: ...          # in the clear, ENC[v1:...], or ${env.NAME}
+ *   clientSecret: ...          # in the clear, ${secrets.KEY}, ENC[v1:...], or ${env.NAME}
  * microsoft:
  *   clientID: ...
  *   clientSecret: ...
@@ -67,26 +66,32 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  * {@code appId} the Google Picker once took are ignored when still present.)
  *
  * <p>Nothing is shipped: a provider without a client id here is not offered
- * to anyone. The file is re-read when it changes; no restart is needed. A
- * value may be written as {@code ${env.NAME}} (an environment variable, or
- * the file {@code NAME_FILE} names) or as {@code ENC[v1:...]} (encrypted
- * with the installation key), the way the other configuration files allow.
+ * to anyone. The file is re-read when it changes (and when
+ * {@code etc/secrets.yml} does); no restart is needed. A value may be
+ * written as {@code ${secrets.KEY}} (a key of {@code etc/secrets.yml}), as
+ * {@code ${env.NAME}} (an environment variable, or the file {@code NAME_FILE}
+ * names) or as {@code ENC[v1:...]} (encrypted with the installation key), the
+ * way the other configuration files allow.
  */
 public final class ConnectionClients {
 
 	public static final String PATH = "/etc/oauth/clients.yml";
 	private static final String SYSTEM_WORKSPACE = "system";
 
-	private static final Pattern VARIABLE = Pattern.compile("\\$\\{(.+?)\\}");
-
 	private static volatile ConnectionClients fCached;
 
 	private final long fLastModified;
+	private final long fSecretsStamp;
 	private final String fError;
 	private final Map<String, Client> fClients;
 
 	private ConnectionClients(long lastModified, String error, Map<String, Client> clients) {
+		this(lastModified, 0, error, clients);
+	}
+
+	private ConnectionClients(long lastModified, long secretsStamp, String error, Map<String, Client> clients) {
 		fLastModified = lastModified;
+		fSecretsStamp = secretsStamp;
 		fError = error;
 		fClients = clients;
 	}
@@ -113,8 +118,9 @@ public final class ConnectionClients {
 				return none;
 			}
 			long lastModified = JCRs.getLastModified(file).getTime();
+			long secretsStamp = Secrets.getStamp();
 			ConnectionClients cached = fCached;
-			if (cached != null && cached.fLastModified == lastModified) {
+			if (cached != null && cached.fLastModified == lastModified && cached.fSecretsStamp == secretsStamp) {
 				return cached;
 			}
 			ConnectionClients loaded;
@@ -123,11 +129,11 @@ public final class ConnectionClients {
 				if (parsed != null && !(parsed instanceof Map)) {
 					throw new IllegalArgumentException("the document is not a mapping");
 				}
-				loaded = new ConnectionClients(lastModified, null, parse((Map<?, ?>) parsed));
+				loaded = new ConnectionClients(lastModified, secretsStamp, null, parse((Map<?, ?>) parsed));
 			} catch (Throwable ex) {
 				CmsService.getLogger(ConnectionClients.class)
 						.error("Invalid " + PATH + "; no account can be linked until it is fixed.", ex);
-				loaded = new ConnectionClients(lastModified, "Invalid " + PATH + ": " + ex.getMessage(),
+				loaded = new ConnectionClients(lastModified, secretsStamp, "Invalid " + PATH + ": " + ex.getMessage(),
 						Collections.emptyMap());
 			}
 			fCached = loaded;
@@ -176,25 +182,15 @@ public final class ConnectionClients {
 	}
 
 	/**
-	 * A configuration value: {@code ${env.NAME}} references replaced, then
-	 * decrypted when it is an {@code ENC[...]} envelope. The error messages name
-	 * the setting, never the value.
+	 * A configuration value: {@code ${secrets.KEY}} and {@code ${env.NAME}}
+	 * references replaced, then decrypted when it is an {@code ENC[...]}
+	 * envelope. The error messages name the setting, never the value.
 	 */
 	static String resolve(Object raw, String source) {
 		if (raw == null) {
 			return null;
 		}
-		String value = String.valueOf(raw);
-		Matcher matcher = VARIABLE.matcher(value);
-		StringBuilder sb = new StringBuilder();
-		while (matcher.find()) {
-			String name = matcher.group(1).trim();
-			String replacement = ConfigValues.isEnvironmentVariable(name)
-					? ConfigValues.getEnvironmentVariable(name) : matcher.group(0);
-			matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-		}
-		matcher.appendTail(sb);
-		return ConfigValues.decrypt(sb.toString(), source);
+		return ConfigValues.resolve(String.valueOf(raw), source);
 	}
 
 	/** Why the file could not be used, or null. */

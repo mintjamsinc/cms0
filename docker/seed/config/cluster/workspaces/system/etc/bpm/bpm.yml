@@ -1,9 +1,10 @@
 # Process engine database. Shared by every node exactly like the JCR
 # datasource, with its own database per workspace, and configured the same
-# way: ${env.NAME} reads the environment variable NAME, and the password may
-# instead come from CMS_DB_PASSWORD_FILE or be written here as ENC[v1:…]
-# (docker exec -i cms cms-encrypt). See etc/jcr/jcr.yml and
-# documents/clustering.md.
+# way: ${secrets.DB_PASSWORD} reads a key of <repository>/etc/secrets.yml (the
+# server encrypts it in place), ${env.NAME} reads the environment variable
+# NAME, and the password may instead come from CMS_DB_PASSWORD_FILE or be
+# written here as ENC[v1:…] (docker exec -i cms cms-encrypt). See
+# etc/jcr/jcr.yml, documents/secrets.md and documents/clustering.md.
 #
 # Set `enabled: false` for a workspace that runs no processes; no database is
 # then needed for it.

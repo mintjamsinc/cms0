@@ -503,16 +503,41 @@ public class JcrRepositoryConfiguration implements Adaptable {
 	 * cluster nodes. Resolved from the framework property
 	 * {@code org.mintjams.jcr.cluster.secretKeyPath}, then the environment
 	 * variable {@code CMS_CLUSTER_SECRET_KEY_PATH}; defaults to
-	 * {@code <repository>/etc/cluster-secret-key.yml}, which every node shares
-	 * when the repository directory is on shared storage.
+	 * {@code <repository>/etc/cluster-secret.key}, which every node shares
+	 * when the repository directory is on shared storage. The name the file
+	 * had before, {@code cluster-secret-key.yml}, is still read when it is
+	 * the one that exists, with a warning that asks for the rename: the
+	 * {@code .key} ending lets a backup leave every key out with
+	 * {@code etc/*.key}.
 	 */
 	public Path getClusterSecretKeyPath() {
 		String value = getNodeSetting("org.mintjams.jcr.cluster.secretKeyPath", "CMS_CLUSTER_SECRET_KEY_PATH");
 		if (Strings.isNotEmpty(value)) {
 			return Path.of(value).normalize();
 		}
-		return getEtcPath().resolve("cluster-secret-key.yml").normalize();
+		Path current = getEtcPath().resolve(CLUSTER_SECRET_KEY_FILE_NAME).normalize();
+		if (Files.exists(current)) {
+			return current;
+		}
+		Path renamed = getEtcPath().resolve(LEGACY_CLUSTER_SECRET_KEY_FILE_NAME).normalize();
+		if (Files.exists(renamed)) {
+			if (fWarnedAboutClusterKeyName.compareAndSet(false, true)) {
+				Activator.getDefault().getLogger(getClass()).warn("The cluster key is " + renamed.toAbsolutePath()
+						+ ". Rename it to " + CLUSTER_SECRET_KEY_FILE_NAME
+						+ " so that a backup can leave every key out with etc/*.key.");
+			}
+			return renamed;
+		}
+		return current;
 	}
+
+	/** The file name of the cluster key under {@code <repository>/etc}. */
+	public static final String CLUSTER_SECRET_KEY_FILE_NAME = "cluster-secret.key";
+
+	/** The name the cluster key file had before it became a {@code .key}. */
+	public static final String LEGACY_CLUSTER_SECRET_KEY_FILE_NAME = "cluster-secret-key.yml";
+
+	private static final java.util.concurrent.atomic.AtomicBoolean fWarnedAboutClusterKeyName = new java.util.concurrent.atomic.AtomicBoolean();
 
 	private String getNodeSetting(String propertyName, String environmentVariable) {
 		BundleContext bc = Activator.getDefault().getBundleContext();

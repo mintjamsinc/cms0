@@ -19,7 +19,7 @@ container with zero manual SAML configuration on first boot.
 | Env var | Purpose |
 |---|---|
 | `CMS_PUBLIC_BASE_URL` | External base URL (e.g. `https://cms.example.org`). The SP `rootURL` and IdP `baseUrl` are derived from it when `saml2.yml` / `idp.yml` leave them blank. **Required.** |
-| `MINTJAMS_CMS_SECRET_KEY_PATH` | Location of the AES master key. Default in this image: `/data/secrets/secret-key.yml`. |
+| `MINTJAMS_CMS_SECRET_KEY_PATH` | Location of the AES master key. Default in this image: `/data/secrets/secret-key.yml`, on its own volume (outside the image the default is `<repository>/etc/secret.key`; see [`documents/secrets.md`](../documents/secrets.md)). |
 | `CMS_INITIAL_ADMIN_PASSWORD` | Optional. Initial password for the auto-created `admin` user. If unset, a random password is generated on first boot and written to `/data/repository/INITIAL_PASSWORD.txt` (mode 0600). Read it via `docker exec`, log in, change the password, then delete the file. |
 | `CMS_SP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated SP keystore (`etc/sp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/SP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/saml2.yml` either way. |
 | `CMS_IDP_KEYSTORE_PASSWORD` | Optional. Password for the auto-generated IdP keystore (`etc/idp-keystore.p12`). If unset, a random password is generated on first boot and written to `/data/repository/IDP_KEYSTORE_PASSWORD.txt` (mode 0600). Stored AES-encrypted in `etc/idp.yml` either way. |
@@ -28,7 +28,7 @@ container with zero manual SAML configuration on first boot.
 | `CMS_CLUSTER_PORT` | The port on which the node accepts connections from the other cluster nodes. Default `9080`. Keep it off `ports:` and the public network. |
 | `CMS_CLUSTER_BIND_ADDRESS` | Optional. The interface the cluster port listens on (the management network's). |
 | `CMS_CLUSTER_ADVERTISE_ADDRESS` | Optional. Where the other nodes reach this one, `host` or `host:port` (a Compose service name works: `node-1:9080`). Needed when the container has more than one site-local address. |
-| `CMS_CLUSTER_SECRET_KEY_PATH` | Optional. The key that signs the frames between the nodes. Default: `<repository>/etc/cluster-secret-key.yml`, created on first start. |
+| `CMS_CLUSTER_SECRET_KEY_PATH` | Optional. The key that signs the frames between the nodes. Default: `<repository>/etc/cluster-secret.key`, created on first start. |
 | `CMS_NODE_LOCAL_PATH` | This node's own data: search indexes and the temporary directory. Default in this image: `/data/local`. Node-local — never point it at shared storage. |
 
 ## Configuration values from the environment
@@ -99,7 +99,7 @@ How to back these volumes up, and how to put a backup back, is described in
 
 | Data | Back up? | Contents |
 |---|---|---|
-| `/data/repository` | **Yes** | Every workspace (its settings, its binaries under `workspaces/<workspace>/var/jcr/bin`, and in a standalone installation its embedded databases under `workspaces/<workspace>/var/jcr/data` and `var/bpm/data`), plus `etc/`: the keystores, `boot.id`, `saml2.yml`, `idp.yml` and, in a cluster, `cluster-secret-key.yml`. |
+| `/data/repository` | **Yes** | Every workspace (its settings, its binaries under `workspaces/<workspace>/var/jcr/bin`, and in a standalone installation its embedded databases under `workspaces/<workspace>/var/jcr/data` and `var/bpm/data`), plus `etc/`: the keystores, `boot.id`, `saml2.yml`, `idp.yml`, `secrets.yml` (encrypted, see [`documents/secrets.md`](../documents/secrets.md)) and, in a cluster, `cluster-secret.key`. |
 | `/data/secrets` | **Yes** | `secret-key.yml`, the AES key. A repository restored without the key it was written with cannot decrypt its keystore passwords or its `ENC[...]` values. |
 | PostgreSQL databases (cluster only) | **Yes** | `jcr_<workspace>` and `bpm_<workspace>` for every workspace: the content, properties, ACLs and the process engine's data. |
 | `/data/local` | No | The search indexes and the temporary directory, rebuilt from the repository. On a restore it is emptied, so that the indexes are rebuilt from the restored content. |
@@ -454,11 +454,16 @@ standard input and output, so they work the same way through
 
 ### Keeping backups safe
 
-- **Keep `secrets.tar.gz` apart from the rest.** Whoever holds both the key
-  and the repository (or the database dumps) can decrypt every encrypted
-  value. Store the key archive in a separate place with tighter access, and
-  keep it as long as any backup made with it: the key normally never
-  changes, so each repository backup needs a copy of the same key.
+- **Keep `secrets.tar.gz` apart from the rest, and encrypted.** Whoever holds
+  both the key and the repository (or the database dumps) can decrypt every
+  encrypted value. Store the key archive encrypted (a password-protected
+  archive, an encryption tool, your organization's secret store) in a
+  separate place with tighter access, and keep it as long as any backup made
+  with it: the key normally never changes, so each repository backup needs a
+  copy of the same key. The repository archive also carries
+  `etc/cluster-secret.key` in a cluster; that key only signs the connections
+  between the nodes and is recreated by restarting every node, so it may
+  stay in the archive — or leave it out with `--exclude='etc/*.key'`.
 - **The archives and dumps hold all content.** Store them encrypted or on
   storage with restricted access, and copy them off the Docker host — a
   backup on the same disk is lost together with it.
@@ -486,10 +491,14 @@ The value is read from standard input, never taken as an argument, so it does
 not reach the process list or the shell history. Paste the result into
 `jcr.yml` / `bpm.yml` and restart.
 
-`cms-encrypt` creates the secret key when it does not exist yet, so a new
-clustered installation can encrypt its database password before its first
-node starts: run it once with only the secrets volume mounted, write the
-result into the configuration, then bring the first node up.
+Usually there is no need for this: write the value in the clear into
+`/data/repository/etc/secrets.yml` and refer to it as `${secrets.KEY}` in the
+configuration file. The server reads it as it is and encrypts it in place
+within seconds of starting; see
+[`documents/secrets.md`](../documents/secrets.md). `cms-encrypt` remains for
+a value that has to be an `ENC[...]` literal in the configuration file
+itself; it creates the secret key when it does not exist yet, so it can run
+before the first start with only the secrets volume mounted.
 
 ## Bundled assets and configuration
 

@@ -75,6 +75,7 @@ import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceFacetProvider;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptEngineManager;
+import org.mintjams.rt.cms.internal.secrets.SecretsWatcher;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.rt.cms.internal.security.DefaultIdentityProvider;
 import org.mintjams.rt.cms.internal.security.DefaultPrincipalProvider;
@@ -415,6 +416,9 @@ public class CmsService {
 
 		// The clock events
 		fCloser.register(new CmsClock()).open();
+
+		// Values written in the clear into etc/secrets.yml are encrypted in place
+		fCloser.register(new SecretsWatcher()).open();
 
 		// From here on, workspaces are opened, started, stopped and closed by
 		// converging on the cluster-wide desired state.

@@ -33,6 +33,7 @@ import java.util.Map;
 
 import javax.jcr.RepositoryException;
 
+import org.mintjams.cms.config.RepositoryLocation;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -48,6 +49,7 @@ import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.searchindex.SearchIndexFactory;
 import org.mintjams.tools.io.Closer;
 import org.mintjams.tools.lang.Cause;
+import org.mintjams.tools.lang.Strings;
 import org.mintjams.tools.osgi.Registration;
 import org.mintjams.tools.osgi.Tracker;
 import org.osgi.framework.BundleActivator;
@@ -97,6 +99,12 @@ public class Activator implements BundleActivator {
 	public void start(BundleContext bc) throws Exception {
 		fBundleContext = bc;
 		fActivator = this;
+
+		// The API bundle reads etc/secret.key and etc/secrets.yml without an
+		// OSGi context; it learns where the repository is from the first
+		// bundle that knows, before the first jcr.yml value is resolved.
+		RepositoryLocation.set(Path.of(Strings.defaultIfEmpty(
+				bc.getProperty(RepositoryLocation.SYSTEM_PROPERTY), "repository")));
 
 		fLoggerFactoryTracker = fCloser.register(Tracker.newBuilder(LoggerFactory.class)
 				.setBundleContext(fBundleContext)

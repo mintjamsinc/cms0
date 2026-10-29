@@ -206,7 +206,7 @@ values differ per node):
 | `org.mintjams.jcr.cluster.port` | `CMS_CLUSTER_PORT` | Port on which the node accepts connections from the other nodes. Default `9080`; give nodes on one host different ports. |
 | `org.mintjams.jcr.cluster.bindAddress` | `CMS_CLUSTER_BIND_ADDRESS` | Interface the port listens on — the management network's. |
 | `org.mintjams.jcr.cluster.advertiseAddress` | `CMS_CLUSTER_ADVERTISE_ADDRESS` | Where the other nodes reach this one, `host` or `host:port`. |
-| `org.mintjams.jcr.cluster.secretKeyPath` | `CMS_CLUSTER_SECRET_KEY_PATH` | The key that signs the frames; default `<repository>/etc/cluster-secret-key.yml`. |
+| `org.mintjams.jcr.cluster.secretKeyPath` | `CMS_CLUSTER_SECRET_KEY_PATH` | The key that signs the frames; default `<repository>/etc/cluster-secret.key`. |
 | `org.mintjams.jcr.repository.localdir` | `CMS_NODE_LOCAL_PATH` | The node-local directory (see *Architecture*); default `repository-local` under the working directory. Not cluster-specific: a standalone node uses it too. |
 
 The two addresses are separate settings: the bind address is where the port
@@ -265,18 +265,25 @@ outside:
 
 #### Secrets
 
-A password has three interchangeable forms, all ending up in the same
+A password has four interchangeable forms, all ending up in the same
 field:
 
 | Form | Where the secret lives |
 |---|---|
+| `password: ${secrets.DB_PASSWORD}` | `<repository>/etc/secrets.yml`, which the server keeps encrypted (see [secrets.md](secrets.md)) |
 | `password: ${env.CMS_DB_PASSWORD}` | the environment of the process |
 | `password: ${env.CMS_DB_PASSWORD}` with `CMS_DB_PASSWORD_FILE=/run/secrets/…` | a file, e.g. a Docker secret |
 | `password: ENC[v1:…]` | this file, encrypted with the installation's secret key |
 
-`ENC[...]` values are produced by the `cms-encrypt` tool of the container
-image, which reads the value from standard input so it never reaches the
-process list or the shell history:
+`${secrets.KEY}` is the simplest: write the password in the clear into
+`etc/secrets.yml` (shared by every node like the rest of `etc/`) and the
+first node that starts encrypts it in place within seconds. The value is
+readable before that too, so this works for a password that `jcr.yml` needs
+at the very first start.
+
+`ENC[...]` values written into a configuration file directly are produced by
+the `cms-encrypt` tool of the container image, which reads the value from
+standard input so it never reaches the process list or the shell history:
 
 ```console
 $ docker exec -i cms cms-encrypt
@@ -284,12 +291,11 @@ $ docker exec -i cms cms-encrypt
 ENC[v1:...]
 ```
 
-The key is `secrets/secret-key.yml`, which every node shares already (see
+The key is `etc/secret.key` (the container image keeps it on its own volume
+as `/data/secrets/secret-key.yml`), which every node shares already (see
 *Identity files*), so an encrypted value works on all of them. The tool
-creates the key file when it does not exist yet, which is what lets a new
-cluster put an encrypted password into its configuration **before** its
-first node starts. The value of an environment variable may itself be an
-`ENC[...]` one.
+creates the key file when it does not exist yet. The value of an environment
+variable may itself be an `ENC[...]` one.
 
 Do not pass secrets as `-D` system properties: the JVM echoes
 `JAVA_TOOL_OPTIONS` to stderr at every start, which puts them in the
@@ -409,7 +415,7 @@ HTTP port, and nothing on these connections goes through a servlet.
   back on the connection the request came in on). A broken connection is
   reopened with exponential back-off.
 - **Signed, not encrypted.** Every frame carries an HMAC-SHA256 made with a
-  key derived from `cluster-secret-key.yml` (see *Identity files*), over the
+  key derived from `cluster-secret.key` (see *Identity files*), over the
   frame's kind, id and body; the body names the sender and the time it was
   sent. A wrongly signed frame, or one more than 30 seconds off this node's
   clock, drops the connection, and the node logs it once per sender. A
@@ -627,18 +633,29 @@ its own — which must never happen for the second and later nodes.
 
 | File | Why it must be identical |
 |------|--------------------------|
-| `secrets/secret-key.yml` | Encryption key for stored secrets (e.g. the SP keystore password in `saml2.yml` is decrypted with it). A node with a different key cannot decrypt shared configuration and data. |
+| `etc/secret.key` | Encryption key for stored secrets: every `ENC[v1:…]` value — `etc/secrets.yml`, the keystore passwords in `idp.yml` / `saml2.yml`, mail account passwords and linked-account tokens in content. A node with a different key cannot decrypt shared configuration and data. `MINTJAMS_CMS_SECRET_KEY_PATH` moves it (the container image keeps it on its own volume, `/data/secrets/secret-key.yml`). An installation made before the key lived here still finds it at the old name (`etc/secret-key.yml`) or the old place (`$HOME/.mintjams/cms/secret-key.yml`) and asks in the log for the rename or move; see [secrets.md](secrets.md), *The key*. |
 | `etc/boot.id` | Despite the name, a persistent repository identifier, not a per-boot or per-node one: it salts the PBKDF2 key derivation of the script-facing `Mask` and Crypto APIs, i.e. of every masked property stored in content (`setProperty(name, value, mask)`). A node with a different `boot.id` cannot unmask values masked by the others. |
 | `etc/idp-keystore.p12` | Signing certificate of the built-in IdP. Service providers validate assertion signatures against the certificate published in the IdP metadata; assertions signed by a different per-node certificate fail validation. |
 | `etc/sp-keystore.p12` | SP signing/encryption keys. The IdP holds the SP metadata; a node with different keys cannot sign AuthnRequests or decrypt assertions. |
 | `etc/idp.yml`, `etc/saml2.yml` | Entity IDs, endpoints, and encrypted values — one external URL (`CMS_PUBLIC_BASE_URL`), one SAML entity. |
-| `etc/cluster-secret-key.yml` | Signs the frames between the nodes (see *Cluster connections*). Held by the repository bundle alone and separate from `secret-key.yml`, so that one leaking does not expose the other. Created only in cluster mode (or at `CMS_CLUSTER_SECRET_KEY_PATH`), written in one step so that a node starting at the same time never reads a half-written file. A node with a different key has its connections refused — it logs a warning once per node (and an info message once they are accepted again) and keeps following the journal through the database polling; but its HTTP sessions and subscription streams stay on it, so without sticky routing its users are signed out or reconnected at random until the key is fixed (see *Sticky sessions*). To replace the key, replace the file and restart every node. |
+| `etc/secrets.yml` | The secrets the configuration files refer to as `${secrets.KEY}`, encrypted in place by the server ([secrets.md](secrets.md)). Shared like the rest of `etc/`; with node-local directories each node encrypts its own copy. |
+| `etc/cluster-secret.key` | Signs the frames between the nodes (see *Cluster connections*). Held by the repository bundle alone and separate from `secret.key`, so that one leaking does not expose the other. Created only in cluster mode (or at `CMS_CLUSTER_SECRET_KEY_PATH`), written in one step so that a node starting at the same time never reads a half-written file. The old name, `etc/cluster-secret-key.yml`, is still read when it is the file that exists (the log asks for the rename). A node with a different key has its connections refused — it logs a warning once per node (and an info message once they are accepted again) and keeps following the journal through the database polling; but its HTTP sessions and subscription streams stay on it, so without sticky routing its users are signed out or reconnected at random until the key is fixed (see *Sticky sessions*). To replace the key, replace the file and restart every node. |
 
 With the repository directory on shared storage (the recommended
 layout), `etc/` is shared automatically and nothing needs to be done.
 With node-local repository directories, start the first node once, let
-it generate these files, and copy `repository/etc` plus
-`secret-key.yml` to the other nodes **before** their first start.
+it generate these files, and copy `repository/etc` to the other nodes
+**before** their first start (and the key file too, when
+`MINTJAMS_CMS_SECRET_KEY_PATH` keeps it elsewhere).
+
+**Backups:** the two key files end in `.key` so that a backup of the
+repository can leave them out with one pattern, `etc/*.key`. Do that, and
+keep the keys on their own, encrypted and apart from the repository backup;
+whoever holds both the keys and the repository can read every secret in it.
+Put the keys back into `etc/` before the first node of a restored
+installation starts — a node that starts without `secret.key` mints a new
+one, and the restored `ENC[v1:…]` values are unreadable with it. See
+[secrets.md](secrets.md), *Backups*.
 
 Node-local by design (never share between nodes): the node-local directory
 (see *Architecture* — the search indexes and the temporary directory),
@@ -717,9 +734,9 @@ stopping every node and starting them all on the new image.
    these are written once, and
    the per-deployment values come from the environment
    (`${env.CMS_DB_HOST}` and friends). To keep the database password out
-   of the environment as well, encrypt it first — `cms-encrypt` mints
-   the secret key when it is missing, so this can be done before any
-   node has ever started.
+   of the environment as well, refer to it as `${secrets.DB_PASSWORD}`
+   and write it into `etc/secrets.yml` in the clear: the first node
+   reads it as it is and encrypts it in place (see *Secrets* above).
 5. Ensure all nodes share the identity files (see above); on first boot,
    start one node alone first.
 6. Enable `cluster.enabled` and give each node a unique `nodeId`
@@ -804,7 +821,7 @@ switch does not log the user out.
   it. Should the session be lost — every node restarted, or it expired —
   the user re-verifies that factor. This is intentional: re-prompting is
   safe, silently trusting is not.
-- **Requirements** — all nodes must share `secret-key.yml` (see the
+- **Requirements** — all nodes must share `secret.key` (see the
   identity files above); the cookie is `HttpOnly`, `SameSite=Lax`, and
   `Secure` on HTTPS.
 

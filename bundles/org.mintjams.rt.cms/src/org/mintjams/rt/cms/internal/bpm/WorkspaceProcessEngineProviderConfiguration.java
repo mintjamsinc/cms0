@@ -379,6 +379,9 @@ public class WorkspaceProcessEngineProviderConfiguration {
 			if (ConfigValues.isEnvironmentVariable(name)) {
 				return ConfigValues.getEnvironmentVariable(name);
 			}
+			if (ConfigValues.isSecretReference(name)) {
+				return ConfigValues.getSecret(name);
+			}
 
 			// Resolved directly instead of via mutated global system
 			// properties: each workspace must see its own values even when

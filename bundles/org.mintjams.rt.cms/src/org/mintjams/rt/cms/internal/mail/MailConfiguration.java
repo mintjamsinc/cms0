@@ -28,10 +28,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.mintjams.cms.config.ConfigValues;
+import org.mintjams.cms.config.Secrets;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
@@ -45,15 +44,16 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  *     port: 587
  *     starttls: true            # upgrade the connection with STARTTLS (default true)
  *     ssl: false                # connect over TLS from the start (SMTPS, usually port 465)
- *     username: ${env.CMS_SMTP_USER}
- *     password: ${env.CMS_SMTP_PASSWORD}
+ *     username: ${secrets.SMTP_USER}
+ *     password: ${secrets.SMTP_PASSWORD}
  *     timeoutSeconds: 15
  * from: MintJams CMS &lt;no-reply@example.com&gt;
  * </pre>
  *
  * <p>The file is optional: without it there is no transport and the server
- * sends nothing. It is re-read when it changes on disk. String values may
- * name an environment variable as {@code ${env.NAME}} (or
+ * sends nothing. It is re-read when it changes on disk, and when
+ * {@code etc/secrets.yml} does. String values may name a secret as
+ * {@code ${secrets.KEY}}, an environment variable as {@code ${env.NAME}} (or
  * {@code ${env.NAME:-default}}, with {@code NAME_FILE} consulted first) and
  * may be encrypted as {@code ENC[v1:...]}; see
  * {@link ConfigValues}.</p>
@@ -65,11 +65,10 @@ public final class MailConfiguration {
 	public static final int DEFAULT_PORT = 587;
 	public static final int DEFAULT_TIMEOUT_SECONDS = 15;
 
-	private static final Pattern VARIABLE = Pattern.compile("\\$\\{(.+?)\\}");
-
 	private static volatile MailConfiguration fCached;
 
 	private final long fLastModified;
+	private final long fSecretsStamp;
 	private final String fError;
 	private final String fHost;
 	private final int fPort;
@@ -100,8 +99,10 @@ public final class MailConfiguration {
 			return new MailConfiguration(-2, null, "Could not read " + FILE_NAME + ": " + ex.getMessage());
 		}
 
+		// The secrets behind ${secrets.KEY} count as part of this file.
+		long secretsStamp = Secrets.getStamp();
 		MailConfiguration cached = fCached;
-		if (cached != null && cached.fLastModified == lastModified) {
+		if (cached != null && cached.fLastModified == lastModified && cached.fSecretsStamp == secretsStamp) {
 			return cached;
 		}
 
@@ -111,20 +112,25 @@ public final class MailConfiguration {
 			if (!(parsed instanceof Map)) {
 				throw new IllegalArgumentException("the document is not a mapping");
 			}
-			loaded = new MailConfiguration(lastModified, (Map<?, ?>) parsed, null);
+			loaded = new MailConfiguration(lastModified, secretsStamp, (Map<?, ?>) parsed, null);
 			CmsService.getLogger(MailConfiguration.class)
 					.info("Outgoing mail: " + loaded.fHost + ":" + loaded.fPort + " from " + loaded.fFrom);
 		} catch (Throwable ex) {
 			CmsService.getLogger(MailConfiguration.class)
 					.error("Invalid " + file + "; the server cannot send mail until it is fixed.", ex);
-			loaded = new MailConfiguration(lastModified, null, "Invalid " + FILE_NAME + ": " + ex.getMessage());
+			loaded = new MailConfiguration(lastModified, secretsStamp, null, "Invalid " + FILE_NAME + ": " + ex.getMessage());
 		}
 		fCached = loaded;
 		return loaded;
 	}
 
 	private MailConfiguration(long lastModified, Map<?, ?> config, String error) {
+		this(lastModified, 0, config, error);
+	}
+
+	private MailConfiguration(long lastModified, long secretsStamp, Map<?, ?> config, String error) {
 		fLastModified = lastModified;
+		fSecretsStamp = secretsStamp;
 		if (config == null) {
 			fError = error;
 			fHost = null;
@@ -195,26 +201,18 @@ public final class MailConfiguration {
 	// ---- value helpers -------------------------------------------------------
 
 	/**
-	 * Turns a YAML value into a string with {@code ${env.NAME}} references
-	 * resolved and {@code ENC[...]} decrypted.
+	 * Turns a YAML value into a string with {@code ${secrets.KEY}} and
+	 * {@code ${env.NAME}} references resolved and {@code ENC[...]} decrypted.
+	 * Any other variable is a mistake in this file.
 	 */
 	private static String resolve(Object value, String source) {
 		if (value == null) {
 			return null;
 		}
-		String text = value.toString();
-		Matcher m = VARIABLE.matcher(text);
-		StringBuilder sb = new StringBuilder();
-		while (m.find()) {
-			String name = m.group(1).trim();
-			if (!ConfigValues.isEnvironmentVariable(name)) {
-				throw new IllegalArgumentException(FILE_NAME + "#" + source + ": unknown variable '${" + name
-						+ "}' (only ${env.NAME} is supported here)");
-			}
-			m.appendReplacement(sb, Matcher.quoteReplacement(ConfigValues.getEnvironmentVariable(name)));
-		}
-		m.appendTail(sb);
-		return ConfigValues.decrypt(sb.toString(), FILE_NAME + "#" + source);
+		return ConfigValues.resolve(value.toString(), FILE_NAME + "#" + source, name -> {
+			throw new IllegalArgumentException("unknown variable '${" + name
+					+ "}' (only ${secrets.KEY} and ${env.NAME} are supported here)");
+		});
 	}
 
 	private static String required(String value, String source) {

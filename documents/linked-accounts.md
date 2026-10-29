@@ -78,17 +78,20 @@ consent screen, listing the added scope).
    ```yaml
    google:
      clientID: 1234-abcd.apps.googleusercontent.com
-     clientSecret: ${env.CMS_OAUTH_GOOGLE_SECRET}
+     clientSecret: ${secrets.OAUTH_GOOGLE_SECRET}
    microsoft:
      clientID: 00000000-0000-0000-0000-000000000000
-     clientSecret: ENC[v1:...]
+     clientSecret: ${secrets.OAUTH_MICROSOFT_SECRET}
      tenant: organizations
    ```
 
-   A secret may be written in the clear, as `ENC[v1:...]` (encrypted with the
-   installation key), or as `${env.NAME}` to take it from the environment
-   variable `NAME` or the file named by `NAME_FILE`. The file is re-read when
-   it changes; no restart is needed. The folder `/etc/oauth` is closed to
+   A secret is best kept in `<repository>/etc/secrets.yml` and named as
+   `${secrets.KEY}`; the server encrypts that file in place (see
+   [secrets.md](secrets.md)). It may also be written here in the clear, as
+   `ENC[v1:...]` (encrypted with the installation key), or as `${env.NAME}`
+   to take it from the environment variable `NAME` or the file named by
+   `NAME_FILE`. The file is re-read when it changes, and when `secrets.yml`
+   does; no restart is needed. The folder `/etc/oauth` is closed to
    everyone but administrators by provisioning (the root of a workspace lets
    everyone read, so the folder carries an explicit deny); the platform reads
    the file with a service session, which access control does not apply to,

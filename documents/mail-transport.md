@@ -23,8 +23,8 @@ smtp:
     port: 587
     starttls: true            # upgrade the connection with STARTTLS (default true)
     ssl: false                # connect over TLS from the start (SMTPS, usually port 465)
-    username: ${env.CMS_SMTP_USER}
-    password: ${env.CMS_SMTP_PASSWORD}
+    username: ${secrets.SMTP_USER}
+    password: ${secrets.SMTP_PASSWORD}
     timeoutSeconds: 15
 from: MintJams CMS <no-reply@example.com>
 ```
@@ -44,20 +44,33 @@ Japanese when the browser asked for it, English otherwise.
 
 ### Secrets
 
-A value may name an environment variable, or be encrypted, instead of being
-written in the file:
+The password (and the user name, if you like) is not written into this file.
+The file names it, and the value lives in `etc/secrets.yml`, which the server
+keeps encrypted; see [secrets.md](secrets.md):
+
+```yaml
+# etc/secrets.yml
+SMTP_USER: no-reply@example.com
+SMTP_PASSWORD: the password, in the clear; the server encrypts it within seconds
+```
+
+Two other forms work in the same place and may be mixed:
 
 - `${env.NAME}` is replaced by the environment variable `NAME`. When
   `NAME_FILE` is set instead, its file is read (a Docker secret or a mounted
   Kubernetes secret). `${env.NAME:-default}` supplies a value for when the
   variable is unset.
-- `ENC[v1:...]` is decrypted with the server's secret key, the same way as
-  other configuration files.
+- `ENC[v1:...]` written straight into this file is decrypted with the
+  server's secret key, the same way as in other configuration files.
+
+A change to `secrets.yml` is picked up like a change to this file, within
+seconds.
 
 ### When the file is wrong
 
-A file that cannot be read (a missing `host` or `from`, an unset environment
-variable, a value that is not a number) is reported once in the log, and the
+A file that cannot be read (a missing `host` or `from`, a secret or
+environment variable that is not set, a value that is not a number) is
+reported once in the log, and the
 transport is treated as absent until the file is fixed. A server that cannot
 be reached is noticed only when a message is sent: the log then carries the
 cause, and the person who asked for the message sees that it could not be

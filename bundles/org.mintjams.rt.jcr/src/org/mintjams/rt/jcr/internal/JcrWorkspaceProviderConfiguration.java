@@ -215,6 +215,9 @@ public class JcrWorkspaceProviderConfiguration {
 			if (ConfigValues.isEnvironmentVariable(name)) {
 				return ConfigValues.getEnvironmentVariable(name);
 			}
+			if (ConfigValues.isSecretReference(name)) {
+				return ConfigValues.getSecret(name);
+			}
 
 			if ("repository.home".equals(name)) {
 				return Activator.getDefault().getRepository().getConfiguration().getRepositoryPath().toString();
