@@ -205,6 +205,8 @@ const STYLE = `
 .idp-sp-url{color:var(--idp-dim,#4A4940);font-weight:400;font-size:11px}
 .idp-title{font-size:15px;font-weight:500;margin:0 0 6px}
 .idp-hint{font-size:13px;color:var(--idp-muted,#6B6961);margin:0 0 18px;line-height:1.5}
+.idp-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
+.idp-head .idp-hint{margin-bottom:0}
 .idp-methods{display:flex;flex-direction:column;gap:10px}
 .idp-method{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px 16px;background:var(--idp-input-bg,rgba(255,255,255,0.04));border:1px solid var(--idp-input-border,rgba(255,255,255,0.08));border-radius:var(--idp-radius,10px);color:inherit;font:inherit;cursor:pointer;transition:border-color .2s,background .2s}
 .idp-method:hover,.idp-method:focus-visible{border-color:var(--idp-focus,rgba(99,153,34,0.5));outline:none}
@@ -245,7 +247,9 @@ const STYLE = `
 const ICON_PASSKEY = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><circle cx="17.5" cy="14.5" r="2.5"/><path d="M17.5 17v5l1.5-1.5M17.5 22l-1.5-1.5"/></svg>';
 const ICON_PASSWORD = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
 const ICON_MAIL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
-const ICON_ERROR = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>';
+const ICON_PHONE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg>';
+const ICON_KEY = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M11.5 11.5L21 2M16 7l3 3M18.5 4.5l2 2"/></svg>';
+const ICON_ERROR ='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>';
 const ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 const ICON_EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
 const ICON_EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
@@ -315,8 +319,13 @@ const TEMPLATE = `
   </div>
 
   <div v-if="step === 'emailCode'">
-    <p class="idp-title">{{ t.emailCodeTitle }}</p>
-    <p class="idp-hint">{{ t.emailCodeHint }}</p>
+    <div class="idp-head">
+      <span class="idp-method-icon">${ICON_MAIL}</span>
+      <div>
+        <p class="idp-title">{{ t.emailCodeTitle }}</p>
+        <p class="idp-hint">{{ t.emailCodeHint }}</p>
+      </div>
+    </div>
     <div class="idp-field">
       <label class="idp-label">{{ t.username }}</label>
       <div class="idp-input-wrap">
@@ -343,8 +352,14 @@ const TEMPLATE = `
   </div>
 
   <div v-if="step === 'totp'">
-    <p class="idp-title">{{ t.codeTitle }}</p>
-    <p class="idp-hint">{{ useBackupCode ? t.backupCodeHint : t.codeHint }}</p>
+    <div class="idp-head">
+      <span class="idp-method-icon" v-if="!useBackupCode">${ICON_PHONE}</span>
+      <span class="idp-method-icon" v-else>${ICON_KEY}</span>
+      <div>
+        <p class="idp-title">{{ t.codeTitle }}</p>
+        <p class="idp-hint">{{ useBackupCode ? t.backupCodeHint : t.codeHint }}</p>
+      </div>
+    </div>
     <div class="idp-field">
       <label class="idp-label">{{ useBackupCode ? t.backupCode : t.code }}</label>
       <div class="idp-input-wrap">
