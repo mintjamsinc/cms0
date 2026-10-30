@@ -382,6 +382,33 @@
 	margin: 1.5em 0;
 }
 
+/* Page break (page-break.ts): a dashed line with its label in the middle.
+   The break itself is the element's inline style; on paper the line and
+   the label go (see the print rules below). */
+.ProseMirror .memo-page-break {
+	display: flex;
+	align-items: center;
+	gap: 0.75em;
+	margin: 1.5em 0;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	cursor: default;
+	user-select: none;
+}
+
+.ProseMirror .memo-page-break::before,
+.ProseMirror .memo-page-break::after {
+	content: '';
+	flex: 1;
+	border-top: 1px dashed var(--memo-rule-color);
+}
+
+.ProseMirror .memo-page-break.ProseMirror-selectednode {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
 /* Images (placed by dragging a Content Browser image onto the editor).
  *
  * Each image is rendered through Tiptap's ResizableNodeView, which wraps the
@@ -1443,6 +1470,20 @@ textarea.memo-dataset-input {
 	.ProseMirror pre {
 		white-space: pre-wrap;
 		overflow: visible;
+	}
+
+	/* A page break is the break alone: the element stays (display: none
+	   would drop the break with it) but takes no room. */
+	.ProseMirror .memo-page-break {
+		display: block;
+		height: 0;
+		margin: 0;
+	}
+
+	.ProseMirror .memo-page-break::before,
+	.ProseMirror .memo-page-break::after,
+	.ProseMirror .memo-page-break-label {
+		display: none;
 	}
 
 	.ProseMirror .tableWrapper {

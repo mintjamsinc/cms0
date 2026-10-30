@@ -219,6 +219,8 @@
 							:title="t('app.memo.format.table', undefined, 'Insert table')"><i class="bi bi-table"></i></button>
 						<button class="fmt-btn" @mousedown.prevent="insertHorizontalRule"
 							:title="t('app.memo.format.divider', undefined, 'Divider')"><i class="bi bi-dash-lg"></i></button>
+						<button class="fmt-btn" @mousedown.prevent="insertPageBreak"
+							:title="t('app.memo.format.pageBreak', undefined, 'Page break (Ctrl+Enter)')"><i class="bi bi-file-break"></i></button>
 					</div>
 
 					<!-- Table editing (contextual) -->

@@ -55,6 +55,8 @@ import { ChatServiceGraphQL } from "../../services/chat-service-graphql.js";
 import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 // Block drag handle (the grip in the left gutter); see drag-handle.ts.
 import { createDragHandleExtension } from "./drag-handle.js";
+// Page break block (Ctrl+Enter); see page-break.ts.
+import { createPageBreakExtension } from "./page-break.js";
 
 // ----------------------------------------------------------------------------
 // Native memo document format
@@ -1273,6 +1275,10 @@ export const App = {
 						return id.startsWith('/') ? '' : id;
 					},
 				}),
+				// Where the printed memo moves on to the next page (see page-break.ts).
+				createPageBreakExtension({
+					label: () => vm.t('app.memo.pageBreak', undefined, 'Page break'),
+				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({
 					title: () => vm.t('app.memo.dragHandle', undefined, 'Drag to move, click to select'),
@@ -1432,6 +1438,7 @@ export const App = {
 		toggleCodeBlock() { this.chain()?.toggleCodeBlock().run(); },
 		setAlign(align: string) { this.chain()?.setTextAlign(align).run(); },
 		insertHorizontalRule() { this.chain()?.setHorizontalRule().run(); },
+		insertPageBreak() { this.chain()?.setPageBreak().run(); },
 		insertTable() { this.chain()?.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); },
 		addColumnAfter() { this.chain()?.addColumnAfter().run(); },
 		addRowAfter() { this.chain()?.addRowAfter().run(); },
@@ -1603,6 +1610,7 @@ export const App = {
 				{ key: 'dataset', icon: 'bi-database', title: vm.t('app.memo.slash.dataset', undefined, 'Dataset'), desc: vm.t('app.memo.slash.datasetDesc', undefined, 'Folder of memos as an editable table'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertContent({ type: DATASET_VIEW_NODE, attrs: { path: '' } }).run() },
 				{ key: 'chat', icon: 'bi-chat-dots', title: vm.t('app.memo.slash.chat', undefined, 'Conversation'), desc: vm.t('app.memo.slash.chatDesc', undefined, 'The conversation of this memo, live in the page'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).insertContent({ type: CHAT_VIEW_NODE }).run() },
 				{ key: 'divider', icon: 'bi-dash-lg', title: vm.t('app.memo.slash.divider', undefined, 'Divider'), desc: vm.t('app.memo.slash.dividerDesc', undefined, 'Horizontal rule'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).setHorizontalRule().run() },
+				{ key: 'pagebreak', icon: 'bi-file-break', title: vm.t('app.memo.slash.pageBreak', undefined, 'Page break'), desc: vm.t('app.memo.slash.pageBreakDesc', undefined, 'Start a new page when printed'), run: (e: Editor, r: Range) => e.chain().focus().deleteRange(r).setPageBreak().run() },
 			];
 			const q = (query || '').toLowerCase().trim();
 			if (!q) return items;
