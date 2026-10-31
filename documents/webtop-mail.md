@@ -110,15 +110,17 @@ message, opens the compose pane in place of the reader.
   saves it; saved addresses and one's own have no button. The × of a suggestion
   removes that address from both lists at once, without asking.
 
-The copy of what was sent is listed under *Sent*. With **Also put sent mail
-into the server's Sent folder** on (the account dialog), it is appended to
-the server's Sent folder as well, so other mail clients see it; the copy is
-stored under that folder with the UID the server gave it, so the next
-synchronization finds it in place instead of downloading it again. Off, the
-copy stays in the Webtop only. The setting is on for a new account, except
-for Gmail, which files what SMTP sends by itself. Either way a message is
-listed once: when a message the Webtop sent arrives in the server's Sent
-folder through the synchronization (Gmail filed it, or the copy could not be
+The copy of what was sent is listed under *Sent*. An IMAP / SMTP account has
+the setting **Also put sent mail into the server's Sent folder** (the account
+dialog), on for a new account. On, the message is appended to the server's
+Sent folder as well, so other mail clients see it; the copy is stored under
+that folder with the UID the server gave it, so the next synchronization finds
+it in place instead of downloading it again. Off, the copy stays in the Webtop
+only. Gmail and Microsoft accounts do not have the setting and nothing is
+appended: the copy stays in the Webtop until the server's own filing brings the
+message in, as Gmail does with what SMTP sends. Either way a message is listed
+once: when a message the Webtop sent arrives in the server's Sent folder
+through the synchronization (the server filed it, or the copy could not be
 appended), the Webtop's own copy is removed, matched by Message-ID; a locked
 copy stays. Removing the account removes the copies kept in the Webtop, like
 the downloaded mail.
@@ -259,10 +261,9 @@ points to the setting.
 
 What differs from SMTP:
 
-- Exchange files what Graph sends into *Sent Items* by itself, so **Also put
-  sent mail into the server's Sent folder** does not apply and is not shown.
-  No copy is kept in the Webtop either: a synchronization pass is asked for
-  right after sending, and one more about two and a half minutes later, and
+- Exchange files what Graph sends into *Sent Items* by itself, so no copy is
+  kept in the Webtop: a synchronization pass is asked for right after
+  sending, and one more about two and a half minutes later, and
   brings the message in from *Sent Items* (with the account's synchronization
   off, the copy is kept in the Webtop as for Gmail). Exchange files the
   message there once it has accepted it for delivery, which can take a minute
