@@ -1445,9 +1445,12 @@ const App = {
 		},
 		async saveAccount() {
 			if (!api) return;
-			// Linking first: a Gmail / Microsoft account takes its address from it.
-			if (!(await this.ensureLinked()) || !this.validateForm()) return;
 			const f = this.accountForm;
+			// Linking first: a Gmail / Microsoft account takes its address from it.
+			// An existing account saved with synchronization off needs no link, so
+			// one whose link is gone can still be turned off.
+			if ((!f.id || f.enabled) && !(await this.ensureLinked())) return;
+			if (!this.validateForm()) return;
 			f.saving = true;
 			try {
 				const saved = await api.saveAccount(this.formInput());
