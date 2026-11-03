@@ -10,7 +10,7 @@
 // reloads, so switching a placement between desktop and pinned only changes
 // the z-index the shell passes in (`z`).
 import { defineComponent } from '@mintjamsinc/ichigojs';
-import { BUILD_VERSION } from '../utils/build-version.js';
+import { appVersion } from '../utils/build-version.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 import { attachFrameDragRegion } from '../lib/frame-drag.js';
 import { WidgetInstance, type Application, type AppWidget, type WidgetLayer } from '../services/webtop-service.js';
@@ -69,7 +69,7 @@ defineComponent('wt-widget', {
 		contentURL() {
 			const vm = this as any;
 			const { app, def } = vm._;
-			return app && def ? `./apps/${app.relPath}/${def.entry}?v=${BUILD_VERSION}` : '';
+			return app && def ? `./apps/${app.relPath}/${def.entry}?v=${appVersion(app)}` : '';
 		},
 		frameStyle() {
 			const vm = this as any;

@@ -15,3 +15,13 @@ export function appendCacheBuster(url: string): string {
 	const sep = url.includes('?') ? '&' : '?';
 	return `${url}${sep}v=${BUILD_VERSION}`;
 }
+
+// The cache-busting token for an app's own files (its window, widgets and
+// icon): the build plus the app's last-modified time (index.html, else
+// app.yml). A version-stamped URL is cached as immutable, and an app a
+// package installs or updates changes without a Webtop rebuild, so the build
+// alone would keep serving the browser's old copy of the app.
+export function appVersion(app?: { modified?: Date } | null): string {
+	const millis = app?.modified instanceof Date ? app.modified.getTime() : NaN;
+	return Number.isNaN(millis) ? BUILD_VERSION : `${BUILD_VERSION}.${millis}`;
+}

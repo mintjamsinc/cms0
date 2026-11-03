@@ -20,7 +20,7 @@ import './components/wt-desktop-icons.js';
 import './components/wt-widget.js';
 import { loadSavedWindowSize } from './components/wt-window.js';
 import { UrlUtils, type UrlInfo } from './utils/url.js';
-import { BUILD_VERSION } from './utils/build-version.js';
+import { BUILD_VERSION, appVersion } from './utils/build-version.js';
 import { MetadataDefinitionCache } from './services/metadata-cache.js';
 import { I18nService } from './services/webtop-i18n-service.js';
 import {
@@ -932,7 +932,7 @@ const WtDesktop = {
 			if (!app?.icon) {
 				return '';
 			}
-			return `./apps/${app.relPath}/${app.icon}?v=${BUILD_VERSION}`;
+			return `./apps/${app.relPath}/${app.icon}?v=${appVersion(app)}`;
 		},
 		// Pick a launch position that doesn't exactly overlap an already-open
 		// window. We cascade by (CASCADE_STEP, CASCADE_STEP) until we find a

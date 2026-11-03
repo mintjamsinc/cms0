@@ -1,6 +1,6 @@
 // wt-window custom element
 import { defineComponent } from '@mintjamsinc/ichigojs';
-import { BUILD_VERSION } from '../utils/build-version.js';
+import { appVersion } from '../utils/build-version.js';
 import { translate, createLocalizationSnapshot } from '../composables/use-localization.js';
 import { attachFrameDragRegion } from '../lib/frame-drag.js';
 
@@ -132,11 +132,11 @@ defineComponent('wt-window', {
 		},
 		iconURL() {
 			const app = (this as any)._.app;
-			return app?.icon ? `./apps/${app.relPath}/${app.icon}?v=${BUILD_VERSION}` : '';
+			return app?.icon ? `./apps/${app.relPath}/${app.icon}?v=${appVersion(app)}` : '';
 		},
 		contentURL() {
 			const app = (this as any)._.app;
-			return app ? `./apps/${app.relPath}/index.html?v=${BUILD_VERSION}` : '';
+			return app ? `./apps/${app.relPath}/index.html?v=${appVersion(app)}` : '';
 		},
 		contentFrameStyle() {
 			return {
