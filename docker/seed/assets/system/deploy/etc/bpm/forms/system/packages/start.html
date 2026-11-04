@@ -16,13 +16,29 @@
 	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
 	.package-details summary { cursor: pointer; }
 	.package-details > div { margin-top: 0.75rem; }
+	/* The package's own images: the icon beside the heading, the main image
+	   under the summary table, the screenshots as a strip that scrolls
+	   sideways. */
+	.package-head { display: flex; align-items: center; gap: 0.75rem; }
+	.package-head > div { min-width: 0; }
+	.package-icon { width: 2.5rem; height: 2.5rem; border-radius: 0.5rem; object-fit: contain; flex: none; }
+	.package-main { display: block; max-width: 100%; max-height: 18rem; border-radius: 0.5rem; }
+	.package-shots { display: flex; gap: 0.75rem; overflow-x: auto; padding-bottom: 0.25rem; }
+	.package-shot { flex: none; width: 16rem; margin: 0; }
+	.package-shot img { display: block; width: 100%; height: 9rem; object-fit: cover; border-radius: 0.5rem; }
+	.package-shot figcaption { font-size: 0.875em; margin-top: 0.25rem; }
 </style>
 </head>
 <body>
 <main id="app" v-cloak class="wt-form" @mounted="onMounted" @unmount="onUnmount">
 	<div class="wt-form-header">
-		<h1 class="wt-form-title">{{ heading }}</h1>
-		<p class="wt-form-subtitle">{{ subtitle }}</p>
+		<div class="package-head">
+			<img v-if="iconUrl" class="package-icon" :src="iconUrl" alt="">
+			<div>
+				<h1 class="wt-form-title">{{ heading }}</h1>
+				<p class="wt-form-subtitle">{{ subtitle }}</p>
+			</div>
+		</div>
 	</div>
 
 	<div class="wt-form-body">
@@ -61,12 +77,44 @@
 					<td>{{ t('confirm.action.label', null, 'Action') }}</td>
 					<td>{{ actionText }}</td>
 				</tr>
-				<tr v-if="manifest.description">
+				<tr v-if="texts.description">
 					<td>{{ t('confirm.description', null, 'Description') }}</td>
-					<td class="wt-wrap">{{ manifest.description }}</td>
+					<td class="wt-wrap">{{ texts.description }}</td>
+				</tr>
+				<tr v-if="manifest.vendor && manifest.vendor.name">
+					<td>{{ t('confirm.vendor', null, 'Provider') }}</td>
+					<td class="wt-wrap">
+						<a v-if="manifest.vendor.url" :href="manifest.vendor.url" target="_blank" rel="noopener noreferrer">{{ manifest.vendor.name }}</a>
+						<span v-if="!manifest.vendor.url">{{ manifest.vendor.name }}</span>
+					</td>
+				</tr>
+				<tr v-if="manifest.homepage">
+					<td>{{ t('confirm.homepage', null, 'Home page') }}</td>
+					<td class="wt-wrap text-break"><a :href="manifest.homepage" target="_blank" rel="noopener noreferrer">{{ manifest.homepage }}</a></td>
+				</tr>
+				<tr v-if="manifest.category">
+					<td>{{ t('confirm.category', null, 'Category') }}</td>
+					<td>{{ manifest.category }}</td>
+				</tr>
+				<tr v-if="manifest.tags && manifest.tags.length">
+					<td>{{ t('confirm.tags', null, 'Tags') }}</td>
+					<td class="wt-wrap">{{ manifest.tags.join(', ') }}</td>
+				</tr>
+				<tr v-if="manifest.license">
+					<td>{{ t('confirm.license', null, 'License') }}</td>
+					<td class="wt-wrap">{{ manifest.license }}</td>
 				</tr>
 			</tbody>
 		</table>
+
+		<!-- The package's images, taken out beside the upload by the inspection. -->
+		<img v-if="inspection && mainUrl" class="package-main" :src="mainUrl" alt="">
+		<div v-if="inspection && screenshots.length" class="package-shots">
+			<figure v-for="(s, i) in screenshots" :key="i" class="package-shot">
+				<img :src="s.url" :alt="s.caption || ''">
+				<figcaption v-if="s.caption" class="text-muted">{{ s.caption }}</figcaption>
+			</figure>
+		</div>
 
 		<div v-if="inspection">
 			<div class="fw-semibold">{{ t('confirm.findings', null, 'Checks') }}</div>
@@ -158,10 +206,40 @@ if (!host) {
 	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
 	await initUi();
 
+	// The title, description and images a reader of the locale sees: the
+	// manifest's locales block whose tag matches (the tag as a whole, then
+	// with its last subtags dropped: ja-JP falls back to ja) overrides the
+	// top level; images override per role, the screenshots as a whole list.
+	function localizedManifest(manifest, locale) {
+		const m = manifest || {};
+		const result = { title: m.title || '', description: m.description || '', images: { ...(m.images || {}) } };
+		const blocks = {};
+		for (const [tag, block] of Object.entries(m.locales || {})) {
+			if (block) blocks[String(tag).toLowerCase().replace(/_/g, '-')] = block;
+		}
+		let tag = String(locale || '').toLowerCase().replace(/_/g, '-');
+		let block = null;
+		while (tag) {
+			if (blocks[tag]) { block = blocks[tag]; break; }
+			const dash = tag.lastIndexOf('-');
+			if (dash < 0) break;
+			tag = tag.slice(0, dash);
+		}
+		if (block) {
+			if (block.title) result.title = block.title;
+			if (block.description) result.description = block.description;
+			for (const [role, value] of Object.entries(block.images || {})) {
+				if (value != null) result.images[role] = value;
+			}
+		}
+		return result;
+	}
+
 	const App = {
 		data() {
 			return {
 				isAdmin: null,          // null = checking, then true / false
+				locale: '',             // the reader's locale, for the manifest's texts and images
 				file: null,
 				fileError: '',
 				// choose → uploading → inspecting → review → starting → started
@@ -186,8 +264,22 @@ if (!host) {
 			ok() {
 				return !!(this.inspection && this.inspection.ok && this.inspection.action);
 			},
+			texts() {
+				return localizedManifest(this.manifest, this.locale);
+			},
 			displayTitle() {
-				return this.manifest.title || (this.inspection && this.inspection.fileName) || this.t('common.package', null, 'Package');
+				return this.texts.title || (this.inspection && this.inspection.fileName) || this.t('common.package', null, 'Package');
+			},
+			iconUrl() {
+				return this.imageUrl(this.texts.images.icon);
+			},
+			mainUrl() {
+				return this.imageUrl(this.texts.images.main || this.texts.images.thumbnail);
+			},
+			screenshots() {
+				return (this.texts.images.screenshots || [])
+						.map((s) => ({ url: this.imageUrl(s && s.path), caption: (s && s.caption) || '' }))
+						.filter((s) => s.url);
 			},
 			heading() {
 				void this.i18nRevision;
@@ -239,7 +331,16 @@ if (!host) {
 			applyLocalization(loc) {
 				const locale = (loc && loc.locale) || '';
 				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.locale = locale || navigator.language || '';
 				this.i18nRevision++;
+			},
+			// An image the manifest names (images/x.png) as the URL of the copy
+			// the inspection took out beside the upload, or '' when there is
+			// none. The repository serves it with the reader's own access.
+			imageUrl(entry) {
+				const root = this.inspection && this.inspection.imagesPath;
+				if (!root || typeof entry !== 'string' || !entry.startsWith('images/')) return '';
+				return encodeURI('/bin/download.cgi/' + host.workspace + root + '/' + entry.slice('images/'.length));
 			},
 			formatSize(bytes) {
 				const n = Number(bytes) || 0;

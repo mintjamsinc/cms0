@@ -89,7 +89,14 @@ public class PackageAPI {
 	public Map<String, Object> inspect(String packagePath, String userId) throws IOException {
 		requireAdministrator(userId);
 		try (WorkspaceScriptContext context = openContext(userId)) {
-			return installer(context).inspect(requirePath(packagePath)).toMap();
+			PackageInstaller installer = installer(context);
+			String path = requirePath(packagePath);
+			org.mintjams.rt.cms.internal.pkg.PackageInspection inspection = installer.inspect(path);
+			Map<String, Object> result = inspection.toMap();
+			// The images the manifest names, taken out beside the staged file so
+			// the confirmation can show them: null when the package has none.
+			result.put("imagesPath", installer.stageImages(path, inspection));
+			return result;
 		}
 	}
 
@@ -186,17 +193,31 @@ public class PackageAPI {
 
 	/** The packages installed in this workspace, as plain data. */
 	public List<Map<String, Object>> listInstalled() throws IOException {
+		return listInstalled(null);
+	}
+
+	/**
+	 * The packages installed in this workspace, as plain data, with the title,
+	 * description and images a reader of the locale sees (null for the
+	 * manifest's own).
+	 */
+	public List<Map<String, Object>> listInstalled(String locale) throws IOException {
 		List<Map<String, Object>> result = new ArrayList<>();
 		for (InstalledPackage p : records().list()) {
-			result.add(p.toMap());
+			result.add(p.toMap(locale));
 		}
 		return result;
 	}
 
 	/** The installed package with this id, as plain data, or {@code null}. */
 	public Map<String, Object> getInstalled(String id) throws IOException {
+		return getInstalled(id, null);
+	}
+
+	/** The installed package with this id for a reader of the locale, or {@code null}. */
+	public Map<String, Object> getInstalled(String id, String locale) throws IOException {
 		InstalledPackage p = records().get(id);
-		return p != null ? p.toMap() : null;
+		return p != null ? p.toMap(locale) : null;
 	}
 
 	private static PackageInstaller installer(WorkspaceScriptContext context) throws IOException {

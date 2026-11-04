@@ -105,8 +105,8 @@ type Query {
   """Current progress snapshot of an async job (delete / downloadArchive / importArchive) — the poll-side complement of the jobProgress subscription. Null when no job record exists for the id."""
   jobProgress(jobId: String!): JobProgressEvent
 
-  """The packages installed in this workspace (the installation records under /etc/packages), sorted by id. See documents/packages.md."""
-  installedPackages: [InstalledPackage!]!
+  """The packages installed in this workspace (the installation records under /etc/packages), sorted by id. With a locale (a language tag such as ja or en-US), title, description and images are those the package's manifest gives for that locale. See documents/packages.md."""
+  installedPackages(locale: String): [InstalledPackage!]!
 
   """What installing the package file at the path (a staged upload) would do, and what the checks found: PackageAPI.inspect as JSON (ok, action, manifest, findings, sha256, deployPaths, ...). Administrators only. See documents/packages.md."""
   packageInspection(path: String!): JSON
@@ -135,6 +135,23 @@ type InstalledPackage {
   requires: [PackageRequirement!]!
   """The ids of the installed packages that require this package."""
   requiredBy: [String!]!
+  """The description from the manifest, for the requested locale."""
+  description: String
+  vendor: PackageVendor
+  """The package's home page, from the manifest."""
+  homepage: String
+  """The license, an SPDX identifier or a short text, from the manifest."""
+  license: String
+  """The category slug, from the manifest."""
+  category: String
+  """The tag slugs, from the manifest."""
+  tags: [String!]!
+  """The images of the package as repository paths under imagesPath, for the requested locale. Serve them through /bin/download.cgi/<workspace><path>."""
+  images: PackageImages!
+  """The record folder that holds the package's images (/etc/packages/<id>/images), or null when it shipped none."""
+  imagesPath: String
+  """The recorded manifest as plain data: id, version, title, description, vendor, homepage, license, category, tags, images (entry names), locales, requires. Null when the record has none."""
+  manifest: JSON
 }
 
 """One entry of a package's requires.packages."""
@@ -142,6 +159,27 @@ type PackageRequirement {
   id: String!
   """The version constraint, or null when any version is accepted."""
   constraint: String
+}
+
+type PackageVendor {
+  name: String
+  url: String
+}
+
+"""The images a package assigns to roles; each a repository path, or null when the role has none."""
+type PackageImages {
+  """A square image for lists and menus."""
+  icon: String
+  """The card image of a grid."""
+  thumbnail: String
+  """The main image of a details or confirmation page."""
+  main: String
+  screenshots: [PackageScreenshot!]!
+}
+
+type PackageScreenshot {
+  path: String!
+  caption: String
 }
 
 # -----------------------------------------------------------------------------

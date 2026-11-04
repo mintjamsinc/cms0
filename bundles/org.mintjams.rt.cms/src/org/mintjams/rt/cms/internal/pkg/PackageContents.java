@@ -72,6 +72,12 @@ public final class PackageContents {
 					&& fName.length() > PackageSource.PROVISIONING_PREFIX.length();
 		}
 
+		/** True for a file under {@code images/}, whatever its extension. */
+		public boolean isImageFile() {
+			return !fDirectory && fName.startsWith(PackageSource.IMAGES_PREFIX)
+					&& fName.length() > PackageSource.IMAGES_PREFIX.length();
+		}
+
 		/**
 		 * The repository path a deploy entry is written to:
 		 * {@code deploy/usr/share/x} becomes {@code /usr/share/x}. Null for other
@@ -128,6 +134,17 @@ public final class PackageContents {
 			}
 		}
 		return paths;
+	}
+
+	/** The entries under {@code images/}, by name, in ZIP order. */
+	public Map<String, Entry> getImageEntries() {
+		Map<String, Entry> images = new LinkedHashMap<>();
+		for (Entry e : fEntries) {
+			if (e.isImageFile()) {
+				images.put(e.getName(), e);
+			}
+		}
+		return images;
 	}
 
 	public int getDeployFileCount() {

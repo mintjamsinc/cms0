@@ -14,6 +14,8 @@
 	.package-paths { max-height: 12rem; overflow: auto; margin: 0; padding-left: 1.25rem; font-family: var(--wt-font-mono, monospace); font-size: 0.875em; }
 	.package-details summary { cursor: pointer; }
 	.package-details > div { margin-top: 0.75rem; }
+	.package-name { display: flex; align-items: center; gap: 0.5rem; }
+	.package-icon { width: 1.75rem; height: 1.75rem; border-radius: 0.375rem; object-fit: contain; flex: none; }
 </style>
 </head>
 <body>
@@ -45,7 +47,10 @@
 					<tr v-for="p in packages" :key="p.id">
 						<td><wt-checkbox v-model="p.selected" :disabled="starting || started" @change="onSelectionChange"></wt-checkbox></td>
 						<td class="wt-wrap">
-							<div>{{ p.title || p.id }}</div>
+							<div class="package-name">
+								<img v-if="iconUrl(p)" class="package-icon" :src="iconUrl(p)" alt="">
+								<div>{{ packageTitle(p) }}</div>
+							</div>
 							<div class="text-muted text-break">{{ p.id }}</div>
 						</td>
 						<td>{{ p.version || '—' }}</td>
@@ -81,7 +86,7 @@
 			<div>
 				<div class="fw-semibold">{{ t('common.workspace', null, 'Workspace') }} <span class="text-muted">— {{ inspection.workspace }}</span></div>
 				<div v-for="p in inspectedPackages" :key="p.id">
-					<div class="fw-semibold">{{ p.title || p.id }} <span class="text-muted">— {{ t('uninstall.start.filesRemoved', { count: (p.files || []).length }, (p.files || []).length + ' files removed') }}</span></div>
+					<div class="fw-semibold">{{ packageTitle(p) }} <span class="text-muted">— {{ t('uninstall.start.filesRemoved', { count: (p.files || []).length }, (p.files || []).length + ' files removed') }}</span></div>
 					<ul v-if="p.files && p.files.length" class="package-paths">
 						<li v-for="f in p.files" :key="f">{{ f }}</li>
 					</ul>
@@ -136,10 +141,40 @@ if (!host) {
 	const { VDOM, initUi } = await import(new URL('ui/wt-ui.esm.js', host.webtopBaseUrl).href);
 	await initUi();
 
+	// The title, description and images a reader of the locale sees: the
+	// manifest's locales block whose tag matches (the tag as a whole, then
+	// with its last subtags dropped: ja-JP falls back to ja) overrides the
+	// top level; images override per role, the screenshots as a whole list.
+	function localizedManifest(manifest, locale) {
+		const m = manifest || {};
+		const result = { title: m.title || '', description: m.description || '', images: { ...(m.images || {}) } };
+		const blocks = {};
+		for (const [tag, block] of Object.entries(m.locales || {})) {
+			if (block) blocks[String(tag).toLowerCase().replace(/_/g, '-')] = block;
+		}
+		let tag = String(locale || '').toLowerCase().replace(/_/g, '-');
+		let block = null;
+		while (tag) {
+			if (blocks[tag]) { block = blocks[tag]; break; }
+			const dash = tag.lastIndexOf('-');
+			if (dash < 0) break;
+			tag = tag.slice(0, dash);
+		}
+		if (block) {
+			if (block.title) result.title = block.title;
+			if (block.description) result.description = block.description;
+			for (const [role, value] of Object.entries(block.images || {})) {
+				if (value != null) result.images[role] = value;
+			}
+		}
+		return result;
+	}
+
 	const App = {
 		data() {
 			return {
 				isAdmin: null,          // null = checking, then true / false
+				locale: '',             // the reader's locale, for the manifests' titles and images
 				loading: true,
 				packages: [],           // [{id, title, version, installedAt, installedBy, fileCount, requiredBy, selected}]
 				checking: false,
@@ -189,7 +224,27 @@ if (!host) {
 			applyLocalization(loc) {
 				const locale = (loc && loc.locale) || '';
 				if (locale) document.documentElement.setAttribute('lang', locale);
+				this.locale = locale || navigator.language || '';
 				this.i18nRevision++;
+			},
+			// The title of an installed package for the reader's locale, from
+			// its recorded manifest; the inspection's entries carry no
+			// manifest, so they are looked up in the list by id.
+			packageTitle(p) {
+				void this.i18nRevision;
+				const listed = (p && p.manifest) ? p : this.packages.find((q) => q.id === p.id);
+				const manifest = listed && listed.manifest;
+				const title = manifest ? localizedManifest(manifest, this.locale).title : '';
+				return title || (p && p.title) || p.id;
+			},
+			// The icon of an installed package: the copy in its record folder.
+			iconUrl(p) {
+				void this.i18nRevision;
+				const manifest = p && p.manifest;
+				if (!manifest || !p.imagesPath) return '';
+				const entry = localizedManifest(manifest, this.locale).images.icon;
+				if (typeof entry !== 'string' || !entry.startsWith('images/')) return '';
+				return encodeURI('/bin/download.cgi/' + host.workspace + p.imagesPath + '/' + entry.slice('images/'.length));
 			},
 			formatDate(value) {
 				if (!value) return '—';
@@ -221,7 +276,7 @@ if (!host) {
 
 					try {
 						const data = await host.graphql.query(
-								'query { installedPackages { id title version installedAt installedBy fileCount requiredBy } }');
+								'query { installedPackages { id title version installedAt installedBy fileCount requiredBy imagesPath manifest } }');
 						const list = (data && data.installedPackages) || [];
 						this.packages = list.map((p) => ({ ...p, selected: false }));
 					} catch (e) {

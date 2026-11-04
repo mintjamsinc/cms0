@@ -64,6 +64,8 @@ public final class PackageRecords {
 	public static final String MANIFEST_FILE = "package.yml";
 	public static final String FILES_FILE = "MANIFEST";
 	public static final String INSTALL_FILE = "install.yml";
+	/** The folder of the record that holds the images the manifest names. */
+	public static final String IMAGES_FOLDER = "images";
 
 	private static final int DIGEST_LENGTH = 64;
 	private static final String DIGEST_SEPARATOR = "  ";
@@ -76,6 +78,62 @@ public final class PackageRecords {
 
 	public static String folderPath(String id) {
 		return ROOT + "/" + id;
+	}
+
+	public static String imagesFolderPath(String id) {
+		return folderPath(id) + "/" + IMAGES_FOLDER;
+	}
+
+	/**
+	 * Removes the images of the previous installation of the package, so that
+	 * the record holds only what the new package ships. Nothing is committed.
+	 */
+	public void resetImages(String id) throws IOException {
+		try {
+			Resource folder = fSession.getResource(imagesFolderPath(id));
+			if (folder.exists()) {
+				folder.remove();
+			}
+		} catch (ResourceException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	/**
+	 * Writes one image of the package into the record: the entry
+	 * {@code images/x/y.png} becomes {@code /etc/packages/<id>/images/x/y.png}.
+	 * Nothing is committed.
+	 */
+	public void writeImage(String id, String entryName, java.io.InputStream in) throws IOException {
+		if (entryName == null || !entryName.startsWith(PackageSource.IMAGES_PREFIX)) {
+			throw new IOException("Not an image entry: " + entryName);
+		}
+		writeStream(imagesFolderPath(id) + "/" + entryName.substring(PackageSource.IMAGES_PREFIX.length()), in);
+	}
+
+	/** Writes a file at the path, creating the folders above it. Nothing is committed. */
+	void writeStream(String path, java.io.InputStream in) throws IOException {
+		try {
+			Resource file = fSession.getResource(path);
+			Resource parent = file.getParent();
+			if (!parent.exists()) {
+				createFolders(parent);
+			}
+			if (!file.exists()) {
+				file.createFile();
+			}
+			file.write(in);
+		} catch (ResourceException ex) {
+			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	private static void createFolders(Resource folder) throws ResourceException {
+		Resource parent = folder.getParent();
+		if (!parent.exists()) {
+			createFolders(parent);
+		}
+		folder.createFolder();
 	}
 
 	/** The record of the package with this id, or {@code null} when it is not installed. */
@@ -184,6 +242,12 @@ public final class PackageRecords {
 				manifestText = manifestFile.getContent();
 			}
 
+			String imagesPath = null;
+			Resource imagesFolder = folder.getResource(IMAGES_FOLDER);
+			if (imagesFolder.exists() && imagesFolder.isCollection()) {
+				imagesPath = imagesFolder.getPath();
+			}
+
 			return new InstalledPackage(id,
 					string(install.get("version")),
 					string(install.get("title")),
@@ -191,7 +255,7 @@ public final class PackageRecords {
 					string(install.get("installedBy")),
 					string(install.get("previousVersion")),
 					string(install.get("source")),
-					manifestText, files);
+					manifestText, files, imagesPath);
 		} catch (ResourceException ex) {
 			throw Cause.create(ex).wrap(IOException.class);
 		}

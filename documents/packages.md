@@ -33,8 +33,11 @@ jp.example.blog-1.2.0.zip
 │       └── ...
 │   └── usr/local/classes/blog/       → /usr/local/classes/blog/  (hot-deployed)
 │   └── etc/graphql/blog/             → /etc/graphql/blog/  (schema, resolvers, tools.yml)
-└── provisioning/                     descriptors applied at installation
-    └── blog.yml                      (the schema of documents/cms-provisioning.md)
+├── provisioning/                     descriptors applied at installation
+│   └── blog.yml                      (the schema of documents/cms-provisioning.md)
+└── images/                           the images the manifest names (optional)
+    ├── icon.svg
+    └── thumbnail.png
 ```
 
 The layout under `deploy/` is the layout of the repository: an entry
@@ -64,6 +67,24 @@ description: Posts and pages for the public site.
 vendor:
   name: Example Inc.
   url: https://www.example.jp/
+homepage: https://www.example.jp/blog/   # optional, an http(s) URL
+license: MIT                     # optional, an SPDX identifier or a short text
+category: site                   # optional, one slug
+tags: [blog, pages]              # optional, slugs (20 at most)
+images:                          # optional, entries under images/ of the package
+  icon: images/icon.svg
+  thumbnail: images/thumbnail.png
+  main: images/main.png
+  screenshots:
+    - path: images/editor.png
+      caption: Writing a post
+    - images/list.png            # a bare name is a screenshot without caption
+locales:                         # optional, per language tag: title, description, images
+  ja:
+    title: サンプルブログ
+    description: 公開サイトの投稿とページ。
+    images:
+      main: images/main.ja.png
 requires:
   platform: ">=0.1.30"           # the running cms0 (optional)
   packages:                      # other packages that must be installed (optional)
@@ -74,7 +95,41 @@ requires:
 rest is optional. The manifest is kept verbatim in the installation record.
 Fields may be added to the format later as optional fields; a required field
 is never added to version 1, so every package written against it keeps
-installing.
+installing. (`homepage`, `license`, `category`, `tags`, `images` and
+`locales`, and the `images/` folder, were added in 0.1.41; a package that
+uses them should state `requires.platform: ">=0.1.41"`, since an older
+platform refuses the folder as `layout.unexpected`.)
+
+**Texts in several languages.** `title` and `description` are the texts a
+reader sees when nothing better is known: write them in the language most
+of your readers share. `locales` holds, per language tag (`ja`, `en`,
+`en-US`, …), a block of the same keys that **overrides** them for readers
+of that language. A reader's locale is matched as a whole and then with its
+last subtags dropped (`ja-JP` → `ja`); what the block does not give stays
+as the top level has it. A block may override `title`, `description` and
+`images` only; everything else is the same in every language. The Tasks
+app's forms resolve the texts in the reader's language and follow a change
+of the preference; `Query.installedPackages(locale:)` resolves them on the
+server for a caller that lists once.
+
+**Images.** The files under `images/` are not placed in the workspace; they
+are what the installer and a portal show *about* the package. The manifest
+assigns them to roles: `icon` (square, for lists and menus), `thumbnail`
+(the card of a grid), `main` (the main image of a confirmation or details
+page) and `screenshots` (each a name, or `path` with a `caption`). An
+image is a `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.svg` of at most
+2 MiB; at most 10 screenshots. A locale block overrides images per role
+(its `main` replaces the main image, the others stay), and `screenshots`
+as a whole list — for screenshots of a UI in that language, say. An image
+under `images/` that no role names is reported as a warning. Where the
+images are shown from before and after the installation is under
+[Installation records](#installation-records-etcpackagesid).
+
+**Category and tags.** `category` is one slug (lower-case letters, digits
+and dashes, 32 characters at most) and `tags` a list of such slugs. cms0
+keeps no vocabulary: a portal groups and filters by them, and translates
+the labels it shows for them. Suggested categories for a catalog: `site`,
+`business`, `communication`, `integration`, `tool`, `game`, `template`.
 
 **Version constraints** (`requires.platform`, `requires.packages`) are terms
 separated by spaces or commas, each an operator and a version: `>=1.2`,
@@ -130,10 +185,21 @@ idempotent and harmless.
 | `package.yml` | the manifest as it was in the package |
 | `MANIFEST` | every file placed, as `sha256  /path` lines (the `sha256sum` format the image seed also records) |
 | `install.yml` | `version`, `installedAt`, `installedBy`, `previousVersion`, `source` (the package file name) |
+| `images/` | the images the manifest names, at their name under `images/` of the package (`images/icon.svg` → `images/icon.svg`); absent when the package names none |
 
 The record is what makes an upgrade exact and what answers "what is
 installed in this workspace". `/etc/packages` is writable by administrators
 only.
+
+The images are repository files, so a page shows them through the
+download servlet with the reader's own access:
+`/bin/download.cgi/<workspace>/etc/packages/<id>/images/icon.svg`. An
+upgrade replaces the folder with the new package's images. **Before** the
+installation, the inspection (`PackageAPI.inspect`, which backs
+`Query.packageInspection`) takes the images out of a staged package into
+the folder `images` beside it (`/var/lib/packages/incoming/<id>/images/`)
+and answers its path as `imagesPath`, so the confirmation can show them;
+discarding the package removes them with it.
 
 ### First installation, upgrade, reinstallation
 
@@ -207,13 +273,14 @@ form translates known codes and falls back to the message.
 
 | Check | Finding codes | What it refuses |
 | --- | --- | --- |
-| Manifest | `manifest.missing`, `manifest.invalid`, `manifest.format`, `manifest.formatVersion`, `manifest.id`, `manifest.version`, `manifest.title`, `manifest.vendor`, `manifest.requires`, `manifest.requires.platform`, `manifest.requires.packages` | a missing or malformed manifest |
-| Layout | `layout.path`, `layout.duplicate`, `layout.unexpected`, `layout.provisioning`, `layout.empty` | entries outside `package.yml` / `deploy/` / `provisioning/`, `..` segments, one path placed twice, descriptors not directly under `provisioning/`, a package with nothing to install |
+| Manifest | `manifest.missing`, `manifest.invalid`, `manifest.format`, `manifest.formatVersion`, `manifest.id`, `manifest.version`, `manifest.title`, `manifest.vendor`, `manifest.homepage`, `manifest.category`, `manifest.tags`, `manifest.locales`, `manifest.requires`, `manifest.requires.platform`, `manifest.requires.packages` | a missing or malformed manifest: a home page that is not an http(s) URL, a category or tag that is not a slug, a locale key that is not a language tag or a block that is not a mapping |
+| Layout | `layout.path`, `layout.duplicate`, `layout.unexpected`, `layout.provisioning`, `layout.image`, `layout.empty` | entries outside `package.yml` / `deploy/` / `provisioning/` / `images/`, `..` segments, one path placed twice, descriptors not directly under `provisioning/`, a file under `images/` that is not an image, a package with nothing to install |
 | Platform | `platform.incompatible`; warning `platform.unknown` | a `requires.platform` the running platform does not meet; when the platform does not know its version (outside the container image) the requirement is not checked and a warning says so |
 | Dependencies | `dependency.missing`, `dependency.version`, `dependency.self` | a required package that is not installed, or installed in a version the constraint rejects. Nothing is resolved or fetched: install the dependency first |
 | Version | `version.downgrade`; warning `version.installedUnknown` | an older version than the installed one |
 | Paths | `path.reserved`, `path.bundled`, `path.owned` | files under the areas the platform keeps for itself (`/etc/packages`, `/var/lib/packages`, `/var/seed`, `/var/jobs`, `/home`, `/jcr:system`), over a file the bundled assets of the image own (the applied seed manifest), or over a file another installed package owns |
 | Provisioning | `provisioning.invalid`, `provisioning.userPassword`, `provisioning.reservedPath`; warnings `provisioning.empty`, `provisioning.unknownSection` | descriptors that are not mappings of the known sections, entries missing what the provisioner insists on (an id, a password for a non-service user, an absolute node path), nodes under a reserved area |
+| Images | `images.invalid`, `images.path`, `images.missing`, `images.size`, `images.screenshots`; warning `images.unused` | an `images` (of the manifest or of a locale block) that is not a mapping of the roles, a role that does not name an image under `images/`, an image the package does not hold, one larger than 2 MiB, more than 10 screenshots; an image no role names is carried for nothing |
 
 Two more codes come from reading the package itself: `package.missing`
 (no file at the path) and `package.unreadable` (not a ZIP). A check that
@@ -240,9 +307,12 @@ a text in `etc/i18n/packages-forms.*.json` under
    (`/var/lib/packages/incoming/<id>/<file>`), reads and checks it
    (`Query.packageInspection`), and shows the package title and version,
    the workspace, whether this is a new installation, an update or a
-   reinstallation, the checks' findings, and under *Details* the files it
-   places, the files an update removes, the provisioning descriptors it
-   applies and the file's SHA-256. The button is shown to administrators
+   reinstallation, the description, provider, home page, category, tags
+   and license from the manifest, the package's icon, main image and
+   screenshots (in the reader's language where the manifest has them),
+   the checks' findings, and under *Details* the files it places, the
+   files an update removes, the provisioning descriptors it applies and
+   the file's SHA-256. The button is shown to administrators
    only; the server enforces the role again at every step.
 3. **Install** (or **Update** / **Reinstall**) starts the process: starting
    it is the decision. **Cancel**, or **Choose another file** for a package
@@ -392,19 +462,30 @@ GraphQL query below.
 
 ```graphql
 query {
-  installedPackages {
+  installedPackages(locale: "ja") {
     id title version installedAt installedBy previousVersion sourceFileName
     fileCount
     requires { id constraint }
     requiredBy
+    description vendor { name url } homepage license category tags
+    images { icon thumbnail main screenshots { path caption } }
+    imagesPath
+    manifest
   }
 }
 ```
 
 The installation records of the workspace, sorted by id, read as the caller.
 `requires` comes from each package's recorded manifest; `requiredBy` lists
-the installed packages that require it. A portal app lists installed packages
-through the same query.
+the installed packages that require it. With a `locale`, `title`,
+`description` and `images` are those the manifest gives for that language
+(see [Texts in several languages](#the-manifest--packageyml)); without one
+they are the manifest's own. `images` are repository paths under
+`imagesPath` (the record's `images/` folder, null when the package shipped
+none), to be served through `/bin/download.cgi/<workspace><path>`.
+`manifest` is the whole recorded manifest as JSON, locale blocks included,
+for a page that resolves the language itself. A portal app lists installed
+packages through the same query.
 
 ### Inspection and job operations
 
@@ -432,14 +513,14 @@ binding:
 
 | Method | Returns |
 | --- | --- |
-| `PackageAPI.inspect(path, userId)` | the inspection as plain data: `ok`, `action` (`install` / `upgrade` / `reinstall` / null), `manifest`, `installedVersion`, `platformVersion`, `sha256` (of the package file), `findings[]` (`severity`, `code`, `message`, `path`), `fileCount`, `totalSize`, `deployPaths[]`, `removedPaths[]`, `provisioning[]` |
+| `PackageAPI.inspect(path, userId)` | the inspection as plain data: `ok`, `action` (`install` / `upgrade` / `reinstall` / null), `manifest` (with `images` as entry names and `locales`), `installedVersion`, `platformVersion`, `sha256` (of the package file), `findings[]` (`severity`, `code`, `message`, `path`), `fileCount`, `totalSize`, `deployPaths[]`, `removedPaths[]`, `provisioning[]`, `imagesPath` (the folder beside a staged package the images were taken out into, null when it names none) |
 | `PackageAPI.install(path, userId)` | the result: `action`, `id`, `title`, `version`, `previousVersion`, `created`, `updated`, `removed`, `provisioningDescriptors`, `durationMillis`; throws when a check reports an error |
 | `PackageAPI.requestInstall(path, userId, sha256)` | queues the installation as a background job on this node and returns its `jobId` at once; the job refuses a file whose SHA-256 differs from `sha256` (null or empty skips that check); progress and result through `jobProgress(jobId)` |
-| `PackageAPI.discard(path, userId)` | removes a staged package (under `/var/lib/packages/incoming` only) |
+| `PackageAPI.discard(path, userId)` | removes a staged package (under `/var/lib/packages/incoming` only) and the images taken out beside it |
 | `PackageAPI.inspectUninstall(ids, userId)` | the inspection as plain data: `ok`, `packages[]` (each record plus `requiredBy[]` and `files[]`), `order[]`, `fileCount`, `findings[]`; `ids` is a collection, an array or one comma-separated string |
 | `PackageAPI.uninstall(ids, userId)` | the result: `packages[]` (`id`, `title`, `version`, `removed`, `missing`, `kept`), the totals, `durationMillis`; throws when a check reports an error |
 | `PackageAPI.requestUninstall(ids, userId)` | queues the uninstallation as a background job on this node and returns its `jobId` at once |
-| `PackageAPI.listInstalled()`, `PackageAPI.getInstalled(id)` | the installation records as plain data |
+| `PackageAPI.listInstalled()`, `PackageAPI.getInstalled(id)` | the installation records as plain data (the shape of `Query.installedPackages`); `listInstalled(locale)` and `getInstalled(id, locale)` give the texts and images of that language |
 | `PackageAPI.getStagingRoot()`, `PackageAPI.getPlatformVersion()` | the staging area; the running version, or null when unknown |
 
 `userId` is the administrator the call acts for; a user without the

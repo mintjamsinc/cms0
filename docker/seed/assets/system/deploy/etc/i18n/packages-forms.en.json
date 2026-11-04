@@ -112,6 +112,25 @@
 	"form.system.packages.uninstall.result.col.missing": "Already gone",
 	"form.system.packages.uninstall.result.col.kept": "Left to the platform",
 
+
+	"form.system.packages.confirm.vendor": "Provider",
+	"form.system.packages.confirm.homepage": "Home page",
+	"form.system.packages.confirm.category": "Category",
+	"form.system.packages.confirm.tags": "Tags",
+	"form.system.packages.confirm.license": "License",
+
+	"form.system.packages.finding.manifest.homepage": "The home page in the manifest is not an http(s) URL.",
+	"form.system.packages.finding.manifest.category": "The category in the manifest is not a slug of lower-case letters, digits and dashes.",
+	"form.system.packages.finding.manifest.tags": "The tags in the manifest are not a list of slugs, or there are too many.",
+	"form.system.packages.finding.manifest.locales": "The locales in the manifest are not a mapping of language tag to title, description and images.",
+	"form.system.packages.finding.layout.image": "A file under images/ is not an image (png, jpg, jpeg, gif, webp, svg).",
+	"form.system.packages.finding.images.invalid": "The images in the manifest are not a mapping of icon, thumbnail, main and screenshots to files under images/.",
+	"form.system.packages.finding.images.path": "An image in the manifest does not name an image file under images/.",
+	"form.system.packages.finding.images.missing": "An image the manifest names is not in the package.",
+	"form.system.packages.finding.images.size": "An image of the package is larger than 2 MiB.",
+	"form.system.packages.finding.images.screenshots": "The package declares more than 10 screenshots.",
+	"form.system.packages.finding.images.unused": "An image in the package is not used by the manifest.",
+
 	"form.system.packages.finding.uninstall.nothingSelected": "No package is selected.",
 	"form.system.packages.finding.uninstall.notInstalled": "The package is not installed in this workspace.",
 	"form.system.packages.finding.uninstall.requiredBy": "Another installed package requires this package; uninstall them together or leave it installed.",

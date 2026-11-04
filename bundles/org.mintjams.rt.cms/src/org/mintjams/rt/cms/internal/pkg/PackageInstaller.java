@@ -281,11 +281,20 @@ public final class PackageInstaller {
 
 			// 2. Place every file, streaming it from the ZIP and digesting it on
 			//    the way, so the record can tell later whether a file changed.
+			//    The images the manifest names go into the record folder on the
+			//    same pass; those of the previous version are dropped first.
 			checkCancelled(monitor);
 			monitor.phase(PHASE_PLACING);
+			PackageRecords records = new PackageRecords(fSession);
+			records.resetImages(manifest.getId());
+			Set<String> imageEntries = manifest.getImageEntries();
 			Map<String, String> files = new LinkedHashMap<>();
 			int[] counters = new int[2]; // created, updated
 			source.walk((entry, in) -> {
+				if (!entry.isDirectory() && imageEntries.contains(entry.getName())) {
+					records.writeImage(manifest.getId(), entry.getName(), in);
+					return;
+				}
 				if (entry.isDirectory() || !entry.getName().startsWith(PackageSource.DEPLOY_PREFIX)
 						|| entry.getName().length() <= PackageSource.DEPLOY_PREFIX.length()) {
 					return;
@@ -331,7 +340,7 @@ public final class PackageInstaller {
 			// 4. Record, then commit everything at once.
 			checkCancelled(monitor);
 			monitor.phase(PHASE_COMMITTING);
-			new PackageRecords(fSession).write(manifest, files, installedBy,
+			records.write(manifest, files, installedBy,
 					installed != null ? installed.getVersion() : null, inspection.getFileName());
 			fSession.commit();
 
@@ -357,8 +366,9 @@ public final class PackageInstaller {
 	}
 
 	/**
-	 * Removes a staged package file, and the folder it was staged in when that
-	 * is now empty. Only files under {@link #STAGING_ROOT} may be discarded.
+	 * Removes a staged package file, the images {@link #stageImages} took out
+	 * of it, and the folder it was staged in when that is now empty. Only
+	 * files under {@link #STAGING_ROOT} may be discarded.
 	 *
 	 * @return false when there was nothing to remove
 	 */
@@ -368,11 +378,17 @@ public final class PackageInstaller {
 		}
 		try {
 			Resource resource = fSession.getResource(packagePath);
-			if (!resource.exists()) {
+			Resource images = fSession.getResource(stagedImagesPath(packagePath));
+			if (!resource.exists() && !images.exists()) {
 				return false;
 			}
 			Resource parent = resource.getParent();
-			resource.remove();
+			if (resource.exists()) {
+				resource.remove();
+			}
+			if (images.exists()) {
+				images.remove();
+			}
 			if (!parent.getPath().equals(STAGING_ROOT) && parent.getPath().startsWith(STAGING_ROOT + "/")
 					&& !hasNodes(parent)) {
 				parent.remove();
@@ -384,6 +400,64 @@ public final class PackageInstaller {
 				fSession.rollback();
 			} catch (Throwable ignore) {}
 			throw Cause.create(ex).wrap(IOException.class);
+		}
+	}
+
+	/** The folder beside a staged package that holds the images taken out of it. */
+	public static final String STAGED_IMAGES_FOLDER = "images";
+
+	private static String stagedImagesPath(String packagePath) {
+		int slash = packagePath.lastIndexOf('/');
+		return packagePath.substring(0, slash) + "/" + STAGED_IMAGES_FOLDER;
+	}
+
+	/**
+	 * Takes the images the manifest names out of a staged package into the
+	 * folder {@code images} beside it, so a confirmation page can show them
+	 * before anything is installed, and commits. The folder is replaced when
+	 * it exists and removed with the package by {@link #discard}. Only a
+	 * package under {@link #STAGING_ROOT} is unpacked this far.
+	 *
+	 * @return the folder's repository path, or {@code null} when the package is
+	 *         not staged, could not be read, or names no image
+	 */
+	public String stageImages(String packagePath, PackageInspection inspection) throws IOException {
+		if (packagePath == null || !packagePath.startsWith(STAGING_ROOT + "/") || inspection == null
+				|| inspection.getContents() == null || inspection.getManifest() == null) {
+			return null;
+		}
+		Set<String> wanted = new HashSet<>();
+		Map<String, PackageContents.Entry> held = inspection.getContents().getImageEntries();
+		for (String name : inspection.getManifest().getImageEntries()) {
+			PackageContents.Entry entry = held.get(name);
+			if (entry != null && PackageSource.isImageName(name) && entry.getSize() <= PackageSource.IMAGE_SIZE_LIMIT) {
+				wanted.add(name);
+			}
+		}
+		if (wanted.isEmpty()) {
+			return null;
+		}
+		String folderPath = stagedImagesPath(packagePath);
+		try {
+			Resource folder = fSession.getResource(folderPath);
+			if (folder.exists()) {
+				folder.remove();
+			}
+			PackageRecords records = new PackageRecords(fSession);
+			new PackageSource(fSession, packagePath).walk((entry, in) -> {
+				if (!entry.isDirectory() && wanted.contains(entry.getName())) {
+					records.writeStream(folderPath + "/" + entry.getName().substring(PackageSource.IMAGES_PREFIX.length()), in);
+				}
+			});
+			fSession.commit();
+			return folderPath;
+		} catch (IOException | ResourceException | RuntimeException ex) {
+			try {
+				fSession.rollback();
+			} catch (Throwable ignore) {}
+			CmsService.getLogger(getClass()).warn("The images of the package " + packagePath + " could not be staged: "
+					+ describe(ex));
+			return null;
 		}
 	}
 

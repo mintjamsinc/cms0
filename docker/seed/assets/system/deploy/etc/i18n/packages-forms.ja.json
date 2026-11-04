@@ -112,6 +112,25 @@
 	"form.system.packages.uninstall.result.col.missing": "すでに無かったファイル",
 	"form.system.packages.uninstall.result.col.kept": "プラットフォームに残したファイル",
 
+
+	"form.system.packages.confirm.vendor": "提供元",
+	"form.system.packages.confirm.homepage": "ホームページ",
+	"form.system.packages.confirm.category": "カテゴリー",
+	"form.system.packages.confirm.tags": "タグ",
+	"form.system.packages.confirm.license": "ライセンス",
+
+	"form.system.packages.finding.manifest.homepage": "マニフェストのホームページが http(s) の URL ではありません。",
+	"form.system.packages.finding.manifest.category": "マニフェストのカテゴリーが小文字の英数字とハイフンのスラッグではありません。",
+	"form.system.packages.finding.manifest.tags": "マニフェストのタグがスラッグの一覧ではないか、多すぎます。",
+	"form.system.packages.finding.manifest.locales": "マニフェストの locales が、言語タグごとの title・description・images のマッピングではありません。",
+	"form.system.packages.finding.layout.image": "images/ の下に画像（png、jpg、jpeg、gif、webp、svg）でないファイルがあります。",
+	"form.system.packages.finding.images.invalid": "マニフェストの images が、icon・thumbnail・main・screenshots から images/ の下のファイルへのマッピングではありません。",
+	"form.system.packages.finding.images.path": "マニフェストの画像が images/ の下の画像ファイルを指していません。",
+	"form.system.packages.finding.images.missing": "マニフェストが指す画像がパッケージにありません。",
+	"form.system.packages.finding.images.size": "パッケージの画像が 2 MiB を超えています。",
+	"form.system.packages.finding.images.screenshots": "スクリーンショットが 10 枚を超えています。",
+	"form.system.packages.finding.images.unused": "パッケージの画像にマニフェストが使っていないものがあります。",
+
 	"form.system.packages.finding.uninstall.nothingSelected": "パッケージが選択されていません。",
 	"form.system.packages.finding.uninstall.notInstalled": "このパッケージはこのワークスペースにインストールされていません。",
 	"form.system.packages.finding.uninstall.requiredBy": "ほかのインストール済みパッケージがこのパッケージを必要としています。一緒にアンインストールするか、残してください。",

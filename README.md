@@ -286,10 +286,13 @@ nodes. See
 Administrators install applications and extensions into a workspace from
 the Webtop **Tasks** app (*Start a process* → **Install Package**) from a
 package file: a ZIP with a `package.yml` manifest, the files to place
-under `deploy/` and the provisioning to apply under `provisioning/`. The
-package is read and checked first (manifest, layout, platform version,
-dependencies, version, reserved paths, provisioning); a confirmation task
-shows what installing it does before anything is written. Installing a
+under `deploy/`, the provisioning to apply under `provisioning/` and,
+optionally, the images that present the package under `images/`. The
+manifest can carry its texts in several languages, a category, tags, a
+home page and a license. The package is read and checked first (manifest,
+layout, platform version, dependencies, version, reserved paths,
+provisioning, images); a confirmation task shows what it is and what
+installing it does before anything is written. Installing a
 newer version upgrades in place and removes what the previous version
 placed and the new one no longer ships. **Uninstall Packages** lists the
 installed packages, lets several be selected, checks that nothing left

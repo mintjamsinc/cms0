@@ -91,6 +91,53 @@ public final class ManifestCheck implements PackageCheck {
 			findings.add(Finding.error("manifest.vendor", "The vendor must be a mapping with name and url."));
 		}
 
+		String homepage = manifest.getHomepage();
+		if (homepage != null && !isHttpUrl(homepage)) {
+			findings.add(Finding.error("manifest.homepage", "The homepage must be an http(s) URL: " + homepage));
+		}
+
+		String category = manifest.getCategory();
+		if (category != null && !isSlug(category)) {
+			findings.add(Finding.error("manifest.category",
+					"The category must be a slug of lower-case letters, digits and dashes, such as site: " + category));
+		}
+
+		Object tags = manifest.getTagsValue();
+		if (tags != null && !(tags instanceof List)) {
+			findings.add(Finding.error("manifest.tags", "The tags must be a list of slugs."));
+		} else if (tags instanceof List) {
+			List<?> list = (List<?>) tags;
+			if (list.size() > PackageManifest.TAGS_MAX) {
+				findings.add(Finding.error("manifest.tags",
+						"At most " + PackageManifest.TAGS_MAX + " tags may be declared: " + list.size()));
+			}
+			for (Object tag : list) {
+				String s = tag == null ? null : tag.toString().trim();
+				if (s == null || !isSlug(s)) {
+					findings.add(Finding.error("manifest.tags",
+							"A tag must be a slug of lower-case letters, digits and dashes: " + s));
+				}
+			}
+		}
+
+		Object locales = manifest.getLocalesValue();
+		if (locales != null && !(locales instanceof Map)) {
+			findings.add(Finding.error("manifest.locales",
+					"The locales must be a mapping of language tag to title, description and images."));
+		} else if (locales instanceof Map) {
+			for (Map.Entry<?, ?> e : ((Map<?, ?>) locales).entrySet()) {
+				String tag = e.getKey() == null ? "" : e.getKey().toString().trim();
+				if (!PackageManifest.LOCALE_PATTERN.matcher(tag).matches()) {
+					findings.add(Finding.error("manifest.locales",
+							"The key of a locale block must be a language tag, such as ja or en-US: " + tag));
+				}
+				if (!(e.getValue() instanceof Map)) {
+					findings.add(Finding.error("manifest.locales",
+							"The locale block " + tag + " must be a mapping with title, description and images."));
+				}
+			}
+		}
+
 		Object requires = manifest.getRequires();
 		if (requires != null && !(requires instanceof Map)) {
 			findings.add(Finding.error("manifest.requires", "The requires section must be a mapping."));
@@ -117,6 +164,20 @@ public final class ManifestCheck implements PackageCheck {
 				findings.add(Finding.error("manifest.requires.packages",
 						"The requirement on " + e.getKey() + " is not a version constraint: " + e.getValue()));
 			}
+		}
+	}
+
+	static boolean isSlug(String value) {
+		return value.length() <= PackageManifest.SLUG_MAX_LENGTH && PackageManifest.SLUG_PATTERN.matcher(value).matches();
+	}
+
+	static boolean isHttpUrl(String value) {
+		try {
+			java.net.URI uri = new java.net.URI(value);
+			String scheme = uri.getScheme();
+			return uri.getHost() != null && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme));
+		} catch (java.net.URISyntaxException ex) {
+			return false;
 		}
 	}
 

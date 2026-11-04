@@ -27,6 +27,7 @@ import java.util.List;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.pkg.checks.DependencyCheck;
+import org.mintjams.rt.cms.internal.pkg.checks.ImagesCheck;
 import org.mintjams.rt.cms.internal.pkg.checks.LayoutCheck;
 import org.mintjams.rt.cms.internal.pkg.checks.ManifestCheck;
 import org.mintjams.rt.cms.internal.pkg.checks.PlatformVersionCheck;
@@ -56,6 +57,7 @@ public final class PackageChecks {
 		checks.add(new VersionCheck());
 		checks.add(new ReservedPathCheck());
 		checks.add(new ProvisioningCheck());
+		checks.add(new ImagesCheck());
 		return checks;
 	}
 

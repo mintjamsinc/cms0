@@ -34,7 +34,8 @@ import org.mintjams.rt.cms.internal.pkg.PackageSource;
 
 /**
  * The ZIP holds only what a package may hold, at well-formed paths, and holds
- * something to install.
+ * something to install. Files under {@code images/} must be images; whether
+ * the manifest refers to them is the images check's business.
  */
 public final class LayoutCheck implements PackageCheck {
 
@@ -71,6 +72,13 @@ public final class LayoutCheck implements PackageCheck {
 				}
 				continue;
 			}
+			if (entry.isImageFile()) {
+				if (!PackageSource.isImageName(name)) {
+					findings.add(Finding.error("layout.image",
+							"Only images (png, jpg, jpeg, gif, webp, svg) may be under images/: " + name, name));
+				}
+				continue;
+			}
 			if (name.startsWith(PackageSource.PROVISIONING_PREFIX)) {
 				String rest = name.substring(PackageSource.PROVISIONING_PREFIX.length());
 				if (rest.indexOf('/') >= 0) {
@@ -83,7 +91,7 @@ public final class LayoutCheck implements PackageCheck {
 				continue;
 			}
 			findings.add(Finding.error("layout.unexpected",
-					"The entry is outside package.yml, deploy/ and provisioning/: " + name, name));
+					"The entry is outside package.yml, deploy/, provisioning/ and images/: " + name, name));
 		}
 
 		if (contents.getDeployFileCount() == 0 && contents.getProvisioning().isEmpty()) {

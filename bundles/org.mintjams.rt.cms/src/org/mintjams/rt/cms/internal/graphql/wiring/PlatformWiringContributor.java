@@ -608,11 +608,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
 		org.mintjams.script.resource.Session session = new org.mintjams.script.resource.Session(
 				context.getCallerSession(), new WorkspaceScriptContext(context.getWorkspaceName()));
+		String locale = environment.getArgument("locale");
 		List<InstalledPackage> installed = new PackageRecords(session).list();
 		Map<String, List<String>> requiredBy = PackageRecords.requiredBy(installed);
 		List<Map<String, Object>> result = new ArrayList<>();
 		for (InstalledPackage p : installed) {
-			Map<String, Object> m = p.toMap();
+			Map<String, Object> m = p.toMap(locale);
 			m.put("requiredBy", requiredBy.getOrDefault(p.getId(), List.of()));
 			result.add(m);
 		}

@@ -58,6 +58,13 @@ public final class PackageSource {
 	public static final String MANIFEST_ENTRY = "package.yml";
 	public static final String DEPLOY_PREFIX = "deploy/";
 	public static final String PROVISIONING_PREFIX = "provisioning/";
+	/** The images the manifest's {@code images} refers to; not placed in the workspace. */
+	public static final String IMAGES_PREFIX = "images/";
+
+	/** An image an entry under {@code images/} may be, by extension. */
+	private static final java.util.Set<String> IMAGE_EXTENSIONS = java.util.Set.of("png", "jpg", "jpeg", "gif", "webp", "svg");
+	/** An image larger than this is refused by the images check. */
+	public static final long IMAGE_SIZE_LIMIT = 2L * 1024L * 1024L;
 
 	/** Texts (the manifest, descriptors) longer than this are refused. */
 	private static final long TEXT_ENTRY_LIMIT = 1024L * 1024L;
@@ -189,6 +196,19 @@ public final class PackageSource {
 	static boolean isYaml(String name) {
 		String lower = name.toLowerCase();
 		return lower.endsWith(".yml") || lower.endsWith(".yaml");
+	}
+
+	/** True when the entry name has an image extension (png, jpg, jpeg, gif, webp, svg). */
+	public static boolean isImageName(String name) {
+		if (name == null) {
+			return false;
+		}
+		int dot = name.lastIndexOf('.');
+		int slash = name.lastIndexOf('/');
+		if (dot < 0 || dot < slash || dot == name.length() - 1) {
+			return false;
+		}
+		return IMAGE_EXTENSIONS.contains(name.substring(dot + 1).toLowerCase());
 	}
 
 	private static String readText(InputStream in, String name) throws IOException {
