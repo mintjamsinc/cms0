@@ -96,9 +96,11 @@ rest is optional. The manifest is kept verbatim in the installation record.
 Fields may be added to the format later as optional fields; a required field
 is never added to version 1, so every package written against it keeps
 installing. (`homepage`, `license`, `category`, `tags`, `images` and
-`locales`, and the `images/` folder, were added in 0.1.41; a package that
-uses them should state `requires.platform: ">=0.1.41"`, since an older
-platform refuses the folder as `layout.unexpected`.)
+`locales`, and the `images/` folder, were added in 0.1.41-beta; a package
+that uses them should state `requires.platform: ">=0.1.41-beta"`, since an
+older platform refuses the folder as `layout.unexpected`. The pre-release
+is named because it precedes its release: `>=0.1.41` would reject
+`0.1.41-beta`.)
 
 **Texts in several languages.** `title` and `description` are the texts a
 reader sees when nothing better is known: write them in the language most
