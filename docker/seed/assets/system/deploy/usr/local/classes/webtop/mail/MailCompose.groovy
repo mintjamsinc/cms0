@@ -360,12 +360,14 @@ class MailCompose {
 			} else {
 				Map outgoing = account.outgoing as Map;
 				try {
-					Map creds = api.accounts.credentials(account, 'outgoing');
-					Transport transport = Transport.Builder.create(MailAccounts.outgoingURI(account)).
-							setUsername(creds.username as String).
-							setPassword(creds.password as String).
-							setProperties(creds.properties as Map).
-							build();
+					// Only the sign-in is tried again, never the sending.
+					Transport transport = api.accounts.signIn(account, 'outgoing') { Map creds ->
+						return Transport.Builder.create(MailAccounts.outgoingURI(account)).
+								setUsername(creds.username as String).
+								setPassword(creds.password as String).
+								setProperties(creds.properties as Map).
+								build();
+					};
 					try {
 						transport.send(m);
 					} finally {
@@ -486,12 +488,13 @@ class MailCompose {
 	 * will fetch it; null when the server has no Sent folder.
 	 */
 	private String appendSent(Map account, Message m, File raw) {
-		Map creds = api.accounts.credentials(account, 'incoming');
-		MailStore store = MailStore.Builder.create(MailAccounts.incomingURI(account)).
-				setUsername(creds.username as String).
-				setPassword(creds.password as String).
-				setProperties(creds.properties as Map).
-				build();
+		MailStore store = api.accounts.signIn(account, 'incoming') { Map creds ->
+			return MailStore.Builder.create(MailAccounts.incomingURI(account)).
+					setUsername(creds.username as String).
+					setPassword(creds.password as String).
+					setProperties(creds.properties as Map).
+					build();
+		};
 		try {
 			Map sent = MailSync.selectFolders(store.listFolders()).find { it.role == 'sent' };
 			if (sent == null) {

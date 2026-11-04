@@ -388,6 +388,52 @@ class MailAccounts {
 		];
 	}
 
+	/**
+	 * Signs in: runs `connect` with the credentials of `kind` and returns what it
+	 * returns. When the server refuses the access token of a linked account
+	 * (one cached past a revocation or a new grant, say), the cached token is
+	 * thrown away, a new one is obtained with the stored refresh token and
+	 * `connect` runs once more; refused again, that refusal is thrown. Only
+	 * once: a grant the provider no longer honours fails the renewal itself
+	 * (ConsentRequiredException), and a fresh token that is still refused
+	 * (another mailbox, IMAP turned off) would only be refused again.
+	 * `connect` should only open the connection: it may run twice.
+	 */
+	def signIn(Map account, String kind, Closure connect) {
+		Map creds = credentials(account, kind);
+		try {
+			return connect(creds);
+		} catch (javax.mail.AuthenticationFailedException ex) {
+			Map fresh = renewedCredentials(account, kind, creds);
+			if (fresh == null) {
+				throw ex;
+			}
+			context.getAttribute('log')?.info("The ${account.provider} access token of ${userId} was refused for ${account.address} (${ex.message}); trying once more with a renewed one.".toString());
+			return connect(fresh);
+		}
+	}
+
+	/**
+	 * The credentials of an account that signs in with a linked account, with
+	 * an access token renewed with the refresh token; null when the account
+	 * signs in with a password, or the renewal brought no other token.
+	 */
+	private Map renewedCredentials(Map account, String kind, Map refused) {
+		if (!isOAuth(account)) {
+			return null;
+		}
+		def connections = context.getAttribute('Connections');
+		if (connections == null || !connections.metaClass.respondsTo(connections, 'renewAccessToken', String, String)) {
+			// A runtime without renewAccessToken: the cached token stays until it expires.
+			return null;
+		}
+		String token = connections.renewAccessToken(account.provider as String, BUNDLE);
+		if (token == refused.password) {
+			return null;
+		}
+		return refused + [password: token];
+	}
+
 	/** Whether an account signs in with a linked account rather than a password. */
 	static boolean isOAuth(Map account) {
 		return account?.auth == 'oauth';

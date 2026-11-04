@@ -157,12 +157,13 @@ class MailSync {
 		saveState();
 
 		try {
-			Map creds = accounts.credentials(account, 'incoming');
-			def store = MailStore.Builder.create(MailAccounts.incomingURI(account)).
-					setUsername(creds.username as String).
-					setPassword(creds.password as String).
-					setProperties(creds.properties as Map).
-					build();
+			def store = accounts.signIn(account, 'incoming') { Map creds ->
+				return MailStore.Builder.create(MailAccounts.incomingURI(account)).
+						setUsername(creds.username as String).
+						setPassword(creds.password as String).
+						setProperties(creds.properties as Map).
+						build();
+			};
 			try {
 				List<Map> folders = selectFolders(store.listFolders());
 				Integer olderDays = state.fetchOlderDays as Integer;

@@ -52,6 +52,8 @@ import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
  * {@link ConsentRequiredException}, whose message starts with
  * {@code consent_required}, so the app can open the grant page
  * ({@code /bin/auth.cgi/oauth/authorize?provider=&bundle=}) and try again.
+ * When a service refuses a token before it expires (revoked, issued before
+ * a new grant), {@link #renewAccessToken} gets another with the refresh token.
  * Tokens are never written anywhere by the script; only used.
  */
 public class Connections {
@@ -138,6 +140,34 @@ public class Connections {
 	 */
 	public String accessToken(String provider, String bundle, String audience) throws IOException, RepositoryException {
 		return ConnectionTokens.accessToken(userId(), provider, bundle, audience);
+	}
+
+	/**
+	 * A new access token of the user for the bundle, for when the service
+	 * refused the one {@link #accessToken} returned: the cached tokens of the
+	 * provider are thrown away and a new one is obtained with the stored
+	 * refresh token. Call it once per refusal, not in a loop: a grant the
+	 * provider no longer honours throws {@link ConsentRequiredException}, but
+	 * a token that is renewed and still refused (another mailbox, a service
+	 * turned off) has to be reported, not tried again.
+	 *
+	 * @throws ConsentRequiredException when the user has to link, grant or link again
+	 * @throws IOException when the provider could not be reached or refused
+	 */
+	public String renewAccessToken(String provider, String bundle) throws IOException, RepositoryException {
+		return renewAccessToken(provider, bundle, null);
+	}
+
+	/**
+	 * A new access token of the user for one audience of the bundle; see
+	 * {@link #renewAccessToken(String, String)} and
+	 * {@link #accessToken(String, String, String)}.
+	 */
+	public String renewAccessToken(String provider, String bundle, String audience)
+			throws IOException, RepositoryException {
+		String userId = userId();
+		ConnectionTokens.invalidate(userId, provider);
+		return ConnectionTokens.accessToken(userId, provider, bundle, audience);
 	}
 
 	/**

@@ -134,13 +134,15 @@ class MailApi {
 		String incomingPassword = oauth ? null :
 				((input.incomingPassword ?: (stored ? accounts.password(stored.id as String, 'incoming') : null)) as String);
 		try {
-			Map creds = oauth ? accounts.credentials(probe, 'incoming') :
-					[username: incoming.username, password: incomingPassword, properties: [:]];
-			def store = MailStore.Builder.create(MailAccounts.incomingURI(probe)).
-					setUsername(creds.username as String).
-					setPassword(creds.password as String).
-					setProperties(creds.properties as Map).
-					build();
+			Closure connect = { Map creds ->
+				return MailStore.Builder.create(MailAccounts.incomingURI(probe)).
+						setUsername(creds.username as String).
+						setPassword(creds.password as String).
+						setProperties(creds.properties as Map).
+						build();
+			};
+			def store = oauth ? accounts.signIn(probe, 'incoming', connect) :
+					connect([username: incoming.username, password: incomingPassword, properties: [:]]);
 			try {
 				result.folders = store.listFolders().findAll { it.holdsMessages() }.collect { it.fullName };
 			} finally {
@@ -167,22 +169,24 @@ class MailApi {
 
 		Map outgoing = probe.outgoing as Map;
 		try {
-			Map creds;
+			Closure connect = { Map creds ->
+				return Transport.Builder.create(MailAccounts.outgoingURI(probe)).
+						setUsername(creds.username as String).
+						setPassword(creds.password as String).
+						setProperties(creds.properties as Map).
+						build();
+			};
+			def transport;
 			if (oauth) {
-				creds = accounts.credentials(probe, 'outgoing');
+				transport = accounts.signIn(probe, 'outgoing', connect);
 			} else {
 				boolean same = (outgoing.sameAuthentication == null) ? true : !!outgoing.sameAuthentication;
-				creds = [
+				transport = connect([
 					username: same ? incoming.username : outgoing.username,
 					password: same ? incomingPassword : (input.outgoingPassword ?: (stored ? accounts.password(stored.id as String, 'outgoing') : null)),
 					properties: [:],
-				];
+				]);
 			}
-			def transport = Transport.Builder.create(MailAccounts.outgoingURI(probe)).
-					setUsername(creds.username as String).
-					setPassword(creds.password as String).
-					setProperties(creds.properties as Map).
-					build();
 			transport.close();
 			result.messages.add("SMTP ${MailAccounts.describeServer(outgoing)}: OK".toString());
 		} catch (Throwable ex) {
