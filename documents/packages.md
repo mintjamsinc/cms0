@@ -222,7 +222,12 @@ Every workspace installs its own packages: the Tasks app of a workspace
 installs into that workspace, and the records live in that workspace. The
 Webtop of each workspace lists the apps under its own
 `/usr/share/webtop/apps`, so an app installed into one workspace appears
-there only. Provisioned identity (users, groups, roles) is shared by all
+there only. It appears without a reload: the Webtop watches that folder
+(the `nodeChanged` subscription) and reads the list again about a second
+after the installer's last write, then tells the user with a notice that
+the app is available, was updated or was removed. Windows already open
+are left alone — a removed app's window stays until closed, and an
+upgraded app runs its new version from its next launch. Provisioned identity (users, groups, roles) is shared by all
 workspaces through the `system` workspace, as for every provisioning
 descriptor: a package installed into several workspaces has **one** set of
 accounts, created by the first installation and reused by the others. This

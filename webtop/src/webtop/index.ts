@@ -80,6 +80,9 @@ const TOAST_MS = 8000;
 const MAX_TOASTS = 4;
 // How long after the last change to the user's notice list it is read again.
 const NOTICE_RELOAD_MS = 250;
+// How long after the last node event under apps/ the app list is re-read:
+// an installation writes an app's files one by one.
+const APPS_RELOAD_DEBOUNCE_MS = 1000;
 // The notices the shell has seen in the store, so that a toast is shown for
 // each one that is new, wherever it came from. Module scope: not reactive.
 let knownNoticeIDs = new Set<string>();
@@ -135,6 +138,12 @@ const WtDesktop = {
 			// freshly started ones appear without a manual refresh.
 			workspaceList: [] as any[],
 			workspaceListUnsub: null as null | (() => void),
+			// The app list is kept live by a deep `nodeChanged` watch on the
+			// apps folder: an app installed, upgraded or removed (by the package
+			// installer or by hand) shows in the start menu without a reload.
+			// Reloads are debounced, as an installation writes many files.
+			appsUnsub: null as null | (() => void),
+			_appsReloadTimer: null as any,
 			displayDate: null,
 			displayTime: null,
 			sortedApps: null,
@@ -517,6 +526,18 @@ const WtDesktop = {
 			vm.sortedApps = window.Webtop.sortedApps;
 			vm.startMenuGroups = window.Webtop.startMenuCategoryGroups;
 
+			// Keep the list live (see appsUnsub). Watched only after the first
+			// load, so a change arriving in between is picked up by the reload.
+			try {
+				vm.appsUnsub = window.Webtop.api.eventHub?.watchNode(
+					UrlUtils.getAppsPath(window.Webtop.rootPath),
+					() => vm.scheduleAppsReload(),
+					true, // deep - app.yml and the app's files live below the app folder
+				) || null;
+			} catch (err) {
+				console.warn('[Webtop] Failed to subscribe to app changes:', err);
+			}
+
 			// メタデータ定義キャッシュを初期化（バックグラウンド）
 			window.Webtop.initMetadataDefinitions().catch((err: any) => {
 				console.warn('[Webtop] Failed to initialize metadata definitions cache:', err);
@@ -898,6 +919,60 @@ const WtDesktop = {
 			} catch (err) {
 				console.error('[Webtop] Failed to list workspaces:', err);
 			}
+		},
+		/** Coalesce the burst of node events an installation produces into one reload. */
+		scheduleAppsReload() {
+			const vm = this;
+			if (vm._appsReloadTimer) clearTimeout(vm._appsReloadTimer);
+			vm._appsReloadTimer = setTimeout(() => {
+				vm._appsReloadTimer = null;
+				vm.reloadApps();
+			}, APPS_RELOAD_DEBOUNCE_MS);
+		},
+		// Re-read the app list and tell the user what changed. Running
+		// instances are left alone: a window of a removed app stays open until
+		// closed, and an upgraded app runs its new version from its next
+		// launch. Failures are non-fatal — the last known list is kept.
+		async reloadApps() {
+			const vm = this;
+			let apps: Application[];
+			try {
+				apps = (await window.Webtop.api.webtop.listApps()).apps;
+			} catch (err) {
+				console.error('[Webtop] Failed to reload apps:', err);
+				return;
+			}
+			const before: Application[] = window.Webtop.apps || [];
+			window.Webtop.apps = apps;
+			vm.sortedApps = window.Webtop.sortedApps;
+			vm.startMenuGroups = window.Webtop.startMenuCategoryGroups;
+
+			const was = new Map(before.map((a) => [a.id, a]));
+			const now = new Set(apps.map((a) => a.id));
+			for (const app of apps) {
+				const old = was.get(app.id);
+				if (!old) {
+					vm.noticeAppChange('installed', app);
+				} else if ((old.modified?.getTime() ?? 0) !== (app.modified?.getTime() ?? 0)) {
+					vm.noticeAppChange('updated', app);
+				}
+			}
+			for (const old of before) {
+				if (!now.has(old.id)) vm.noticeAppChange('removed', old);
+			}
+		},
+		/** A notice about an app that appeared, changed or went; a click opens it while it exists. */
+		noticeAppChange(change: 'installed' | 'updated' | 'removed', app: Application) {
+			const vm = this;
+			const title = vm.appTitle(app);
+			notificationActions.info(
+				{ id: `webtop.apps.${change}.title`, params: { app: title }, fallback: title },
+				{ id: `webtop.apps.${change}.body`, params: { app: title }, fallback: '' },
+				{
+					...(change === 'removed' ? { icon: 'bi-box-seam' } : { app: app.relPath }),
+					key: `webtop:apps:${app.id}`,
+				},
+			);
 		},
 		async openWorkspaceMenu(event: MouseEvent) {
 			const vm = this;
