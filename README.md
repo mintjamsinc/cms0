@@ -266,6 +266,23 @@ Passwords stored on profiles by earlier releases are not read any more, so
 nobody, `admin` included, can sign in to an upgraded repository. Install
 this release on new, empty volumes following the steps above.
 
+### EIP routes that used `cms:` value operations
+
+The `cms:` route component no longer has the operations that read and wrote
+content: `createFolder`, `createFile`, `getMimeType`, `setMimeType`,
+`GetEncoding`, `SetEncoding`, `load`, `getContent`, `store`, `getProperty`,
+`setProperty`, `getProperties`, `setProperties`, `move`, `exists`, `query`,
+`list`, `remove`, `addVersionControl`, `checkout`, `checkin`, `uncheckout`
+and `checkpoint`. Routes do this work in `<script><groovy>` nodes through the
+script API instead, as the bundled routes always have. `cms:login`,
+`cms:commit`, `cms:rollback`, `cms:logout`, `cms:lock`, `cms:unlock` and
+`cms:<path>` for running a script remain.
+
+A route that still names one of the removed operations deploys, but fails on
+its first message with "Resource not found" because an unknown operation is
+read as the path of a script. Search your route files for `cms:` and rewrite
+each such node before upgrading.
+
 ---
 
 ## Maintenance

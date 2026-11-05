@@ -10,9 +10,10 @@ session, the `Resource` API, `XPath`, `JSON`, `YAML`, `ISO8601` and `log`, and
 writes content in the same lines that decide what to write. Every route the
 platform ships and every application route does it this way; the `cms:`
 producers that used to stand for these operations (`cms:store`,
-`cms:setProperties`, `cms:query`, `cms:remove` and the rest) are deprecated and
-scheduled for removal, and section 9 maps each of them to the Groovy that
-replaces it. What stays declarative is the entry point, the branching, the
+`cms:setProperties`, `cms:query`, `cms:remove` and the rest) have been removed
+from the component, and section 9 maps each of them to the Groovy that
+replaces it. A route that still names one of them fails at the first message
+with the path not found, because an unknown operation is read as a script path. What stays declarative is the entry point, the branching, the
 loops, and — if the route wants it — the session skeleton.
 
 ---
@@ -389,8 +390,8 @@ them.
 
 ## 9. From `cms:` producers to Groovy
 
-The producers below are deprecated. Each row is the one-line Groovy that does
-the same thing inside a script node that has the route's context.
+The producers below no longer exist. Each row is the one-line Groovy that does
+what the producer did, inside a script node that has the route's context.
 
 | Producer | Groovy |
 |---|---|
