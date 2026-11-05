@@ -652,6 +652,17 @@ a report:
   build runs `apt-get upgrade` against the current Ubuntu repositories.
 - A finding marked "not fixed" has no fix in Ubuntu yet. It is cleared by a
   later rebuild once Ubuntu publishes one.
+- A published image ages: Ubuntu keeps publishing fixes after the build, so
+  a scan of the same image weeks later reports them with a fixed version. The
+  answer is a rebuild and a new release; nothing in the repository needs to
+  change for it.
+- The build never serves `apt-get upgrade` from the build cache: the scripts
+  stamp `IMAGE_CREATED` fresh on every build, the update step names it, and
+  `--pull` refreshes the base image as well. A plain `docker build` that omits
+  `IMAGE_CREATED` may reuse the cached step; pass `--no-cache` then.
+- A finding against a Maven package points at a JAR under `/opt/felix/bundle`,
+  possibly one shaded inside another. Compare the version shipped with the
+  advisory's own affected range before acting: a scanner's range can be wider.
 
 The floating `-jre` tag (Ubuntu 26.04 and later) ships a Go-built service
 manager at `/usr/bin/pebble` that this image never runs; its Go standard

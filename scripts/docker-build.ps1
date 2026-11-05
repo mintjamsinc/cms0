@@ -90,6 +90,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $buildArgs = @(
     "--platform", $Platforms,
+    "--pull",
     "--build-arg", "IMAGE_VERSION=$Version",
     "--build-arg", "IMAGE_REVISION=$Revision",
     "--build-arg", "IMAGE_CREATED=$Created",

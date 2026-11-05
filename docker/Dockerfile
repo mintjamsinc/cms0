@@ -57,7 +57,15 @@ LABEL org.opencontainers.image.title="MintJams CMS" \
 # being built, nothing in this image uses it. What remains after this step
 # are packages Ubuntu has not fixed yet; rebuilding the image picks their
 # fixes up when they are published.
+#
+# This step must run on every build, never come from the build cache: a
+# cached layer keeps the package versions of the build that produced it, and
+# a scan of the new image then reports fixes Ubuntu has published since.
+# scripts/docker-build.* stamp IMAGE_CREATED fresh on every build, and naming
+# it in the command ties the layer's cache key to it. A plain `docker build`
+# that leaves IMAGE_CREATED empty may reuse the cached layer: pass --no-cache.
 RUN set -e; \
+    echo "Ubuntu security updates as of ${IMAGE_CREATED:-the build cache}"; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
     apt-get -y --no-install-recommends upgrade; \

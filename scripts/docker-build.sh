@@ -84,6 +84,7 @@ fi
 
 BUILD_ARGS=(
     --platform "${PLATFORMS}"
+    --pull
     --build-arg "IMAGE_VERSION=${VERSION}"
     --build-arg "IMAGE_REVISION=${REVISION}"
     --build-arg "IMAGE_CREATED=${CREATED}"
