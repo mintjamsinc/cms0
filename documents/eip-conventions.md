@@ -21,30 +21,33 @@ it.**
 | The receipt of an inbound payload | It is the *input* to the transaction. It is also what an error handler stamps, and after a rollback there would be nothing there |
 | Notifications, and anything else that leaves the process | A rollback cannot recall a message that has already been sent, so sending inside the transaction means sending things that did not happen |
 
-In practice: those nodes **reach no session**, so each owns its session and
-commits immediately. Note what that does *not* mean. The `context` option
-defaults to the `cmsContext` header, so leaving the option off a stretch of route
-where a session is published under that name joins it rather than avoiding it.
-What keeps a node out is position: it goes where the route has not opened a
-session, or where the session was published under a name it does not read.
+In practice: those writes run in a context **of their own**, opened and closed
+inside the script that makes them, so each commits immediately. What keeps a
+script out of the transaction is not where it sits but which context it writes
+through: a script node runs in the route's session whenever the exchange
+property `mi:cms.context` holds one, so a metrics write placed between the open
+and the close and written with `context.session` joins the transaction and is
+discarded with it. Open a separate context
+(`ScriptAPI.createServiceUserContext`) for the write, commit it, and close it
+in a `finally`.
 
-Where they sit relative to `cms:commit` is then a matter of ordering, not of
-transactionality — a side effect that must follow a durable record goes after the
-commit, and a receipt that must survive a rollback goes before the transaction
-opens.
+Where they sit relative to the commit is then a matter of ordering, not of
+transactionality — a side effect that must follow a durable record goes after
+the commit, and a receipt that must survive a rollback goes before the
+transaction opens.
 
-Nothing enforces this. A `cms:` node inside a `<doTry>` whose `cms:login`
-published under a name other than the default looks up the default name, finds
-nothing, and owns its session — which is right for the nodes in the table above
-and wrong for the rest, and the difference is one an author has to see.
+Nothing enforces this. A script that writes through `context.session` inside
+the scope is in the transaction, whichever of the four kinds above it is, and
+the difference is one an author has to see.
 
 ### The same rule, from the other direction
 
-`retryOnConflict` is refused on a node that joined the route's session. That
-looks like a restriction on retries; it is the same rule again. A joined node
-writes nothing durable, so there is no conflict to retry — and the discard a
-retry performs would throw away the rest of the transaction. A counter that
-needs `retryOnConflict` is a counter that must not be in the transaction anyway.
+A retry on `InvalidItemStateException` (`eip-change-operations.md` §8) rolls
+back the whole session before it reads again. In a script that joined the
+route's session that discards the rest of the transaction, so the retry loop
+only ever belongs in a script that owns its session. That looks like a
+restriction on retries; it is the same rule again. A counter that needs the
+loop is a counter that must not be in the transaction anyway.
 
 ---
 
@@ -89,11 +92,12 @@ it and doing nothing is not this exception.
 
 ## 4. A guard has to be branched on
 
-An operation that reports whether it acted — `cms:lock` with `locked`,
-`cms:setProperty` with `applied` — is a guard only if something reads the
-answer. The node that lost the race carries on into the critical section exactly
-like the node that won, unless a `<filter>` or `<choice>` says otherwise.
-Nothing checks this, so it is a review rule.
+An operation that reports whether it acted — `tryLock` returning `null`, a
+comparison in front of a conditional write (`eip-change-operations.md` §8) — is
+a guard only if something reads the answer. The script that lost the race
+carries on into the critical section exactly like the one that won, unless a
+`return` in the script, a `<filter>` or a `<choice>` says otherwise. Nothing
+checks this, so it is a review rule.
 
 ---
 
@@ -174,66 +178,66 @@ the rule, because the way each was found was by somebody having to obey it.
 ## 7. Values are nodes; conditions are predicates
 
 A route has two kinds of expression, and keeping them apart is what makes a
-canvas readable.
+route readable.
 
 | | Where | What it may do |
 |---|---|---|
-| `transform:` | a node on the flow | produce a value: arithmetic, text, dates, defaults |
-| `jexl` | inside `<when>` / `<filter>` | decide yes or no, from values already computed |
+| A `<script><groovy>` node | a node on the flow | produce a value — arithmetic, text, a moment, a default — and put it on the exchange under a name that says what it is |
+| `simple` / `jexl` | inside `<when>` / `<filter>` | decide yes or no, from values already computed |
+
+The value gets a node and a name because that is what makes it visible: on the
+canvas, in the log line that prints the exchange, in the exchange history, and
+to the reviewer who wants to know where `cutoff` came from. A script may stop
+its own work early — `return` after a failed guard — but the route's branching
+is a `<choice>`, so that the two paths are two paths a reader can see.
 
 ### Which predicate language
 
-**Equality and existence in `<simple>`. Ordering, grouping and regular
-expressions in `<language language="jexl">`.**
-
-An ordering comparison in `<simple>` is refused when the route is added. Simple's
-`<` and `>` coerce one side to the other's type and, when that fails, compare
-`String.valueOf` of each — an ISO instant against a `java.util.Date` becomes
-`"2026-07-29T…"` against `"Wed Jul 29 …"`, which is an answer, always the same
-answer, and never the question that was asked. `jexl` refuses that comparison
-instead and names the conversion to put in front — see "Compare like with like"
-below.
+**Equality and existence in `<simple>`. Grouping and regular expressions in
+`<language language="jexl">`. Ordering only between values a script has
+already made the same type.**
 
 `==` and `!=` stay in Simple: they are the majority of predicates, they read
-better, and `${header.x} == 'paid'` has nowhere to go wrong. Reach for `jexl`
-when the condition needs parentheses, a header name containing a colon, `=~`, or
-an ordering.
+better, and `${exchangeProperty.status} == 'paid'` has nowhere to go wrong.
+Reach for `jexl` when the condition needs parentheses, a name containing a
+colon, or `=~`.
+
+An ordering comparison between unlike kinds is wrong in both languages, and
+wrong quietly: Simple's `<` and `>` coerce one side to the other's type and,
+when that fails, compare the string forms, and `jexl` does much the same — a
+stored moment against a `Date` becomes `"2026-07-29T…"` against
+`"Wed Jul 29 …"`, which is an answer, always the same answer, and never the
+question that was asked. The first route that needed `lastAlertAt < cutoff`
+was true for every possible pair of instants. So the script that computes the
+two values makes them the same type (`eip-change-operations.md` §7), or
+compares them itself and puts a boolean on the exchange.
 
 **A predicate does not calculate.** `header['a'] + header['b'] > 100` hides an
-addition inside a condition; the addition is a node, and then the condition reads
-the result. The same goes for `header['email'].toLowerCase() == …` — that is
-`transform:lowerCase` in front, and a comparison after.
-
-The language enforces the part it can: dot notation is refused when the route is
-added, which covers both a method call and a property dereference. The rest is a
-convention, and the reason for it is not tidiness — a value computed inside a
-predicate is a value nobody can see on the canvas, log, or point at in a review.
+addition inside a condition; the addition is a line in the script, and then the
+condition reads the result. The same goes for lower-casing an address before
+comparing it. The reason is not tidiness — a value computed inside a predicate
+is a value nobody can see on the canvas, in the log, or in the history.
 
 ### Writing a `jexl` predicate
 
 ```xml
 <when>
-    <language language="jexl">(header['txn_kind'] == 'sale' || header['txn_kind'] == 'capture')
-        &amp;&amp; (empty(header['txn_status']) || header['txn_status'] == 'success')</language>
+    <language language="jexl">(exchange.properties['txn_kind'] == 'sale' || exchange.properties['txn_kind'] == 'capture')
+        &amp;&amp; (empty(exchange.properties['txn_status']) || exchange.properties['txn_status'] == 'success')</language>
 </when>
 ```
 
-- **`header['name']`, never `header.name`.** Bracket notation reads a name
-  containing a colon — `header['commerce:status']` — which Simple cannot do at
-  all, and an absent key is null rather than an error.
+- **Bracket notation, never a dot into a name.** `header['commerce:status']`
+  reads a name containing a colon, which Simple cannot do at all, and an absent
+  key is null rather than an error.
+- **No method calls.** The language refuses them: a predicate that lower-cases
+  before comparing has a transformation hidden inside a condition, and the
+  transformation is a line in the script in front.
 - **`empty(x)`** is true for null, an empty string, and an empty collection or
   map. It is the usual way to say "not set".
-- **`=~` is both** membership and pattern: `header['status'] =~ ['paid','authorized']`
-  against a list literal, `header['sku'] =~ '^SKU-\d+$'` against a string.
-- **Compare like with like — enforced.** `<`, `<=`, `>` and `>=` refuse two
-  operands of different kinds: text against a moment, text against a number.
-  Numeric widths are one kind, because JEXL promotes across them and
-  `Long(1) < Integer(2)` is the comparison it looks like. Put the conversion
-  the message names in front — `transform:toInstant`, `transform:toLong`. This
-  was advice until a route needed it: `lastAlertAt < cutoff`, a stored ISO
-  instant against a `Date`, compared `"2026-07-29T…"` with `"Wed Jul 29 …"` and
-  was true for every possible pair of instants. Equality is left alone —
-  `header['x'] == null` compares unlike kinds on purpose.
+- **`=~` is both** membership and pattern: `header['status'] =~
+  ['paid','authorized']` against a list literal, `header['sku'] =~ '^SKU-\d+$'`
+  against a string.
 - **No `?:`.** A branch is a `<choice>`; an expression that branches is a branch
   nobody can see.
 
@@ -394,61 +398,48 @@ nothing about the four hundred that were read to find them.
 ## 10. An option that is not read is not an option
 
 `cms:setProperties?pth=/a/b` used to behave exactly like a node with no path at
-all. The components read their URI parameters by hand and then emptied the map,
-which is what suppressed the check Camel would otherwise have made, so a
-misspelling was not an error — it was a permanent silent no-op, and on a `<toD>`
-whose URI is built per message, "nothing says so" could last for months.
+all. The component reads its URI parameters by hand and then empties the map,
+which suppresses the check Camel would otherwise have made, so a misspelling
+was not an error — it was a permanent silent no-op, and on a `<toD>` whose URI
+is built per message, "nothing says so" could last for months.
 
-**Every option each operation accepts is declared, and anything else is
-refused.** The declaration is derived from what each producer actually reads, so
-it is a statement about the code rather than about the documentation. An
-operation nobody has written down yet is left unchecked, which means adding one
-can only ever tighten the check.
+The operation moved into Groovy and the failure moved with it, to a different
+place: **a script reads what it names.** `exchange.getProperty('orderPth')` is
+null, null is a value, and it travels — to a `getResource(null)`, or worse, to
+a property written as the string `"null"` three nodes later. So:
 
-It is applied as the endpoint is built: for `<to>` at startup, and for `<toD>`
-once per message.
+- **A script reads its inputs at the top, by name, and refuses null for what
+  it requires.** One line per input, where a reviewer can match the names
+  against the `<setProperty>` nodes that feed the script:
 
-That timing is worth knowing when reading a mistake. A `<toD>` on a route that
-only runs during a nightly sweep holds its bad option name until the sweep runs,
-and then reports it attached to a message rather than to the edit that caused it.
-A value carrying `${…}` cannot be checked before a message arrives at all, so
-that part could never have been earlier.
+  ```groovy
+  String orderPath = exchange.getProperty('orderPath');
+  if (orderPath == null) {
+      throw new IllegalStateException('orderPath is not set');
+  }
+  ```
 
-**Some options carry a word rather than data**, and those are checked by value
-too. `order` is `asc` or `desc`; `ascending` is refused. `orderBy` names a column
-of *that* operation, so `dueDate` is a task's and not an incident's. And
-`maxResults` is refused without `orderBy`, because the first N of an unordered
-result is not a repeatable question (§8).
+  `?: 'default'` is for a value that genuinely has a default, and the default
+  is then a decision the script has made visibly, not a misspelling it has
+  absorbed.
 
-**An option with a vocabulary may not be written as an expression.** There is
-nothing to check in `orderBy=${header.sortColumn}` until a message arrives, and a
-sort column chosen by a header is a sort nobody reading the route can see —
-the same objection, arriving earlier. `maxResults` is data and may come from
-configuration.
+- **What a script puts on the exchange is named once, at the top, in a
+  comment**, next to what it reads. That is the §11 contract for a part,
+  applied to an inline script. Nothing checks it; it is what a reader uses.
 
-### The same list, while the URI is being typed
+- **The `cms:` nodes that remain are checked by eye.** `cms:login` reads
+  `runAs`; `cms:commit`, `cms:rollback` and `cms:logout` read `context`;
+  `cms:lock` reads `path`, `isDeep`, `isSessionScoped` and `timeoutSeconds`;
+  `cms:unlock` reads `path`. Anything else on one of them is ignored without a
+  word, which is the reason the list is this short and this document says what
+  is on it.
 
-The Modeler shows what the operation accepts under the URI field: what is
-written, with anything that would be refused marked and why; and what else is
-available, as names that can be added. Options with a vocabulary offer their
-words.
+**A word is still a word.** `isSessionScoped=yes` is read as `false`, because
+the parser knows `true` and nothing else; an option that takes a word takes
+exactly the words the operation knows, and a route author checks them against
+this document rather than against the absence of an error.
 
-It serves the platform's own declaration rather than a copy shipped with the
-editor. A generated file would be a second list, and a form offering an option
-the deployment refuses is precisely the failure the catalogue exists to remove.
-
-Two things it deliberately does **not** do. It never rewrites a URI — the field
-stays free text, because an editor that reformats what you typed is an editor
-you stop trusting with the case it has not been taught. And it says nothing at
-all about a scheme it does not catalogue, an operation chosen per message, or an
-operation the catalogue has not got: **silence there means "no opinion", not
-"nothing is allowed"**, which is the same rule the platform follows.
-
-The failure worth guarding is the false alarm. A panel that marks `@header.x` or
-`bpm:`'s `var.orderId` as unknown teaches an author to ignore it, and then it is
-worth nothing on the day it is right — so the reading is checked against every
-endpoint of every route that deploys, where it must find nothing, and against a
-handful of URIs written to be wrong, where it must find each one.
+---
 
 ## 11. A part says what it needs and what it produces
 
@@ -554,11 +545,12 @@ the route fails. So **a value that must not be recorded must not be bound** — 
 a header, a property or the body — and §11's habit of putting a route's settings
 on the canvas does not outrank that.
 
-The rule is about the **value**, not about `cms:loadYaml`. Binding something to
-a header is not one operation's privilege: `cms:getProperties` publishes JCR
-properties, `cms:load` and `cms:loadAsString` put a whole file in the body, and a
-part's `outputs=` hands back whatever it produced. Naming one of them would
-close one door in a room with four.
+The rule is about the **value**, not about one way of reading it. Putting
+something on the exchange is not one operation's privilege: a script that
+reads a settings file with `YAML.parse` and sets a key as a property, one that
+copies JCR properties onto the exchange, one that puts a whole file in the
+body, and a part's `outputs=` all publish what they read. Naming one of them
+would close one door in a room with four.
 
 ### How it is enforced
 
@@ -615,31 +607,38 @@ it.
 
 ## 13. A commit is a contract, not a tuning knob
 
-`cms:commit` says **"what came before this must be durable before what comes
+A commit says **"what came before this must be durable before what comes
 after."**
 
-```xml
-<toD id="item-clear" uri="cms:remove?context=itemContext&amp;path=${header.markerPath}"/>
-<toD id="item-commit-clear" uri="cms:commit?context=itemContext"/>
-<toD id="item-recompute" uri="cms:/etc/…/recompute.groovy?context=itemContext&amp;inputs=orderId"/>
-<toD id="item-commit-recompute" uri="cms:commit?context=itemContext"/>
+```groovy
+// The marker is gone, durably, before the recompute starts: a concurrent
+// source event has to be able to re-create it and have the next tick pick
+// it up. Reverse the two and an update is lost.
+context.session.getResource(markerPath).remove();
+context.session.commit();
+commerce.SalesFacts.create(context).recompute(orderId);
+context.session.commit();
 ```
 
 The sales-fact drain deletes a pending marker *and commits it* before
-recomputing, because a concurrent source event has to be able to re-create the
-marker and have the next tick pick it up. Reverse the two and an update is lost.
+recomputing, and the comment says why. A commit without a reason next to it is
+a commit a reader has to reverse-engineer, and the first thing a later edit
+will move.
 
-**A batch is a different problem, and the answer is not an intermediate commit.**
-A hundred thousand pending changes in one session is a memory problem and a very
-long rollback, so a large batch has to become durable as it goes. Committing
-inside one shared session does that, but it ties the items together: item N's
-work only lands at item N+1's commit, so a failure in N+1 rolls back N.
+**A batch is a different problem, and the answer is not an intermediate commit
+every N items.** A hundred thousand pending changes in one session is a memory
+problem and a very long rollback, so a large batch has to become durable as it
+goes. Committing every N items does that, but it ties the items together: item
+N's work only lands at item N+1's commit, so a failure in N+1 rolls back N.
 
-**Items of a batch should be independent**, which means **a session per item**
-rather than a shared session with commits inside it. There used to be a
+**Items of a batch should be independent**, which means **a commit per item,
+with a rollback per failure** — what the commerce queue routes do inside their
+`<split>`: each message is processed, committed, and on failure rolled back and
+marked, so that the next message starts from a clean session. A context per
+item does the same at a higher cost. There used to be a
 `cms:commitCheckpoint?every=N` node for the shared-session form; it was removed,
-and nothing was lost — the one route that would have used it wanted a session per
-order anyway, for exactly the reason above.
+and nothing was lost — the one route that would have used it wanted a commit
+per order anyway, for exactly the reason above.
 
 ## 14. An id names what the node does
 

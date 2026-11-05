@@ -9,11 +9,12 @@ edited underneath the processor. That is what a lock is for.
 
 > **Serializing a recurring task is a different question, and it has a different
 > answer.** "This work runs on one node only" is a property of the route that
-> drives the work, declared on the route with `cms:lock` and enforced before the
-> work begins — not something a script decides for itself. The mechanism is the
-> same lock described here; where it is declared is what differs, and it decides
-> whether the work it protects can be read and rewired or has to live inside one
-> script's `try/finally`. See `documents/eip-session-lifecycle.md` §6.
+> drives the work, taken at the top of the route — in the first script node
+> with `tryLock`, or with `cms:lock` — and enforced before the work begins, not
+> something buried in the middle of the work. The mechanism is the same lock
+> described here; where it is taken is what differs, and it decides whether a
+> reader can see from the route what is serialized. See
+> `documents/eip-session-lifecycle.md` §6.
 
 ## Design
 
@@ -89,10 +90,12 @@ javax.jcr.lock.LockManager lockManager =
 lockManager.getLock("/var/locks/<name>").refresh()  // restarts the timeout
 ```
 
-Routes do not need to do this: `cms:lock` registers the lease and the platform
-renews it in the background for as long as the run is alive. That is what lets
-the timeout be sized as a failover-detection window instead of being hand-fitted
-to the work.
+Nothing refreshes a lock in the background. A route whose work may run longer
+than its timeout refreshes from the Groovy that does the work —
+`lockFile.getLock().refresh()` once per round of a loop, as the commerce queue
+routes do, with the timeout sized for one round. So the timeout is the window
+within which another node may take over after this one dies, and the refresh
+is what keeps a live run inside it.
 
 ## The `/var/locks` convention
 
@@ -100,18 +103,25 @@ Lock resources that do not correspond to a content node live under `/var/locks`,
 one folder per name. The folder is empty content — its only job is to carry the
 lock.
 
-`nt:folder` does not inherit `mix:lockable`, so the mixin has to be declared when
-the folder is created:
+`nt:folder` does not inherit `mix:lockable`. The Resource API's `lock` and
+`tryLock` add the mixin themselves; a route creates the target, commits, and
+then locks it:
 
-```xml
-<to id="ensure-lock-node"
-    uri="cms:createFolder?path=/var/locks/nightly-report&amp;mixins=mix:lockable&amp;conflictBehavior=IGNORE&amp;runAs=..."/>
+```groovy
+def lockFile = context.session.getResource('/var/locks/nightly-report');
+if (!lockFile.exists()) {
+    lockFile.getParent().getOrCreateFolder();
+    lockFile.createFile();
+    context.session.commit();
+}
+def locked = lockFile.tryLock(false, true, 600);
 ```
 
-Creating content and locking it are separate steps. Folding creation into the
-lock would mean the lock operation writes to the caller's session — and JCR
-refuses to lock a node whose session has unsaved changes beneath the target, so
-the two cannot share a session anyway.
+Creating content and locking it are separate steps, with a commit between
+them: JCR refuses to lock a node whose session has unsaved changes beneath the
+target. `cms:lock` adds no mixin, so a target meant for it has to be locked
+once through the Resource API first, or created with `mix:lockable` by other
+means.
 
 Access control on `/var/locks` decides who can take these locks: grant the
 service users that run scheduled work write access there.
