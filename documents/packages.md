@@ -146,8 +146,9 @@ An upgrade **replaces** the files of the previous version and **removes**
 those the new package does not ship. A file a user is meant to edit after
 installation therefore does not belong in `deploy/`: it would be overwritten
 or removed by the next upgrade. Create such files through a provisioning
-descriptor instead — provisioning only creates what is missing, so an
-existing, edited file is left alone.
+descriptor instead (a `nodes` entry with `primaryType: nt:file` and its
+`content`, see `cms-provisioning.md`) — provisioning only creates what is
+missing, so an existing, edited file is left alone.
 
 | Content | Where | On upgrade |
 | --- | --- | --- |

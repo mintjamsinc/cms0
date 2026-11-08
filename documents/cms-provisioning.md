@@ -124,6 +124,29 @@ global identity store and are resolved by the `DefaultPrincipalProvider` like
 every other principal. There is no separate concept of a "service group" — use
 a regular group.
 
+## Nodes with content
+
+A `nodes` entry creates the folder or file it names when it is missing, and
+applies its `acl`. A file entry may carry the file's `content` (text, written
+as UTF-8), its `mimeType`, and `properties` to set on the node; a folder entry
+may carry `properties` too. All of these are applied **only when the node is
+created**: a file that exists is never rewritten, whatever the descriptor now
+says. That is what makes a descriptor the right place for a file users edit
+after installation (a settings file, a starter page), where a file placed by
+`deploy/` would be overwritten at the next deploy or package upgrade.
+
+```yaml
+nodes:
+  - path: /content/site/.web.yml
+    primaryType: nt:file
+    mimeType: text/yaml
+    content: |
+      site:
+        root: true
+    properties:
+      site:managed: true
+```
+
 ## Implementation
 
 - `org.mintjams.rt.cms.internal.provisioning.Provisioner` — loads, validates and

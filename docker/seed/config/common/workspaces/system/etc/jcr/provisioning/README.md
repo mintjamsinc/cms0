@@ -102,6 +102,19 @@ nodes:
       - user: anonymous
         privileges: jcr:all
         effect: deny
+
+  # A file with content: created when it is missing, and never rewritten once
+  # it exists. This is how an application ships a file its users edit after
+  # installation (a settings file, a starter page): a file under deploy/ would
+  # be overwritten by the next upgrade.
+  - path: /content/commerce/README.md
+    primaryType: nt:file
+    mimeType: text/markdown       # optional
+    content: |                    # optional; text, written as UTF-8
+      # Commerce
+    properties:                   # optional; set on the node when it is created
+      commerce:kind: readme       #   scalars keep their YAML type, lists become
+                                  #   multi-valued strings
 ```
 
 ### ACL entry keys

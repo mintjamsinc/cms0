@@ -93,13 +93,71 @@ public final class WebRenders {
 		return null;
 	}
 
+	/** The prefix of a template name that names a layout of the site's theme: {@code theme:article}. */
+	public static final String THEME_PREFIX = "theme:";
+	/** The folder under the templates folder that holds the themes: {@code themes/<theme>/<layout>}. */
+	public static final String THEMES_FOLDER = "themes";
+	/** The theme a site that declares none is rendered with. */
+	public static final String DEFAULT_THEME = "default";
+
 	/**
 	 * Effective template binding for {@code node}: the explicit
 	 * {@code web.template} property if present, otherwise the nearest ancestor
 	 * folder descriptor rule whose glob matches the file name. Returns
 	 * {@code null} when the node is not bound to any template.
+	 *
+	 * <p>A template name that starts with {@value #THEME_PREFIX} names a layout
+	 * of the site's theme and is resolved to {@code themes/<theme>/<layout>},
+	 * the theme being {@code site.theme} of the descriptor of the node's
+	 * document root (see {@link #resolveDocumentRoot}); without a document root
+	 * or a theme, the theme named {@value #DEFAULT_THEME}. The binding is
+	 * returned whether or not that template exists: a source bound to a theme
+	 * layout the theme lacks is a 404, never served raw.</p>
 	 */
 	public static Binding resolveBinding(Node node) throws RepositoryException {
+		Binding binding = resolveDeclaredBinding(node);
+		if (binding == null || !binding.getTemplatePath().startsWith(THEME_PREFIX)) {
+			return binding;
+		}
+		String layout = binding.getTemplatePath().substring(THEME_PREFIX.length());
+		String theme = resolveTheme(node);
+		return new Binding(THEMES_FOLDER + "/" + (Strings.isEmpty(theme) ? DEFAULT_THEME : theme) + "/" + layout,
+				binding.getOutputs(), binding.isFromDescriptor());
+	}
+
+	/**
+	 * The theme the node's site declares: {@code site.theme} of the descriptor
+	 * of its document root, or {@code null} when it has no document root or
+	 * the root declares no theme.
+	 */
+	public static String resolveTheme(Node node) throws RepositoryException {
+		String rootPath = resolveDocumentRoot(node);
+		if (rootPath == null) {
+			return null;
+		}
+		Map<?, ?> descriptor;
+		try {
+			descriptor = readDescriptor(node.getSession().getNode(rootPath));
+		} catch (RepositoryException ignore) {
+			return null;
+		}
+		if (descriptor == null || !(descriptor.get("site") instanceof Map)) {
+			return null;
+		}
+		String theme = asString(((Map<?, ?>) descriptor.get("site")).get("theme"));
+		if (Strings.isEmpty(theme)) {
+			return null;
+		}
+		theme = theme.trim();
+		// A theme is a folder name under the themes folder: nothing that would leave it.
+		if (theme.contains("/") || theme.contains("\\") || theme.startsWith(".")) {
+			return null;
+		}
+		return theme;
+	}
+
+	/** The binding as declared, a {@code theme:} name left as it is. */
+	private static Binding resolveDeclaredBinding(Node node) throws RepositoryException {
 		if (!node.isNodeType(NodeType.NT_FILE)) {
 			return null;
 		}
@@ -155,8 +213,11 @@ public final class WebRenders {
 	 * for exposing to clients (e.g. the text editor's preview). Keys:
 	 * {@code templated}, {@code fromDescriptor}, {@code source} (matched source
 	 * extension or {@code null}), {@code outputs} (allowed output extensions;
-	 * empty means any) and {@code documentRoot} (the nearest ancestor site
-	 * document root path, or {@code null}; see {@link #resolveDocumentRoot}).
+	 * empty means any), {@code documentRoot} (the nearest ancestor site
+	 * document root path, or {@code null}; see {@link #resolveDocumentRoot}),
+	 * {@code theme} (the site's theme, or {@code null}; see
+	 * {@link #resolveTheme}) and {@code templatePath} (the template the
+	 * binding resolves to, a {@code theme:} name already expanded).
 	 */
 	public static Map<String, Object> describe(Node node) throws RepositoryException {
 		Map<String, Object> result = new LinkedHashMap<>();
@@ -166,6 +227,8 @@ public final class WebRenders {
 		result.put("source", matchedSourceExtension(node.getName(), getSourceExtensions(node.getSession())));
 		result.put("outputs", binding != null ? binding.getOutputs() : Collections.emptyList());
 		result.put("documentRoot", resolveDocumentRoot(node));
+		result.put("theme", resolveTheme(node));
+		result.put("templatePath", binding != null ? binding.getTemplatePath() : null);
 		return result;
 	}
 
