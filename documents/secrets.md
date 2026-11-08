@@ -18,6 +18,14 @@ passwords of `jcr.yml` and `bpm.yml`, and whatever needs a secret in the
 future all read it the same way. Nothing is shipped: create the file when the
 first secret is needed.
 
+This page is about the server's file on disk. Secrets that a workspace's
+scripts need are kept in the workspace instead, in
+`/etc/security/secrets.yml`, and read through `SecretsAPI` (see
+[workspace-secrets.md](workspace-secrets.md)). Scripts run inside the server,
+so whoever can deploy a script in a workspace can reach this file's values
+too: grant that right only to people you would trust as server
+administrators.
+
 ## The file
 
 One `key: value` per line. The keys are yours to name.

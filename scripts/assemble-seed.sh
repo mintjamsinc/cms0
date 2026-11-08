@@ -94,6 +94,8 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/processes/system/packages" "${SE
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/scripts/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/scripts/system/packages"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/bpm/forms/system/packages" "${SEED_ASSETS}/workspace/deploy/etc/bpm/forms/system/packages"
 copy_tree "${SEED_ASSETS}/system/provisioning/packages.yml" "${SEED_ASSETS}/workspace/provisioning/packages.yml"
+# workspace secrets: every workspace closes its own /etc/security
+copy_tree "${SEED_ASSETS}/system/provisioning/security.yml" "${SEED_ASSETS}/workspace/provisioning/security.yml"
 echo "OK: seed assets laid down from ${WEBTOP_DIST}"
 echo "  system:    $(find "${SEED_ASSETS}/system" -type f | wc -l) files"
 echo "  workspace: $(find "${SEED_ASSETS}/workspace" -type f | wc -l) files"

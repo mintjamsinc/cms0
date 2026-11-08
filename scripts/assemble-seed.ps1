@@ -75,16 +75,32 @@ Copy-Tree "$SeedAssets/system/deploy/content/WEB-INF/web.yml" "$SeedAssets/works
 Copy-Tree "$SeedAssets/system/provisioning/webtop.yml" "$SeedAssets/workspace/provisioning/webtop.yml"
 # content browser app: Server-side assets
 Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/media-metadata.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/media-metadata.xml"
-# notification center: Server-side assets
-Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/notices.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/notices.xml"
-Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/notices" "$SeedAssets/workspace/deploy/etc/graphql/webtop/notices"
-Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/notices" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/notices"
-Copy-Tree "$SeedAssets/system/provisioning/notices.yml" "$SeedAssets/workspace/provisioning/notices.yml"
 # mail app: Server-side assets
 Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/mail.xml"
 Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"
 Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/mail" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/mail"
 Copy-Tree "$SeedAssets/system/provisioning/mail.yml" "$SeedAssets/workspace/provisioning/mail.yml"
+# notification center: Server-side assets
+Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/notices.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/notices.xml"
+Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/notices" "$SeedAssets/workspace/deploy/etc/graphql/webtop/notices"
+Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/notices" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/notices"
+Copy-Tree "$SeedAssets/system/provisioning/notices.yml" "$SeedAssets/workspace/provisioning/notices.yml"
+# chat app: Server-side assets
+Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/chat.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/chat.xml"
+Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/chat" "$SeedAssets/workspace/deploy/etc/graphql/webtop/chat"
+Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/chat" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/chat"
+Copy-Tree "$SeedAssets/system/provisioning/chat.yml" "$SeedAssets/workspace/provisioning/chat.yml"
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/processes/webtop/chat" "$SeedAssets/workspace/deploy/etc/bpm/processes/webtop/chat"
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/scripts/webtop/chat" "$SeedAssets/workspace/deploy/etc/bpm/scripts/webtop/chat"
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/forms/webtop/chat" "$SeedAssets/workspace/deploy/etc/bpm/forms/webtop/chat"
+Copy-Tree "$SeedAssets/system/deploy/etc/chat/cards" "$SeedAssets/workspace/deploy/etc/chat/cards"
+# package installation (Tasks app): every workspace installs its own packages
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/processes/system/packages" "$SeedAssets/workspace/deploy/etc/bpm/processes/system/packages"
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/scripts/system/packages" "$SeedAssets/workspace/deploy/etc/bpm/scripts/system/packages"
+Copy-Tree "$SeedAssets/system/deploy/etc/bpm/forms/system/packages" "$SeedAssets/workspace/deploy/etc/bpm/forms/system/packages"
+Copy-Tree "$SeedAssets/system/provisioning/packages.yml" "$SeedAssets/workspace/provisioning/packages.yml"
+# workspace secrets: every workspace closes its own /etc/security
+Copy-Tree "$SeedAssets/system/provisioning/security.yml" "$SeedAssets/workspace/provisioning/security.yml"
 $systemFiles = (Get-ChildItem -Recurse -File "$SeedAssets/system").Count
 $workspaceFiles = (Get-ChildItem -Recurse -File "$SeedAssets/workspace").Count
 Write-Host "OK: seed assets laid down from $WebtopDist"

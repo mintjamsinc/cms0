@@ -1,0 +1,24 @@
+# Provisioning for the workspace's secrets (documents/workspace-secrets.md).
+#
+#   /etc/security/secrets.yml   one key: value per line; the platform encrypts
+#                               a value saved in the clear, and scripts read
+#                               the values through SecretsAPI
+#
+# The root of a workspace grants jcr:read to everyone, so the folder is closed
+# with an explicit deny: administrators read and write it, and the platform
+# reads and encrypts it with a service session, which access control does not
+# apply to. No user, service user or app needs to read it. To let someone else
+# maintain the file, an administrator adds an allow entry on the file; keep
+# this deny, which is put back on the next start if it is removed.
+#
+# scripts/assemble-seed.* copies this file to
+# assets/workspace/provisioning/security.yml, so every other workspace gets
+# the same.
+
+nodes:
+  - path: /etc/security
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny

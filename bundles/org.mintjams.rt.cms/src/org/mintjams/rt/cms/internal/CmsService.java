@@ -144,6 +144,7 @@ public class CmsService {
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
 	private final Map<String, org.mintjams.rt.cms.internal.searchindex.SearchIndexRebuildService> fWorkspaceSearchIndexRebuildServices = new HashMap<>();
+	private final Map<String, org.mintjams.rt.cms.internal.secrets.WorkspaceSecrets> fWorkspaceSecrets = new java.util.concurrent.ConcurrentHashMap<>();
 	/**
 	 * The last service-start failure per workspace, keyed by name. A workspace
 	 * whose start threw is neither online (no servlet provider) nor merely
@@ -566,6 +567,7 @@ public class CmsService {
 		closeWorkspaceService(fWorkspaceGraphQLEngineProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceIntegrationEngineProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceProcessEngineProviders.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceSecrets.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceFacetProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceScriptEngineManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceClassLoaderProviders.remove(workspaceName));
@@ -734,6 +736,12 @@ public class CmsService {
 		WorkspaceFacetProvider facetProvider = fCloser.register(new WorkspaceFacetProvider(workspaceName));
 		fWorkspaceFacetProviders.put(workspaceName, facetProvider);
 		facetProvider.open();
+
+		// Before the engines, whose start-up scripts may read secrets.
+		org.mintjams.rt.cms.internal.secrets.WorkspaceSecrets secrets = fCloser
+				.register(new org.mintjams.rt.cms.internal.secrets.WorkspaceSecrets(workspaceName));
+		fWorkspaceSecrets.put(workspaceName, secrets);
+		secrets.open();
 
 		WorkspaceProcessEngineProvider processEngineProvider = fCloser.register(new WorkspaceProcessEngineProvider(workspaceName));
 		fWorkspaceProcessEngineProviders.put(workspaceName, processEngineProvider);
@@ -950,6 +958,11 @@ public class CmsService {
 
 	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {
 		return getDefault().fWorkspaceCmsEventManagers.get(workspaceName);
+	}
+
+	/** The secrets of a workspace ({@code /etc/security/secrets.yml}), or null while its services are not up. */
+	public static org.mintjams.rt.cms.internal.secrets.WorkspaceSecrets getWorkspaceSecrets(String workspaceName) {
+		return getDefault().fWorkspaceSecrets.get(workspaceName);
 	}
 
 	/**

@@ -210,6 +210,7 @@ scalars:
 | `log`, `JSON`, `YAML`, `XPath`, `ISO8601` | logging and value helpers |
 | `ScriptAPI` | `createServiceUserContext(user)`, `createUserContext(user)`: contexts of another identity, in the same workspace |
 | `SessionAPI`, `SearchIndexAPI`, `MetadataAPI`, `MimeTypeAPI`, `CryptoAPI`, `EventAdminAPI`, `ClusterAPI` (`cluster`) | repository, search and platform services |
+| `SecretsAPI` | `get(key)`, `has(key)`, `resolve(text)`: the workspace's secrets in `/etc/security/secrets.yml`, read-only (`documents/workspace-secrets.md`) |
 | `ProcessAPI`, `IntegrationAPI`, `PackageAPI` | the workspace's process engine, integration engine and packages |
 | `Connections` | tokens of the caller's linked accounts (`documents/linked-accounts.md`) |
 

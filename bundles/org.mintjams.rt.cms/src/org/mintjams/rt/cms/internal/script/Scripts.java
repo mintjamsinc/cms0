@@ -99,6 +99,7 @@ public class Scripts {
 		ctx.setAttribute(MimeTypeAPI.class.getSimpleName(), new MimeTypeAPI(ctx));
 		ctx.setAttribute(EventAdminAPI.class.getSimpleName(), new EventAdminAPI(ctx));
 		ctx.setAttribute(CryptoAPI.class.getSimpleName(), new CryptoAPI());
+		ctx.setAttribute(SecretsAPI.class.getSimpleName(), new SecretsAPI(ctx));
 		ctx.setAttribute(SessionAPI.class.getSimpleName(), new SessionAPI(ctx));
 		ClusterAPI cluster = new ClusterAPI(ctx);
 		ctx.setAttribute("cluster", cluster);

@@ -188,7 +188,9 @@ before or at the workspace's first start:
   `docker/seed/assets/workspace/provisioning/webtop.yml` into
   `etc/jcr/provisioning/`: it grants `anonymous` read on
   `/usr/share/webtop`, which the Webtop needs to send a signed-out
-  visitor to the sign-in page.
+  visitor to the sign-in page. Copy `security.yml` from the same folder
+  too: it closes `/etc/security`, where the workspace's secrets live
+  (see [workspace-secrets.md](workspace-secrets.md)).
 - `etc/search/` — full-text search analyzer configuration
   (`search.yml`, `userdict.txt`, `stopwords.txt`, `stoptags.txt`,
   `mapping.txt`). Without it the generated `search.yml` is empty and
