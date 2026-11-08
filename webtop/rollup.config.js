@@ -261,6 +261,20 @@ const uiStandaloneConfig = makeConfig({
   ],
 });
 
+// Markdown editor bundle: Tiptap with the Markdown extension in one ESM, for
+// apps that edit a Markdown file as rich text (the Site app's page editor).
+// Separate from wt-ui.esm.js, which every app loads, so that only the apps
+// that edit carry the editor. Ships with its stylesheet.
+const markdownEditorConfig = makeConfig({
+  name: 'webtop-markdown',
+  input: 'src/webtop/ui/markdown-editor.ts',
+  outputFile: 'dist/webtop/ui/wt-markdown.esm.js',
+  outputExtra: { inlineDynamicImports: true },
+  cssMinifyTargets: [
+    { src: 'src/webtop/ui/wt-markdown.css', dest: 'dist/webtop/ui' },
+  ],
+});
+
 // PDF Viewer: pdf.js runs its parser in a Web Worker and loads CMaps (CJK
 // text), standard fonts, ICC profiles and wasm image decoders at runtime, so
 // these ship next to the app instead of inside app.js. The worker is renamed
@@ -357,6 +371,7 @@ const stickyNotesConfigs = [
 const specialConfigs = {
   'webtop': webtopCoreConfig,
   'webtop-ui-standalone': uiStandaloneConfig,
+  'webtop-markdown': markdownEditorConfig,
   'pdf-viewer': pdfViewerConfig,
   'radio': radioConfig,
   'mail': mailConfig,
@@ -368,6 +383,7 @@ const specialConfigs = {
 export const TARGET_NAMES = [
   'webtop',
   'webtop-ui-standalone',
+  'webtop-markdown',
   'content-browser',
   'memo',
   'text-editor',

@@ -56,6 +56,8 @@
 		"build:sticky-notes:prod": "node scripts/build.mjs --prod sticky-notes",
 		"build:webtop-ui-standalone": "node scripts/build.mjs webtop-ui-standalone",
 		"build:webtop-ui-standalone:prod": "node scripts/build.mjs --prod webtop-ui-standalone",
+		"build:webtop-markdown": "node scripts/build.mjs webtop-markdown",
+		"build:webtop-markdown:prod": "node scripts/build.mjs --prod webtop-markdown",
 		"prepare": "npm run build",
 		"test": "npm run build && node --test"
 	},
@@ -111,6 +113,7 @@
 		"@fontsource/m-plus-rounded-1c": "^5.3.0",
 		"@mintjamsinc/ichigojs": "^0.1.91",
 		"@tiptap/extension-image": "^3.32.0",
+		"@tiptap/markdown": "^3.32.0",
 		"intl-messageformat": "^11.2.6",
 		"qrcode-generator": "^2.0.4"
 	}
