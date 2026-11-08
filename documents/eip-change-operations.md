@@ -62,7 +62,7 @@ create and the update case. The API in one table:
 | Create | `createFile()`, `createFolder()`, `getOrCreateFile()`, `getOrCreateFolder()`; the `(name)` forms create a child |
 | Content | `getContent()` (a `String`), `getContentAsStream()`, `getContentAsByteArray()`, `write(content)`, `setContentType(type)`, `setContentEncoding(enc)` |
 | Properties | `getProperty(name)`, `hasProperty(name)`, `getPropertyKeys()`, `getProperties(pattern)`, `setProperty(name, value)`, `removeProperty(name)` |
-| Move and delete | `moveTo(absPath)`, `copyTo(absPath)`, `remove()` |
+| Move, copy and delete | `moveTo(absPath)`, `copyTo(absPath)`, `remove()` |
 | Locks and versions | `tryLock(...)`, `lock(...)`, `unlock()`, `getLock()`; `addVersionControl()`, `checkout()`, `checkin()`, `checkpoint()` |
 | Metadata | `getCreated()`, `getLastModified()`, `getCreatedBy()`, `getLastModifiedBy()` |
 | Access | `canRead()`, `canWrite()`, `canRemove()`, `getAccessControlList()` |
@@ -191,9 +191,11 @@ context.session.getResource(stalePath).remove();
 
 `moveTo` is JCR's move: naming an existing folder as the destination is an
 error, not a move into it, and the parent of the destination has to exist.
-`remove()` removes the subtree. Both stay in the session until the commit, and
-a rollback undoes them — **a deletion belongs to the transaction that decided
-on it.**
+`copyTo` copies a file or a folder with everything beneath it the same way.
+`remove()` removes the subtree. All three stay in the session until the
+commit, and a rollback undoes them — **a deletion belongs to the transaction
+that decided on it.** The parent of the destination may be a folder the same
+session created and has not committed yet.
 
 `getOrCreateFolder()` is the idempotent form for a folder that may already be
 there; `createFolder()` on an existing path throws. A folder meant to carry a

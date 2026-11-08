@@ -34,7 +34,6 @@ import javax.jcr.PathNotFoundException;
 import javax.jcr.Property;
 import javax.jcr.RepositoryException;
 import javax.jcr.Value;
-import javax.jcr.query.Query;
 
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
@@ -74,15 +73,8 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 			} catch (PathNotFoundException ignore) {}
 
 			// If not found, try to find a group with the given name
-			{
-				String escapedName = name.replace("'", "\\'");
-				String stmt = "/jcr:root/home/groups//*[@identifier = '" + escapedName + "' and @isGroup = true]";
-				Query q = systemSession.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
-				q.setOffset(0);
-				q.setLimit(1);
-				if (q.execute().getNodes().hasNext()) {
-					return new DefaultGroupPrincipal(name);
-				}
+			if (IdentityProfiles.findGroupProfile(systemSession, name) != null) {
+				return new DefaultGroupPrincipal(name);
 			}
 
 			// Not found

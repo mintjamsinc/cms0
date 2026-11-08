@@ -24,7 +24,13 @@ package org.mintjams.jcr;
 
 import java.util.Collection;
 
+import javax.jcr.AccessDeniedException;
+import javax.jcr.ItemExistsException;
+import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
+import javax.jcr.lock.LockException;
+import javax.jcr.nodetype.ConstraintViolationException;
+import javax.jcr.version.VersionException;
 
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
@@ -48,6 +54,34 @@ public interface Session extends javax.jcr.Session {
 	boolean isService();
 
 	boolean isSystem();
+
+	/**
+	 * Copies the node at {@code srcAbsPath}, with everything beneath it, to
+	 * {@code destAbsPath} in this session's transient space. The copy is
+	 * persisted by the next {@link #save()} together with the session's other
+	 * changes and discarded by {@code refresh(false)}, like a move done with
+	 * {@link #move(String, String)}. {@link javax.jcr.Workspace#copy(String, String)}
+	 * is the immediate form: it writes the copy at once, in a transaction of its
+	 * own, and only sees what has been saved.
+	 *
+	 * <p>The source must be an {@code nt:folder} or {@code nt:file} that this
+	 * session can read in full, and the parent of the destination an
+	 * {@code nt:folder} this session may add children to. The root cannot be
+	 * copied, and the destination may not lie inside the source. A folder with
+	 * more than 1000 descendants is refused, as it is by {@code move}. The copy
+	 * is not versionable even when the source is; version histories are never
+	 * copied.
+	 *
+	 * @param srcAbsPath  the node to copy
+	 * @param destAbsPath the path of the copy, name included
+	 * @throws PathNotFoundException        the source or the destination's parent does not exist
+	 * @throws ItemExistsException          there is a node at the destination already
+	 * @throws ConstraintViolationException the types do not allow the copy, or the source is too large
+	 * @throws AccessDeniedException        the session cannot read the whole source or write the destination
+	 * @throws LockException                the source or the destination's parent is locked by another session
+	 */
+	void copy(String srcAbsPath, String destAbsPath) throws ItemExistsException, PathNotFoundException,
+			VersionException, ConstraintViolationException, LockException, AccessDeniedException, RepositoryException;
 
 	/**
 	 * Returns a content-import handler bound to this session, configured with the

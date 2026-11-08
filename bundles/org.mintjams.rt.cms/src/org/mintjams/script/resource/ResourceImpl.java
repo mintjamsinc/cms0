@@ -829,7 +829,10 @@ public class ResourceImpl implements Resource, Adaptable {
 				dest.remove();
 			}
 
-			getNode().getSession().getWorkspace().move(fJcrPath, destAbsPath);
+			// Session.move, not Workspace.move: the move stays in the session
+			// until it commits, with the removal above and the caller's other
+			// changes, and can go into a folder the session has not saved yet.
+			getNode().getSession().move(fJcrPath, destAbsPath);
 
 			return new ResourceImpl(destAbsPath, fSession);
 		} catch (Throwable ex) {
@@ -882,7 +885,10 @@ public class ResourceImpl implements Resource, Adaptable {
 					}
 				}
 			} else {
-				getNode().getSession().getWorkspace().copy(fJcrPath, destAbsPath);
+				// Session.copy, not Workspace.copy: the copy stays in the session
+				// until it commits, like the write above, and can go into a
+				// folder the session has not saved yet.
+				((org.mintjams.jcr.Session) getNode().getSession()).copy(fJcrPath, destAbsPath);
 			}
 
 			return new ResourceImpl(destAbsPath, fSession);

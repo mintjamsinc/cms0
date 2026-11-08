@@ -73,19 +73,8 @@ public class DefaultIdentityProvider implements IdentityProvider {
 		try {
 			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
 
-			{
-				String escapedIdentifier = identifier.replace("'", "\\'");
-				String stmt = "/jcr:root/home/groups//*[@identifier = '" + escapedIdentifier + "' and @isGroup = true]";
-				@SuppressWarnings("deprecation")
-				Query q = systemSession.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
-				q.setOffset(0);
-				q.setLimit(1);
-				if (q.execute().getNodes().hasNext()) {
-					return new GroupImpl(q.execute().getNodes().nextNode());
-				}
-			}
-
-			return null;
+			Node profile = IdentityProfiles.findGroupProfile(systemSession, identifier);
+			return (profile != null) ? new GroupImpl(profile) : null;
 		} catch (RepositoryException ex) {
 			throw Cause.create(ex).wrap(IllegalStateException.class);
 		} finally {

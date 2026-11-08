@@ -258,7 +258,7 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 				workspace.getLockManager().addLockToken(lockToken);
 			}
 
-			copy(workspace.getSession().getNode(srcAbsPath), destAbsPath);
+			copyTree(workspace.getSession().getNode(srcAbsPath), destAbsPath);
 
 			workspace.getSession().save();
 		} catch (IOException | SQLException ex) {
@@ -266,7 +266,17 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 		}
 	}
 
-	private void copy(Node srcItem, String destAbsPath) throws RepositoryException, IOException, SQLException {
+	/**
+	 * Copies the node and everything beneath it to the destination path. The
+	 * copies are written through the source node's session, so they belong to
+	 * that session's transaction: {@link #copy(String, String)} runs this in a
+	 * session of its own and saves at once, {@link JcrSession#copy(String, String)}
+	 * in the caller's session, where the copy waits for the caller's save.
+	 * Children the session cannot read are not seen and not copied.
+	 *
+	 * @return the number of nodes copied below the root of the copy
+	 */
+	int copyTree(Node srcItem, String destAbsPath) throws RepositoryException, IOException, SQLException {
 		WorkspaceQuery workspaceQuery = Adaptables.getAdapter(srcItem, WorkspaceQuery.class);
 
 		String primaryType = srcItem.getPrimaryNodeType().getName();
@@ -329,10 +339,13 @@ public class JcrWorkspace implements org.mintjams.jcr.Workspace, Closeable, Adap
 			}
 		}
 
+		int copied = 0;
 		for (NodeIterator i = srcItem.getNodes(); i.hasNext();) {
 			Node childItem = i.nextNode();
-			copy(childItem, workspaceQuery.getResolved(JcrPath.valueOf(destAbsPath)).resolve(childItem.getName()).toString());
+			copied += 1 + copyTree(childItem,
+					workspaceQuery.getResolved(JcrPath.valueOf(destAbsPath)).resolve(childItem.getName()).toString());
 		}
+		return copied;
 	}
 
 	@Override

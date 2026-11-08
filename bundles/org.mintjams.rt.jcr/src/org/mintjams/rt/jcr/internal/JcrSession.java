@@ -498,6 +498,100 @@ public class JcrSession implements Session, Adaptable {
 	}
 
 	@Override
+	public void copy(String srcAbsPath, String destAbsPath) throws ItemExistsException, PathNotFoundException,
+			VersionException, ConstraintViolationException, LockException, AccessDeniedException, RepositoryException {
+		// Normalize paths
+		JcrPath srcPath = JcrPath.valueOf(srcAbsPath).with(adaptTo(NamespaceProvider.class));
+		JcrPath destPath = JcrPath.valueOf(destAbsPath).with(adaptTo(NamespaceProvider.class));
+
+		// The destination introduces a new node name; its namespace must be registered.
+		JCRs.checkNamespaceRegistered(JcrPath.valueOf(destAbsPath).getName().toString(), getWorkspace().getNamespaceRegistry());
+
+		// Check root copy
+		if (srcPath.isRoot()) {
+			throw new RepositoryException("Cannot copy the root node.");
+		}
+
+		// Check cyclic copy
+		if (destPath.equals(srcPath) || destPath.isDescendantOf(srcPath)) {
+			throw new RepositoryException("Cannot copy a node to itself or its descendant: " + srcAbsPath + " -> " + destAbsPath);
+		}
+
+		// Check existence
+		if (!nodeExists(srcPath.toString())) {
+			throw new PathNotFoundException("Source node not found: " + srcAbsPath);
+		}
+		if (nodeExists(destPath.toString())) {
+			throw new ItemExistsException("Destination node already exists: " + destAbsPath);
+		}
+		if (!nodeExists(destPath.getParent().toString())) {
+			throw new PathNotFoundException("Destination parent node not found: " + destPath.getParent().toString());
+		}
+
+		// Check node types
+		Node srcNode = getNode(srcPath.toString());
+		Node destParentNode = getNode(destPath.getParent().toString());
+		if (!srcNode.isNodeType(NodeType.NT_FOLDER) && !srcNode.isNodeType(NodeType.NT_FILE)) {
+			throw new ConstraintViolationException("Source node must be of type nt:folder or nt:file: " + srcAbsPath);
+		}
+		if (!destParentNode.isNodeType(NodeType.NT_FOLDER)) {
+			throw new ConstraintViolationException("Destination parent node must be of type nt:folder: " + destPath.getParent().toString());
+		}
+
+		// Check permissions
+		checkPrivileges(destPath.getParent().toString(), Privilege.JCR_ADD_CHILD_NODES);
+
+		// The destination parent gains a child: it must not be checked in.
+		((JcrNode) destParentNode).checkCheckedOut();
+
+		// Check locks
+		JcrLock srcLock = null;
+		try {
+			srcLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(srcAbsPath);
+		} catch (LockException ignore) {}
+		if (srcLock != null && !srcLock.isLockOwner()) {
+			throw new LockException("Source node is locked: " + srcAbsPath);
+		}
+		JcrLock destParentLock = null;
+		try {
+			destParentLock = (JcrLock) adaptTo(JcrLockManager.class).getLock(destPath.getParent().toString());
+		} catch (LockException ignore) {}
+		if (destParentLock != null && !destParentLock.isLockOwner() && destParentLock.isDeep()) {
+			throw new LockException("Destination parent node is locked: " + destPath.getParent().toString());
+		}
+
+		// Check the size of the subtree, and that the session reads all of it:
+		// a child this session cannot read would silently be left out of the copy.
+		long count;
+		try {
+			count = getWorkspaceQuery().items().countDescendants(srcPath.toString());
+		} catch (SQLException | IOException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+		if (srcNode.isNodeType(NodeType.NT_FOLDER) && count > 1000) {
+			throw new ConstraintViolationException("Cannot copy node. The number of descendant nodes exceeds the limit (1000): " + srcAbsPath);
+		}
+		if (countReadableDescendants(srcNode) < count) {
+			throw new AccessDeniedException("Access denied: " + srcAbsPath + " (a node beneath it cannot be read)");
+		}
+
+		// Perform copy, in this session's transaction
+		try {
+			fWorkspace.copyTree(srcNode, destAbsPath);
+		} catch (SQLException | IOException ex) {
+			throw Cause.create(ex).wrap(RepositoryException.class);
+		}
+	}
+
+	private long countReadableDescendants(Node node) throws RepositoryException {
+		long count = 0;
+		for (Iterator<?> i = node.getNodes(); i.hasNext();) {
+			count += 1 + countReadableDescendants((Node) i.next());
+		}
+		return count;
+	}
+
+	@Override
 	public boolean nodeExists(String absPath) throws RepositoryException {
 		try {
 			getNode(absPath);

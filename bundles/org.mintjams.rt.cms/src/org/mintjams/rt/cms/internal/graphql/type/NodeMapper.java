@@ -42,8 +42,6 @@ import javax.jcr.version.VersionManager;
 import javax.script.ScriptEngineFactory;
 
 import org.apache.tika.Tika;
-import org.mintjams.jcr.Workspace;
-import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.dataset.Datasets;
@@ -369,12 +367,10 @@ public class NodeMapper {
 			}
 		}
 		if (resolver != null && modifiedBy != null && (includeAll || selectionSet.hasField("modifiedByDisplayName"))) {
-			try {
-				boolean isGroup = (Workspace.class.cast(node.getSession().getWorkspace())
-						.getPrincipalProvider()
-						.getPrincipal(modifiedBy) instanceof org.mintjams.jcr.security.GroupPrincipal);
-				result.put("modifiedByDisplayName", resolver.resolve(modifiedBy, isGroup));
-			} catch (PrincipalNotFoundException ignore) {}
+			// The resolver looks the name up as a user, then as a group, and
+			// remembers the answer for the rest of the request: one lookup per
+			// name, not one per node.
+			result.put("modifiedByDisplayName", resolver.resolveUnknown(modifiedBy));
 		}
 	}
 
