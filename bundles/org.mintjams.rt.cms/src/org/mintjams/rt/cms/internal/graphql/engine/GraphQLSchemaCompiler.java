@@ -222,6 +222,40 @@ public final class GraphQLSchemaCompiler {
 			}
 			contributorTypeResolvers.putAll(contribution.getTypeResolvers());
 			contributorScalars.putAll(contribution.getScalars());
+			// Each contributor is one part of the schema, for reading it part by part.
+			if (!contribution.getSdl().isEmpty()) {
+				String name = (contribution.getDomainName() != null) ? contribution.getDomainName()
+						: contributor.getClass().getSimpleName();
+				String description = (contribution.getDomainDescription() != null)
+						? contribution.getDomainDescription()
+						: "";
+				report.domain(GraphQLSchemaDomain.of(name, description, String.join("\n\n", contribution.getSdl()),
+						true));
+			}
+		}
+
+		// And each folder of the workspace's own files is one, named by the
+		// folder relative to the root it is under, described by the first comment
+		// line of its first file.
+		Map<String, List<String>> folderSdl = new LinkedHashMap<>();
+		Map<String, String> folderSummary = new HashMap<>();
+		Map<String, String> folderPath = new HashMap<>();
+		for (Map.Entry<String, String> source : sdlSources.entrySet()) {
+			String folder = domainFolder(source.getKey(), roots);
+			folderSdl.computeIfAbsent(folder, k -> new ArrayList<>()).add(source.getValue());
+			folderPath.putIfAbsent(folder, source.getKey().substring(0, source.getKey().lastIndexOf('/')));
+			String summary = GraphQLSchemaDomain.summaryOf(source.getValue());
+			if (summary != null) {
+				folderSummary.putIfAbsent(folder, summary);
+			}
+		}
+		for (Map.Entry<String, List<String>> folder : folderSdl.entrySet()) {
+			String description = folderSummary.get(folder.getKey());
+			if (description == null) {
+				description = "The workspace's own schema files under " + folderPath.get(folder.getKey()) + ".";
+			}
+			report.domain(GraphQLSchemaDomain.of(folder.getKey(), description, String.join("\n\n", folder.getValue()),
+					false));
 		}
 
 		if (sdlSources.isEmpty() && contributorSdl.isEmpty()) {
@@ -422,6 +456,23 @@ public final class GraphQLSchemaCompiler {
 			builder.subscriptionExecutionStrategy(new SubscriptionExecutionStrategy());
 		}
 		return builder.build();
+	}
+
+	/**
+	 * The name of the schema part a file belongs to: its folder relative to
+	 * the scanned root it is under ({@code site}, {@code webtop/reversi}), or
+	 * the root itself for a file directly in it.
+	 */
+	private static String domainFolder(String path, List<String> roots) {
+		for (String root : roots) {
+			if (path.startsWith(root + "/")) {
+				String relative = path.substring(root.length() + 1);
+				int slash = relative.lastIndexOf('/');
+				return (slash < 0) ? root : relative.substring(0, slash);
+			}
+		}
+		int slash = path.lastIndexOf('/');
+		return (slash <= 0) ? path : path.substring(0, slash);
 	}
 
 	private static void scan(Node node, String workspaceName, Set<String> scriptExtensions, Map<String, String> sdlSources,

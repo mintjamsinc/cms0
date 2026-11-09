@@ -220,6 +220,16 @@ privileged session. The repository's access control is therefore the authority
 on what an MCP client can see and change, exactly as it is for Webtop, and a
 node the user cannot read looks to the client like a node that does not exist.
 
+The connection is entered into knowingly. A user who turns it on, and allows
+changes, has chosen to let a client work as them — the choice one makes in
+handing a colleague one's keys — and the server does not second-guess it: it
+never confines the user's own client more narrowly than the user. A package
+that wants an operation left to a person (publishing a site, say) tells the
+client so, in its tool descriptions and its knowledge, and leaves the operation
+out of the tools it defines; it does not ask the server to refuse the user's
+client what the user may do. A user who would rather not take that on leaves
+the connection off, or read-only: the CMS works the same without it.
+
 The connection only narrows that: while it is read-only, the client is confined
 to the tools that change nothing, whatever the user's own privileges are. That
 is enforced in three places that cannot disagree, because all three derive from
@@ -254,6 +264,7 @@ running may have to reconnect before it sees the tools.
 | `move_node` | write | Move, rename, or both. |
 | `copy_node` | write | Deep copy. |
 | `delete_node` | write | Permanent delete. |
+| `graphql_schema` | read | The workspace GraphQL schema part by part: the parts with their root fields, or one part's definitions as written. To read before composing a `graphql` call. |
 | `graphql` | read / write | Any operation of the workspace GraphQL schema. Mutations need a connection that allows changes. |
 
 These are the built-in tools. A workspace adds its own by writing `tools.yml`
@@ -485,15 +496,31 @@ file is always locked deep, so the repository refuses the write to its
 content; a file locked shallow before that rule is checked on the file node
 itself (see `documents/resource-locks.md`).
 
-### `graphql` — everything else
+### `graphql_schema` and `graphql` — everything else
 
 The dedicated tools cover content. Everything else the platform exposes —
 access control, locks, check-in and check-out, processes and tasks (BPM),
 integration routes (EIP), users and groups, and the schema a workspace defines
 for its own applications — is already reachable through GraphQL, with
 authorization enforced by the resolvers. Rather than mirror each field as a
-tool, `graphql` hands the client the schema itself: it can introspect, then
-query.
+tool, the server hands the client the schema itself.
+
+Not by introspection, though, or not first. The schema is compiled as one
+unit but written in parts — the platform's contributors (`platform` for
+content, then `bpm`, `eip`, `idp`, `security`, `workspace`, `files`, `cloud`,
+`connections`, `mcp`, `graphql`) and each folder of the workspace's own files
+under `/etc/graphql` or `/content/WEB-INF/graphql`, named by the folder
+(`site`, `webtop/reversi`) — and each part is small enough to read whole: a
+few thousand characters of SDL, with the comments its authors wrote.
+`graphql_schema` without arguments lists the parts, one line on each and the
+names of its query and mutation root fields, the functions a call names; with
+`domain` it returns that part as written. A whole-schema introspection is
+several times larger and carries no comments. The one-line description of a
+workspace part is the first comment line of its first schema file, so a
+package starts its schema with one.
+
+Every mutation run through `graphql` is logged with the user, the workspace
+and the root fields it called.
 
 The read-only limit still holds. A read-only client may only run an operation that is
 *provably* a query: a mutation, a subscription, or a document whose operation
@@ -943,7 +970,7 @@ await (await fetch('/bin/mcp.cgi/web', {
 | `ContentTools` | The content tools. |
 | `FileTools` | `edit_file`, `diff_versions`, `grep_files`, `find_files`: each one operation of the files schema. |
 | `WebRenderTools` | `explain_web_render`. |
-| `GraphQLTools` | `graphql`. |
+| `GraphQLTools` | `graphql_schema` and `graphql`. The parts the former serves are `GraphQLSchemaDomain`s, recorded by `GraphQLSchemaCompiler` as it merges the schema and kept in the `GraphQLSchemaDeployment`. |
 | `McpToolCompiler`, `McpToolRegistry` | The tools a workspace defines: reading its `tools.yml` files, file by file, into the registry the server consults next to the built-in tools. Rebuilt by `WorkspaceGraphQLEngineProvider` with the application schema. |
 | `GraphQLToolHandler`, `ScriptToolHandler`, `McpScriptGraphQL` | What a workspace-defined tool does when called: the operation, or the script and its `graphql` binding. |
 | `McpGraphQL` | The GraphQL the content tools are built from, and the reshaping of its responses into something compact for a model. |

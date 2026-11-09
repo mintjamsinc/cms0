@@ -81,6 +81,7 @@ public final class PlatformSecurityWiringContributor implements WiringContributo
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("security", "Second factors of an account: TOTP with backup codes, passkeys.")
 				.dataFetcher("Query", "userSecurity", (DataFetcher<Object>) PlatformSecurityWiringContributor::userSecurity)
 				.dataFetcher("Mutation", "beginTotpEnrollment",
 						(DataFetcher<Object>) PlatformSecurityWiringContributor::beginTotpEnrollment)

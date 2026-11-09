@@ -104,6 +104,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("idp", "Users, groups and roles of the identity store, and the caller's own account.")
 				.dataFetcher("Query", "user", (DataFetcher<Object>) PlatformIdpWiringContributor::user)
 				.dataFetcher("Query", "me", (DataFetcher<Object>) PlatformIdpWiringContributor::me)
 				.dataFetcher("Query", "users", (DataFetcher<Object>) PlatformIdpWiringContributor::users)

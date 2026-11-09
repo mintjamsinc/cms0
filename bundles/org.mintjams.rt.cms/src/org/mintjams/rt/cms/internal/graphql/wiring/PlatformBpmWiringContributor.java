@@ -114,6 +114,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("bpm", "Processes and tasks (BPM): definitions, instances, tasks, forms, history.")
 				.dataFetcher("Query", "processDefinition",
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processDefinition)
 				.dataFetcher("Query", "processDefinitions",

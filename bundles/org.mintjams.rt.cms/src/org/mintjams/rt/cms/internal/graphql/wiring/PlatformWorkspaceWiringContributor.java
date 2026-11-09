@@ -84,6 +84,7 @@ public final class PlatformWorkspaceWiringContributor implements WiringContribut
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("workspace", "Workspaces: listing, creating, restarting and their settings; administrators only.")
 				.dataFetcher("Query", "workspaces",
 						(DataFetcher<Object>) PlatformWorkspaceWiringContributor::workspaces)
 				.dataFetcher("Mutation", "createWorkspace",

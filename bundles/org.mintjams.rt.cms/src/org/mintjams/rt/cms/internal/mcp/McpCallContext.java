@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -36,6 +37,7 @@ import javax.jcr.Session;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
+import org.mintjams.rt.cms.internal.graphql.engine.GraphQLSchemaDomain;
 import org.mintjams.rt.cms.internal.graphql.engine.WorkspaceGraphQLEngineProvider;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.tools.adapter.Adaptables;
@@ -96,6 +98,15 @@ public class McpCallContext {
 	public McpToolRegistry getWorkspaceTools() {
 		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
 		return (engine == null) ? McpToolRegistry.EMPTY : engine.getMcpTools();
+	}
+
+	/**
+	 * The parts of the workspace's GraphQL schema as served, for reading it
+	 * part by part; empty when no schema is served.
+	 */
+	public List<GraphQLSchemaDomain> getSchemaDomains() {
+		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
+		return (engine == null) ? List.of() : engine.getSchemaDeployment().getDomains();
 	}
 
 	/**

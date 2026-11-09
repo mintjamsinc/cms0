@@ -123,6 +123,7 @@ public final class PlatformEipWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("eip", "Integration routes (EIP): the deployed routes, their state and statistics, starting and stopping.")
 				.dataFetcher("Query", "route", (DataFetcher<Object>) PlatformEipWiringContributor::route)
 				.dataFetcher("Query", "routes", (DataFetcher<Object>) PlatformEipWiringContributor::routes)
 				.dataFetcher("Query", "camelContext", (DataFetcher<Object>) PlatformEipWiringContributor::camelContext)

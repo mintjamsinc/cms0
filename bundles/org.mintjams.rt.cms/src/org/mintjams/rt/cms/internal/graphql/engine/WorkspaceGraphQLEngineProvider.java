@@ -420,6 +420,9 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 			GraphQLSchemaDeployment.Status status = fConfig.isEnabled() ? GraphQLSchemaDeployment.Status.DEPLOYED
 					: GraphQLSchemaDeployment.Status.DISABLED;
 			long servedSince = attemptedAt;
+			// The parts of the schema that ends up served: the report's, unless
+			// another schema than the one compiled is served.
+			List<GraphQLSchemaDomain> domains = null;
 			try {
 				compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), roots,
 						platformContributors(), new GraphQLExceptionHandler(), report);
@@ -449,13 +452,16 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 					compiled = fGraphQL;
 					status = GraphQLSchemaDeployment.Status.KEEPING_PREVIOUS;
 					servedSince = fDeployment.getServedSinceMillis();
+					domains = fDeployment.getDomains();
 				} else {
 					CmsService.getLogger(getClass()).error("Failed to compile the application GraphQL schema for the"
 							+ " workspace: " + getWorkspaceName() + " — serving the platform schema only until the"
 							+ " application schema is fixed", appEx);
+					GraphQLSchemaDeployment.Report platformReport = new GraphQLSchemaDeployment.Report();
 					compiled = GraphQLSchemaCompiler.compile(session, getWorkspaceName(), List.of(),
-							platformContributors(), new GraphQLExceptionHandler());
+							platformContributors(), new GraphQLExceptionHandler(), platformReport);
 					status = GraphQLSchemaDeployment.Status.PLATFORM_ONLY;
+					domains = platformReport.domains();
 				}
 			}
 			fGraphQL = compiled;
@@ -464,8 +470,10 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 						.info("No GraphQL schema present for the workspace: " + getWorkspaceName());
 				status = GraphQLSchemaDeployment.Status.UNAVAILABLE;
 				servedSince = 0;
+				domains = List.of();
 			}
-			fDeployment = new GraphQLSchemaDeployment(status, attemptedAt, servedSince, report);
+			fDeployment = new GraphQLSchemaDeployment(status, attemptedAt, servedSince, report,
+					(domains != null) ? domains : report.domains());
 		} catch (Throwable ex) {
 			CmsService.getLogger(getClass()).error("Failed to compile the GraphQL schema for the workspace: "
 					+ getWorkspaceName() + " (keeping the previous schema)", ex);
@@ -474,8 +482,9 @@ public class WorkspaceGraphQLEngineProvider implements Closeable {
 			}
 			fDeployment = (fGraphQL != null)
 					? new GraphQLSchemaDeployment(GraphQLSchemaDeployment.Status.KEEPING_PREVIOUS, attemptedAt,
-							fDeployment.getServedSinceMillis(), report)
-					: new GraphQLSchemaDeployment(GraphQLSchemaDeployment.Status.UNAVAILABLE, attemptedAt, 0, report);
+							fDeployment.getServedSinceMillis(), report, fDeployment.getDomains())
+					: new GraphQLSchemaDeployment(GraphQLSchemaDeployment.Status.UNAVAILABLE, attemptedAt, 0, report,
+							List.of());
 		} finally {
 			if (session != null) {
 				rebuildMcpTools(session);

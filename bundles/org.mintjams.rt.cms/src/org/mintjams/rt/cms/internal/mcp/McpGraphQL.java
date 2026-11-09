@@ -23,12 +23,22 @@
 package org.mintjams.rt.cms.internal.mcp;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import graphql.language.Definition;
+import graphql.language.Document;
+import graphql.language.Field;
+import graphql.language.FragmentDefinition;
+import graphql.language.FragmentSpread;
+import graphql.language.InlineFragment;
 import graphql.language.OperationDefinition;
+import graphql.language.Selection;
+import graphql.language.SelectionSet;
 import graphql.parser.Parser;
 
 /**
@@ -94,26 +104,8 @@ final class McpGraphQL {
 			return OperationKind.UNKNOWN;
 		}
 		try {
-			OperationDefinition selected = null;
-			int count = 0;
-			for (Definition<?> definition : Parser.parse(query).getDefinitions()) {
-				if (!(definition instanceof OperationDefinition)) {
-					continue;
-				}
-				OperationDefinition operation = (OperationDefinition) definition;
-				count++;
-				if (operationName == null || operationName.isEmpty()) {
-					selected = operation;
-				} else if (operationName.equals(operation.getName())) {
-					selected = operation;
-					count = 1;
-					break;
-				}
-			}
-			if (selected == null || count != 1) {
-				return OperationKind.UNKNOWN;
-			}
-			if (operationName != null && !operationName.isEmpty() && !operationName.equals(selected.getName())) {
+			OperationDefinition selected = select(Parser.parse(query), operationName);
+			if (selected == null) {
 				return OperationKind.UNKNOWN;
 			}
 			OperationDefinition.Operation operation = selected.getOperation();
@@ -127,6 +119,84 @@ final class McpGraphQL {
 		} catch (Throwable ex) {
 			return OperationKind.UNKNOWN;
 		}
+	}
+
+	/**
+	 * The root fields the request's operation selects — the schema's functions
+	 * it calls — by their real names (an alias does not hide one), with
+	 * fragments at the root followed. Empty when the operation cannot be chosen
+	 * or the document does not parse; what is logged for a mutation.
+	 */
+	static List<String> rootFields(String query, String operationName) {
+		List<String> names = new ArrayList<>();
+		if (query == null) {
+			return names;
+		}
+		try {
+			Document document = Parser.parse(query);
+			OperationDefinition selected = select(document, operationName);
+			if (selected == null) {
+				return names;
+			}
+			Map<String, FragmentDefinition> fragments = new HashMap<>();
+			for (Definition<?> definition : document.getDefinitions()) {
+				if (definition instanceof FragmentDefinition) {
+					fragments.put(((FragmentDefinition) definition).getName(), (FragmentDefinition) definition);
+				}
+			}
+			collectFields(selected.getSelectionSet(), fragments, names, new HashSet<>());
+		} catch (Throwable ignore) {
+			// an unparseable document is refused before it is run
+		}
+		return names;
+	}
+
+	private static void collectFields(SelectionSet selectionSet, Map<String, FragmentDefinition> fragments,
+			List<String> names, Set<String> visited) {
+		if (selectionSet == null) {
+			return;
+		}
+		for (Selection<?> selection : selectionSet.getSelections()) {
+			if (selection instanceof Field) {
+				String name = ((Field) selection).getName();
+				if (!names.contains(name)) {
+					names.add(name);
+				}
+			} else if (selection instanceof InlineFragment) {
+				collectFields(((InlineFragment) selection).getSelectionSet(), fragments, names, visited);
+			} else if (selection instanceof FragmentSpread) {
+				String name = ((FragmentSpread) selection).getName();
+				if (visited.add(name) && fragments.containsKey(name)) {
+					collectFields(fragments.get(name).getSelectionSet(), fragments, names, visited);
+				}
+			}
+		}
+	}
+
+	/**
+	 * The operation a request runs: the one named by {@code operationName}, or
+	 * the only one when no name is given. Null when none can be chosen — no
+	 * operation, several without a name, or a name no operation has.
+	 */
+	private static OperationDefinition select(Document document, String operationName) {
+		boolean named = (operationName != null && !operationName.isEmpty());
+		OperationDefinition only = null;
+		int count = 0;
+		for (Definition<?> definition : document.getDefinitions()) {
+			if (!(definition instanceof OperationDefinition)) {
+				continue;
+			}
+			OperationDefinition operation = (OperationDefinition) definition;
+			if (named) {
+				if (operationName.equals(operation.getName())) {
+					return operation;
+				}
+			} else {
+				only = operation;
+				count++;
+			}
+		}
+		return (!named && count == 1) ? only : null;
 	}
 
 	/**

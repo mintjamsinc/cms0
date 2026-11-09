@@ -128,6 +128,7 @@ public final class PlatformFilesWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("files", "What a reader needs beyond the node fields: a document's extracted text, diffs, grep and find.")
 				.dataFetcher("Query", "documentText", (DataFetcher<Object>) PlatformFilesWiringContributor::documentText)
 				.dataFetcher("Query", "fileDiff", (DataFetcher<Object>) PlatformFilesWiringContributor::fileDiff)
 				.dataFetcher("Query", "grepFiles", (DataFetcher<Object>) PlatformFilesWiringContributor::grepFiles)

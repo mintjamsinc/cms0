@@ -62,6 +62,7 @@ public final class PlatformConnectionsWiringContributor implements WiringContrib
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("connections", "The Google and Microsoft accounts the caller linked, and the permission bundles granted to each.")
 				.dataFetcher("Query", "linkedAccounts",
 						(DataFetcher<Object>) PlatformConnectionsWiringContributor::linkedAccounts)
 				.dataFetcher("Mutation", "unlinkAccount",

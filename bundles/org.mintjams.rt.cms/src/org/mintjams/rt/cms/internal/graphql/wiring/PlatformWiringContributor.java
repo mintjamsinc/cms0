@@ -177,6 +177,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("platform", "Content: files, folders and their properties, access control, locks, versions, the signed-in user, the cluster.")
 				.dataFetcher("Query", "cluster", (DataFetcher<Object>) PlatformWiringContributor::cluster)
 				.dataFetcher("Query", "node", (DataFetcher<Object>) PlatformWiringContributor::node)
 				.dataFetcher("Query", "children", (DataFetcher<Object>) PlatformWiringContributor::children)

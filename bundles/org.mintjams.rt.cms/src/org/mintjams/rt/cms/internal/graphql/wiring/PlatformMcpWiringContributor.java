@@ -62,6 +62,7 @@ public final class PlatformMcpWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("mcp", "The caller's MCP connection to the workspace: on or off, read-only or writable, connected clients.")
 				.dataFetcher("Query", "mcpConnection", (DataFetcher<Object>) PlatformMcpWiringContributor::mcpConnection)
 				.dataFetcher("Query", "mcpToolDeployments",
 						(DataFetcher<Object>) PlatformMcpWiringContributor::mcpToolDeployments)

@@ -77,6 +77,7 @@ public final class PlatformCloudWiringContributor implements WiringContributor {
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("cloud", "The caller's Google Drive or OneDrive: browsing, reading, and copying files between it and the workspace.")
 				.dataFetcher("Query", "cloudStorages", (DataFetcher<Object>) PlatformCloudWiringContributor::cloudStorages)
 				.dataFetcher("Query", "cloudDrives", (DataFetcher<Object>) PlatformCloudWiringContributor::cloudDrives)
 				.dataFetcher("Query", "cloudFolder", (DataFetcher<Object>) PlatformCloudWiringContributor::cloudFolder)

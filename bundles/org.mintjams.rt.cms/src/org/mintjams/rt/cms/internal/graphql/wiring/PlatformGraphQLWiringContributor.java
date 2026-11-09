@@ -56,6 +56,7 @@ public final class PlatformGraphQLWiringContributor implements WiringContributor
 	public SchemaContribution contribute(String workspaceName) throws Exception {
 		return new SchemaContribution()
 				.sdl(loadSchema())
+				.domain("graphql", "What became of the last deployment of the workspace's own schema and MCP tools.")
 				.dataFetcher("Query", "graphqlSchemaDeployment",
 						(DataFetcher<Object>) PlatformGraphQLWiringContributor::graphqlSchemaDeployment);
 	}

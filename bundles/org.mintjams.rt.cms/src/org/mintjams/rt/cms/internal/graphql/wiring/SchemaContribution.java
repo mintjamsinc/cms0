@@ -59,6 +59,29 @@ public final class SchemaContribution {
 	private final Map<String, TypeResolver> typeResolvers = new LinkedHashMap<>();
 	// scalarName -> custom scalar
 	private final Map<String, GraphQLScalarType> scalars = new LinkedHashMap<>();
+	private String domainName;
+	private String domainDescription;
+
+	/**
+	 * Names the part of the schema this contribution is, for whoever reads the
+	 * schema in parts (the MCP server's {@code graphql_schema} tool): a short
+	 * name such as {@code bpm} and one line on what the fields are about.
+	 */
+	public SchemaContribution domain(String name, String description) {
+		domainName = name;
+		domainDescription = description;
+		return this;
+	}
+
+	/** The domain name given by {@link #domain}, or null. */
+	public String getDomainName() {
+		return domainName;
+	}
+
+	/** The domain description given by {@link #domain}, or null. */
+	public String getDomainDescription() {
+		return domainDescription;
+	}
 
 	/** Adds one SDL fragment (schema definition language text). Blank input is ignored. */
 	public SchemaContribution sdl(String sdl) {

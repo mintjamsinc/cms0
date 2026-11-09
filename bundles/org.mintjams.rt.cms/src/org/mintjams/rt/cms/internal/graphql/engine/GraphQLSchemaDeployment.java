@@ -98,9 +98,20 @@ public final class GraphQLSchemaDeployment {
 		private final List<FileEntry> fFiles = new ArrayList<>();
 		private final List<Problem> fErrors = new ArrayList<>();
 		private final List<Problem> fWarnings = new ArrayList<>();
+		private final List<GraphQLSchemaDomain> fDomains = new ArrayList<>();
 
 		public void file(String path, String kind, String target) {
 			fFiles.add(new FileEntry(path, kind, target));
+		}
+
+		/** Records one part of the schema, in the order the parts were merged. */
+		public void domain(GraphQLSchemaDomain domain) {
+			fDomains.add(domain);
+		}
+
+		/** The parts recorded so far. */
+		public List<GraphQLSchemaDomain> domains() {
+			return Collections.unmodifiableList(new ArrayList<>(fDomains));
 		}
 
 		public void error(String path, String message) {
@@ -130,14 +141,28 @@ public final class GraphQLSchemaDeployment {
 	private final List<FileEntry> fFiles;
 	private final List<Problem> fErrors;
 	private final List<Problem> fWarnings;
+	private final List<GraphQLSchemaDomain> fDomains;
 
+	/** The deployment {@code report} describes, whose parts are the ones the report recorded. */
 	GraphQLSchemaDeployment(Status status, long attemptedAtMillis, long servedSinceMillis, Report report) {
+		this(status, attemptedAtMillis, servedSinceMillis, report, report.fDomains);
+	}
+
+	/**
+	 * The deployment {@code report} describes, serving the schema whose parts
+	 * are {@code domains}: when a compile fails and an earlier schema, or a
+	 * platform-only one, is served instead, the parts are that schema's, not
+	 * the failed compile's.
+	 */
+	GraphQLSchemaDeployment(Status status, long attemptedAtMillis, long servedSinceMillis, Report report,
+			List<GraphQLSchemaDomain> domains) {
 		fStatus = status;
 		fAttemptedAtMillis = attemptedAtMillis;
 		fServedSinceMillis = servedSinceMillis;
 		fFiles = Collections.unmodifiableList(new ArrayList<>(report.fFiles));
 		fErrors = Collections.unmodifiableList(new ArrayList<>(report.fErrors));
 		fWarnings = Collections.unmodifiableList(new ArrayList<>(report.fWarnings));
+		fDomains = Collections.unmodifiableList(new ArrayList<>(domains));
 	}
 
 	public Status getStatus() {
@@ -167,6 +192,15 @@ public final class GraphQLSchemaDeployment {
 	/** What the last compile ignored or could not use, without failing. */
 	public List<Problem> getWarnings() {
 		return fWarnings;
+	}
+
+	/**
+	 * The parts of the schema now served, platform parts first in the order
+	 * they are contributed, then the workspace's own folders; empty when
+	 * nothing is served.
+	 */
+	public List<GraphQLSchemaDomain> getDomains() {
+		return fDomains;
 	}
 
 }
