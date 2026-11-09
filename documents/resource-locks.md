@@ -103,9 +103,14 @@ Lock resources that do not correspond to a content node live under `/var/locks`,
 one folder per name. The folder is empty content — its only job is to carry the
 lock.
 
-`nt:folder` does not inherit `mix:lockable`. The Resource API's `lock` and
-`tryLock` add the mixin themselves; a route creates the target, commits, and
-then locks it:
+`nt:folder` does not inherit `mix:lockable`. A folder or file created through
+the Resource API carries the mixin from the start; one created by other means
+(provisioning, `JCRs`) gets it from the Resource API's `lock` / `tryLock` on
+the first lock, which saves the mixin before taking the lock — only when that
+is the session's sole pending change, so that locking never commits work the
+caller has not committed; otherwise the first lock is refused with
+"commit the session before locking it for the first time". A route creates
+the target, commits, and then locks it:
 
 ```groovy
 def lockFile = context.session.getResource('/var/locks/nightly-report');

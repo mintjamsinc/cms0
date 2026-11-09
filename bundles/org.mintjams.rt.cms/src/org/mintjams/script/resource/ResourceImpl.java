@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.nio.file.spi.FileTypeDetector;
 import java.util.Calendar;
 
+import javax.jcr.InvalidItemStateException;
 import javax.jcr.Node;
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
@@ -257,11 +258,9 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource addReferenceable() throws ResourceException {
 		try {
-			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
-			if (jcrAction.isLockable()) {
-				jcrAction.checkLock();
-			}
-			jcrAction.addReferenceable();
+			// checkLock sees a deep lock on an ancestor too, so it is not
+			// skipped for a node that is not itself mix:lockable.
+			JcrAction.create(getNode()).addLockToken().checkLock().addReferenceable();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -271,11 +270,7 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource removeReferenceable() throws ResourceException {
 		try {
-			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
-			if (jcrAction.isLockable()) {
-				jcrAction.checkLock();
-			}
-			jcrAction.removeReferenceable();
+			JcrAction.create(getNode()).addLockToken().checkLock().removeReferenceable();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
@@ -524,12 +519,38 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource lock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().lock(isDeep, isSessionScoped,
-					timeoutSeconds);
+			lockable().lock(isDeep, isSessionScoped, timeoutSeconds);
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
 		return this;
+	}
+
+	/**
+	 * Prepares the node for {@code lock}: the lock tokens this session may
+	 * inherit, {@code mix:lockable} on the node, and the lock check.
+	 *
+	 * <p>A folder or file created outside the Resource API (provisioning,
+	 * {@code JCRs}) is not {@code mix:lockable}. The JCR layer locks saved
+	 * state only, so the mixin has to be saved before the lock is taken, and
+	 * the only way to save it is the session: that is done here when the
+	 * mixin is the session's sole pending change, so that locking never
+	 * commits work the caller has not committed. With other changes pending,
+	 * the first lock on such a node is refused with the remedy — commit
+	 * first — instead of the JCR layer's "unsaved changes".
+	 */
+	private JcrAction lockable() throws RepositoryException, ResourceException {
+		JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
+		if (!jcrAction.isLockable()) {
+			javax.jcr.Session jcrSession = getNode().getSession();
+			if (jcrSession.hasPendingChanges()) {
+				throw new InvalidItemStateException(getPath()
+						+ " is not mix:lockable yet; commit the session before locking it for the first time.");
+			}
+			jcrAction.addLockable();
+			jcrSession.save();
+		}
+		return jcrAction.checkLock();
 	}
 
 	@Override
@@ -559,8 +580,7 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource tryLock(boolean isDeep, boolean isSessionScoped, long timeoutSeconds) throws ResourceException {
 		try {
-			JcrAction.create(getNode()).addLockToken().addLockable().checkLock().lock(isDeep, isSessionScoped,
-					timeoutSeconds);
+			lockable().lock(isDeep, isSessionScoped, timeoutSeconds);
 		} catch (LockException ex) {
 			// Held by another execution; "someone is already doing the work"
 			// is a result, not an error.
@@ -584,11 +604,7 @@ public class ResourceImpl implements Resource, Adaptable {
 	@Override
 	public Resource addVersionControl() throws ResourceException {
 		try {
-			JcrAction jcrAction = JcrAction.create(getNode()).addLockToken();
-			if (jcrAction.isLockable()) {
-				jcrAction.checkLock();
-			}
-			jcrAction.addVersionControl();
+			JcrAction.create(getNode()).addLockToken().checkLock().addVersionControl();
 		} catch (Throwable ex) {
 			throw ResourceException.wrap(ex);
 		}
