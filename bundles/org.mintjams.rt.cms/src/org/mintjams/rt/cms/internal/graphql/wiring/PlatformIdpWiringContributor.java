@@ -530,7 +530,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		}
 		try {
 			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(username);
-			return errorResult("User or group with the same name already exists: " + username, "ALREADY_EXISTS");
+			return errorResult("User, group or role with the same name already exists: " + username, "ALREADY_EXISTS");
 		} catch (PrincipalNotFoundException ignore) {
 			// expected when the principal does not exist — continue
 		}
@@ -888,6 +888,12 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		if (session.nodeExists(roleFolderPath)) {
 			return errorResult("Role already exists", "ALREADY_EXISTS");
 		}
+		try {
+			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(name);
+			return errorResult("User, group or role with the same name already exists: " + name, "ALREADY_EXISTS");
+		} catch (PrincipalNotFoundException ignore) {
+			// expected when the principal does not exist — continue
+		}
 		Node parentFolder;
 		if (parentRoleId != null && !parentRoleId.isEmpty()) {
 			String parentPath = ROLES_ROOT + "/" + parentRoleId;
@@ -903,6 +909,9 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 		profileFile.addMixin("mix:referenceable");
 		JCRs.setProperty(profileFile, "jcr:mimeType", "application/vnd.webtop.role");
 		Node contentNode = JCRs.getContentNode(profileFile);
+		// The name is the identifier the access control layer knows the role by.
+		contentNode.setProperty("identifier", name);
+		contentNode.setProperty("isRole", true);
 		setStringIfPresent(contentNode, "displayName", input);
 		setStringIfPresent(contentNode, "description", input);
 		session.save();
@@ -1019,7 +1028,7 @@ public final class PlatformIdpWiringContributor implements WiringContributor {
 				: GROUPS_ROOT + "/" + name;
 		try {
 			Workspace.class.cast(session.getWorkspace()).getPrincipalProvider().getPrincipal(name);
-			return errorResult("User or group with the same name already exists: " + name, "ALREADY_EXISTS");
+			return errorResult("User, group or role with the same name already exists: " + name, "ALREADY_EXISTS");
 		} catch (PrincipalNotFoundException ignore) {
 			// expected when the principal does not exist — continue
 		}

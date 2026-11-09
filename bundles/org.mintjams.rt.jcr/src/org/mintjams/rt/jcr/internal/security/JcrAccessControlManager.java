@@ -360,12 +360,13 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 		return ((JcrPrivilege) privilegeFromName(privilegeName)).getBits();
 	}
 
-	/** The principal names privilege evaluation matches entries against: everyone, groups, user. */
+	/** The principal names privilege evaluation matches entries against: everyone, groups, roles, user. */
 	private List<String> sessionPrincipalNames() throws RepositoryException {
 		JcrSession session = adaptTo(JcrSession.class);
 		List<String> principals = new ArrayList<>();
 		principals.add(new EveryonePrincipal().getName());
 		principals.addAll(session.getGroups().stream().map(Principal::getName).collect(Collectors.toList()));
+		principals.addAll(session.getRoles().stream().map(Principal::getName).collect(Collectors.toList()));
 		principals.add(session.getUserPrincipal().getName());
 		return principals;
 	}

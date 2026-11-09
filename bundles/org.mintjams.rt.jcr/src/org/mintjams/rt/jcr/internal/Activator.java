@@ -40,6 +40,7 @@ import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.Role;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.User;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.service.Bootstrap;
@@ -280,6 +281,30 @@ public class Activator implements BundleActivator {
 			}
 		}
 		return memberOf;
+	}
+
+	public Collection<RolePrincipal> getRolesOf(Principal principal) throws PrincipalNotFoundException {
+		if (!(principal instanceof UserPrincipal)) {
+			throw new IllegalArgumentException("Principal must be a user principal: " + principal.getName());
+		}
+		if (principal instanceof GuestPrincipal) {
+			return List.of();
+		}
+
+		List<RolePrincipal> roles = new ArrayList<>();
+		for (PrincipalProvider principalManager : getDefault().fPrincipalProviderTracker.getServices()) {
+			try {
+				principalManager.getRolesOf(principal)
+						.stream()
+						.filter(p -> !roles.contains(p))
+						.forEach(roles::add);
+			} catch (PrincipalNotFoundException | UnsupportedOperationException ignore) {
+				// ignore
+			} catch (Throwable ex) {
+				getLogger(Activator.class).warn("An error occurred while retrieving the roles: " + principal.getName(), ex);
+			}
+		}
+		return roles;
 	}
 
 	public User getUser(String identifier) {

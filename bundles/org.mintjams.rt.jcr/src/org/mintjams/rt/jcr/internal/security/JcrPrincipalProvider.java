@@ -28,6 +28,7 @@ import java.util.Collection;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.jcr.internal.Activator;
 import org.mintjams.rt.jcr.internal.JcrWorkspace;
@@ -72,6 +73,20 @@ public class JcrPrincipalProvider implements PrincipalProvider, Adaptable {
 	@Override
 	public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
 		return Activator.getDefault().getMemberOf(principal);
+	}
+
+	@Override
+	public RolePrincipal getRolePrincipal(String name) throws PrincipalNotFoundException {
+		Principal p = getPrincipal(name);
+		if (p instanceof RolePrincipal) {
+			return (RolePrincipal) p;
+		}
+		throw new PrincipalNotFoundException(name);
+	}
+
+	@Override
+	public Collection<RolePrincipal> getRolesOf(Principal principal) throws PrincipalNotFoundException {
+		return Activator.getDefault().getRolesOf(principal);
 	}
 
 	@Override

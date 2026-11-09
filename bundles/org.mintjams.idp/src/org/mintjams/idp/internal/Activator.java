@@ -249,6 +249,7 @@ public class Activator implements BundleActivator {
 
 			initializeAdminRole(rolesFolder);
 			initializeSupervisorRole(rolesFolder);
+			ensureRoleProfiles(rolesFolder);
 			initializeAdminUser(usersFolder, rolesFolder);
 			initializeAnonymousUser(usersFolder);
 			initializeEveryoneGroup(groupsFolder);
@@ -284,6 +285,93 @@ public class Activator implements BundleActivator {
 			jcrSession.save();
 		}
 		log.info("Created default 'administrator' role at {}", profileFile.getPath());
+	}
+
+	/**
+	 * Every role profile carries the identifier the access control layer knows
+	 * the role by (its folder name) and the {@code isRole} flag. Roles created
+	 * before these were written are brought up to date here.
+	 */
+	private void ensureRoleProfiles(Node rolesFolder) throws Exception {
+		int updated = completeRoleProfiles(rolesFolder);
+		warnRoleNameCollisions(rolesFolder);
+		Session jcrSession = rolesFolder.getSession();
+		if (jcrSession.hasPendingChanges()) {
+			jcrSession.save();
+		}
+		if (updated > 0) {
+			log.info("Completed {} role profile(s) under {}", updated, rolesFolder.getPath());
+		}
+	}
+
+	/**
+	 * Access control entries name a principal without saying its kind, so a
+	 * role whose identifier a user or a group already uses can never be
+	 * granted on its own. Such a role is reported; renaming is left to the
+	 * administrator.
+	 */
+	private void warnRoleNameCollisions(Node rolesFolder) throws Exception {
+		Session jcrSession = rolesFolder.getSession();
+		java.util.Set<String> taken = new java.util.HashSet<>();
+		if (jcrSession.nodeExists("/home/users")) {
+			for (javax.jcr.NodeIterator i = jcrSession.getNode("/home/users").getNodes(); i.hasNext();) {
+				Node user = i.nextNode();
+				if (user.hasNode("profile")) {
+					taken.add(user.getName());
+				}
+			}
+		}
+		if (jcrSession.nodeExists("/home/groups")) {
+			collectProfileFolderNames(jcrSession.getNode("/home/groups"), taken);
+		}
+		java.util.Set<String> roles = new java.util.HashSet<>();
+		collectProfileFolderNames(rolesFolder, roles);
+		for (String role : roles) {
+			if (taken.contains(role)) {
+				log.warn("The role '{}' has the name of a user or a group; it cannot be granted in access control until one of them is renamed.", role);
+			}
+		}
+	}
+
+	private void collectProfileFolderNames(Node folder, java.util.Set<String> names) throws Exception {
+		for (javax.jcr.NodeIterator i = folder.getNodes(); i.hasNext();) {
+			Node child = i.nextNode();
+			if (!child.isNodeType("nt:folder")) {
+				continue;
+			}
+			if (child.hasNode("profile")) {
+				names.add(child.getName());
+			}
+			collectProfileFolderNames(child, names);
+		}
+	}
+
+	private int completeRoleProfiles(Node folder) throws Exception {
+		int updated = 0;
+		for (javax.jcr.NodeIterator i = folder.getNodes(); i.hasNext();) {
+			Node child = i.nextNode();
+			if (!child.isNodeType("nt:folder")) {
+				continue;
+			}
+			if (child.hasNode("profile")) {
+				Node profile = child.getNode("profile");
+				Node content = JCRs.getContentNode(profile);
+				boolean changed = false;
+				if (!content.hasProperty("identifier")) {
+					JCRs.setProperty(profile, "identifier", child.getName());
+					changed = true;
+				}
+				if (!content.hasProperty("isRole")) {
+					JCRs.setProperty(profile, "isRole", true);
+					changed = true;
+				}
+				if (changed) {
+					updated++;
+				}
+			}
+			updated += completeRoleProfiles(child);
+		}
+		return updated;
 	}
 
 	private void initializeSupervisorRole(Node rolesFolder) throws Exception {

@@ -33,6 +33,7 @@ import javax.jcr.nodetype.ConstraintViolationException;
 import javax.jcr.version.VersionException;
 
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 
 public interface Session extends javax.jcr.Session {
@@ -44,6 +45,9 @@ public interface Session extends javax.jcr.Session {
 	UserPrincipal getUserPrincipal();
 
 	Collection<GroupPrincipal> getGroups();
+
+	/** The roles the user of this session holds directly. */
+	Collection<RolePrincipal> getRoles();
 
 	boolean isAdmin();
 

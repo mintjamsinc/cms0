@@ -533,10 +533,12 @@ public class QueryExecutor {
 					// Build principal object with id, displayName, isGroup
 					String principalName = entry.getPrincipal().getName();
 					boolean isGroup = entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal;
+					boolean isRole = entry.getPrincipal() instanceof org.mintjams.jcr.security.RolePrincipal;
 					Map<String, Object> principalMap = new HashMap<>();
 					principalMap.put("id", principalName);
-					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup));
+					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup, isRole));
 					principalMap.put("isGroup", isGroup);
+					principalMap.put("isRole", isRole);
 					entryMap.put("principal", principalMap);
 
 					// Get privileges
@@ -624,10 +626,12 @@ public class QueryExecutor {
 					// Build principal object with id, displayName, isGroup
 					String principalName = entry.getPrincipal().getName();
 					boolean isGroup = entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal;
+					boolean isRole = entry.getPrincipal() instanceof org.mintjams.jcr.security.RolePrincipal;
 					Map<String, Object> principalMap = new HashMap<>();
 					principalMap.put("id", principalName);
-					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup));
+					principalMap.put("displayName", principalResolver.resolve(principalName, isGroup, isRole));
 					principalMap.put("isGroup", isGroup);
+					principalMap.put("isRole", isRole);
 					entryMap.put("principal", principalMap);
 
 					List<String> privileges = new ArrayList<>();
@@ -713,12 +717,12 @@ public class QueryExecutor {
 							jcr:contains(@identifier, '%s') 
 							or jcr:contains(@displayName, '%s')
 						) 
-						and @isGroup
+						and (@isGroup or @isRole)
 					]
 					""".formatted(escapedKeyword, escapedKeyword);
 		} else {
 			// List all principals
-			xpath = "/jcr:root/home//*[@identifier and @isGroup]";
+			xpath = "/jcr:root/home//*[@identifier and (@isGroup or @isRole)]";
 		}
 
 		// Login to system workspace
@@ -757,9 +761,11 @@ public class QueryExecutor {
 
 				Map<String, Object> principal = new HashMap<>();
 				String identifier = node.getProperty("identifier").getString();
-				boolean isGroup = node.getProperty("isGroup").getBoolean();
+				boolean isGroup = node.hasProperty("isGroup") && node.getProperty("isGroup").getBoolean();
+				boolean isRole = node.hasProperty("isRole") && node.getProperty("isRole").getBoolean();
 				principal.put("identifier", identifier);
 				principal.put("isGroup", isGroup);
+				principal.put("isRole", isRole);
 				// Service accounts now live in the identity store like any other
 				// principal, marked by the isService property on their profile
 				// (absent means false).

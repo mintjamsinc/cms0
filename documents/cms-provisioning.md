@@ -36,7 +36,9 @@ users/groups/roles, and it does not re-run. Provisioning descriptors are the
 - they live with the owning application, not in the shared bootstrap file.
 
 The ACL entry syntax is deliberately identical to `jcr.yml`'s `acl` blocks
-(`group`/`user`/`principal`, `privileges`, `effect`) so the two are consistent.
+(`group`/`user`/`role`/`principal`, `privileges`, `effect`) so the two are
+consistent; `role` names an Identity Manager role, which is an access control
+principal like a user or a group (see [access control](access-control.md)).
 
 ## Processing model
 
@@ -99,10 +101,14 @@ by provisioning are indistinguishable from those created in the UI:
 - Group: `/home/groups/{id}/profile` (`application/vnd.webtop.group`),
   `mix:referenceable`, `identifier`, `isGroup=true`.
 - Role: `/home/roles/{id}/profile` (`application/vnd.webtop.role`),
-  `mix:referenceable`.
+  `mix:referenceable`, `identifier`, `isRole=true`.
 
 `id` may be a nested path (e.g. `ops/readonly`) to build the role/group
 hierarchy; declare parents before children.
+The last segment is the identifier the security layer knows the role or group
+by, and it must be unique across users, groups and roles: provisioning fails
+when a role takes a name a user or a group already has, or a user or a group
+takes a role's name.
 
 ## Service accounts
 

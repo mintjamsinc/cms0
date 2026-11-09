@@ -26,6 +26,7 @@ import java.security.Principal;
 import java.util.Arrays;
 
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.rt.searchindex.internal.SearchIndexImpl;
 import org.mintjams.searchindex.SearchIndex;
 import org.mintjams.searchindex.SearchIndex.Query;
@@ -68,6 +69,8 @@ public abstract class SearchIndexQuery implements SearchIndex.Query, Adaptable {
 			String name = e.getName();
 			if (e instanceof GroupPrincipal) {
 				name += "@group";
+			} else if (e instanceof RolePrincipal) {
+				name += "@role";
 			} else {
 				name += "@user";
 			}

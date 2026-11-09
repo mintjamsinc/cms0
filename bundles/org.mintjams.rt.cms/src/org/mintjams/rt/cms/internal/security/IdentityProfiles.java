@@ -33,6 +33,9 @@ import javax.jcr.query.Query;
 /**
  * Finds the profiles of the identity store in the {@code system} workspace.
  *
+ * <p>Roles are found the same way as groups below, by the last segment of
+ * their path under {@code /home/roles}.
+ *
  * <p>A group lives at {@code /home/groups/<group id>/profile}, where the group
  * id is a path: groups nest, and the last segment of the id is the identifier
  * the security layer knows the group by (the {@code identifier} property of
@@ -53,6 +56,8 @@ import javax.jcr.query.Query;
 final class IdentityProfiles {
 
 	private static final String GROUPS_ROOT = "/home/groups";
+	private static final String ROLES_ROOT = "/home/roles";
+	private static final String ROLE_CONTENT_TYPE = "application/vnd.webtop.role";
 	private static final String PROFILE = "profile";
 	private static final String CONTENT = "jcr:content";
 
@@ -94,6 +99,112 @@ final class IdentityProfiles {
 			return null;
 		}
 		return walk(session.getNode(GROUPS_ROOT), identifier);
+	}
+
+	/**
+	 * The profile of the role the security layer knows by {@code identifier}
+	 * (the last segment of its path under {@code /home/roles}), or {@code null}.
+	 * Same three steps as {@link #findGroupProfile}: the top-level path, the
+	 * search index, then the repository itself.
+	 */
+	static Node findRoleProfile(Session session, String identifier) throws RepositoryException {
+		if (identifier == null || identifier.isEmpty() || identifier.indexOf('/') >= 0) {
+			return null;
+		}
+
+		try {
+			Node profile = roleProfileAt(session, ROLES_ROOT + "/" + identifier, identifier);
+			if (profile != null) {
+				return profile;
+			}
+		} catch (RepositoryException | RuntimeException ignore) {
+			// The identifier does not make a valid path; it may still be a
+			// property value somewhere below.
+		}
+
+		Node indexed = queryRoleProfile(session, identifier);
+		if (indexed != null) {
+			return indexed;
+		}
+
+		if (!session.nodeExists(ROLES_ROOT)) {
+			return null;
+		}
+		return walkRoles(session.getNode(ROLES_ROOT), identifier);
+	}
+
+	@SuppressWarnings("deprecation")
+	private static Node queryRoleProfile(Session session, String identifier) throws RepositoryException {
+		String escaped = identifier.replace("'", "\\'");
+		String stmt = "/jcr:root/home/roles//*[@identifier = '" + escaped + "']";
+		Query q = session.getWorkspace().getQueryManager().createQuery(stmt, Query.XPATH);
+		q.setOffset(0);
+		q.setLimit(1);
+		for (NodeIterator i = q.execute().getNodes(); i.hasNext();) {
+			Node hit = i.nextNode();
+			Node profile = hit.getName().equals(CONTENT) ? hit.getParent() : hit;
+			if (isRoleProfile(profile, identifier)) {
+				return profile;
+			}
+		}
+		return null;
+	}
+
+	private static Node walkRoles(Node folder, String identifier) throws RepositoryException {
+		for (NodeIterator i = folder.getNodes(); i.hasNext();) {
+			Node child = i.nextNode();
+			if (!child.isNodeType(NodeType.NT_FOLDER)) {
+				continue;
+			}
+			Node profile = roleProfileAt(child.getSession(), child.getPath(), identifier);
+			if (profile != null) {
+				return profile;
+			}
+			Node found = walkRoles(child, identifier);
+			if (found != null) {
+				return found;
+			}
+		}
+		return null;
+	}
+
+	private static Node roleProfileAt(Session session, String folderPath, String identifier) throws RepositoryException {
+		try {
+			Node profile = session.getNode(folderPath + "/" + PROFILE);
+			return isRoleProfile(profile, identifier) ? profile : null;
+		} catch (PathNotFoundException ignore) {
+			return null;
+		}
+	}
+
+	/**
+	 * A role profile is recognised by its content type; its identifier is the
+	 * {@code identifier} property, or the folder name while an installation
+	 * created before that property was written has not been brought up to date.
+	 */
+	private static boolean isRoleProfile(Node profile, String identifier) throws RepositoryException {
+		if (!profile.hasNode(CONTENT)) {
+			return false;
+		}
+		Node content = profile.getNode(CONTENT);
+		boolean role = (content.hasProperty("isRole") && content.getProperty("isRole").getBoolean())
+				|| (content.hasProperty("jcr:mimeType") && ROLE_CONTENT_TYPE.equals(content.getProperty("jcr:mimeType").getString()));
+		if (!role) {
+			return false;
+		}
+		if (content.hasProperty("identifier")) {
+			return content.getProperty("identifier").getString().equals(identifier);
+		}
+		return profile.getParent().getName().equals(identifier);
+	}
+
+	/** The identifier of a role profile: see {@link #isRoleProfile}. */
+	static String roleIdentifier(Node profile) throws RepositoryException {
+		Node content = profile.getNode(CONTENT);
+		if (content.hasProperty("identifier")) {
+			return content.getProperty("identifier").getString();
+		}
+		return profile.getParent().getName();
 	}
 
 	@SuppressWarnings("deprecation")

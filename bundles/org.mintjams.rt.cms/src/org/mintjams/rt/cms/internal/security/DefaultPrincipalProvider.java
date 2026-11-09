@@ -39,6 +39,7 @@ import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.JCRs;
@@ -75,6 +76,11 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 			// If not found, try to find a group with the given name
 			if (IdentityProfiles.findGroupProfile(systemSession, name) != null) {
 				return new DefaultGroupPrincipal(name);
+			}
+
+			// Then a role
+			if (IdentityProfiles.findRoleProfile(systemSession, name) != null) {
+				return new DefaultRolePrincipal(name);
 			}
 
 			// Not found
@@ -188,6 +194,67 @@ public class DefaultPrincipalProvider implements PrincipalProvider {
 			return groupIds.stream().map(DefaultGroupPrincipal::new).collect(Collectors.toList());
 		} catch (RepositoryException ex) {
 			CmsService.getLogger(getClass()).error("Failed to get member of groups for principal: " + principal.getName(), ex);
+			return Collections.emptyList();
+		} finally {
+			try {
+				systemSession.logout();
+			} catch (Throwable ignore) {}
+			systemSession = null;
+		}
+	}
+
+	@Override
+	public RolePrincipal getRolePrincipal(String name) throws PrincipalNotFoundException {
+		Principal p = getPrincipal(name);
+		if (p instanceof RolePrincipal) {
+			return (RolePrincipal) p;
+		}
+
+		throw new PrincipalNotFoundException(name);
+	}
+
+	@Override
+	public Collection<RolePrincipal> getRolesOf(Principal principal) {
+		if (!(principal instanceof UserPrincipal)) {
+			throw new IllegalArgumentException("Principal must be a user principal: " + principal.getName());
+		}
+		if (principal.getName().equals("anonymous")) {
+			return Collections.emptyList();
+		}
+
+		javax.jcr.Session systemSession = null;
+		try {
+			systemSession = CmsService.getRepository().login(new CmsServiceCredentials(), "system");
+
+			Node contentNode;
+			try {
+				contentNode = systemSession.getNode("/home/users/" + principal.getName() + "/profile/jcr:content");
+			} catch (PathNotFoundException ignore) {
+				return Collections.emptyList();
+			}
+			if (!contentNode.hasProperty("roles")) {
+				return Collections.emptyList();
+			}
+
+			Property rolesProperty = contentNode.getProperty("roles");
+			List<String> roleIds = new ArrayList<>();
+			Value[] values = rolesProperty.isMultiple() ? rolesProperty.getValues() : new Value[] { rolesProperty.getValue() };
+			for (Value val : values) {
+				Node refNode;
+				try {
+					refNode = contentNode.getSession().getNodeByIdentifier(val.getString());
+				} catch (javax.jcr.ItemNotFoundException dangling) {
+					// A role that was deleted without being revoked from the user.
+					continue;
+				}
+				String roleId = IdentityProfiles.roleIdentifier(refNode);
+				if (!roleIds.contains(roleId)) {
+					roleIds.add(roleId);
+				}
+			}
+			return roleIds.stream().map(DefaultRolePrincipal::new).collect(Collectors.toList());
+		} catch (RepositoryException ex) {
+			CmsService.getLogger(getClass()).error("Failed to get roles of principal: " + principal.getName(), ex);
 			return Collections.emptyList();
 		} finally {
 			try {

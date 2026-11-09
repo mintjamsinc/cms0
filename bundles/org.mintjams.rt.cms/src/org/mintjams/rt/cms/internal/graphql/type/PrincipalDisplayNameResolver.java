@@ -30,6 +30,7 @@ import javax.jcr.Session;
 import org.mintjams.jcr.Workspace;
 import org.mintjams.jcr.security.Group;
 import org.mintjams.jcr.security.IdentityProvider;
+import org.mintjams.jcr.security.Role;
 import org.mintjams.jcr.security.User;
 
 /**
@@ -54,6 +55,7 @@ public class PrincipalDisplayNameResolver {
 	private final Session session;
 	private final Map<String, String> userCache = new HashMap<>();
 	private final Map<String, String> groupCache = new HashMap<>();
+	private final Map<String, String> roleCache = new HashMap<>();
 
 	public PrincipalDisplayNameResolver(Session session) {
 		this.session = session;
@@ -120,6 +122,37 @@ public class PrincipalDisplayNameResolver {
 	 * For an unknown principal (id has no display name set, or lookup failed),
 	 * returns {@code null}.
 	 */
+	public String getRoleDisplayName(String identifier) {
+		if (identifier == null || identifier.isEmpty()) {
+			return null;
+		}
+		String cached = roleCache.get(identifier);
+		if (cached != null) {
+			return cached == NONE ? null : cached;
+		}
+		String resolved = null;
+		try {
+			IdentityProvider idp = identityProvider();
+			if (idp != null) {
+				Role role = idp.getRole(identifier);
+				if (role != null) {
+					resolved = role.getDisplayName();
+				}
+			}
+		} catch (Throwable ignore) {
+			// fall through with null
+		}
+		roleCache.put(identifier, resolved == null ? NONE : resolved);
+		return resolved;
+	}
+
+	public String resolve(String identifier, boolean isGroup, boolean isRole) {
+		if (isRole) {
+			return getRoleDisplayName(identifier);
+		}
+		return resolve(identifier, isGroup);
+	}
+
 	public String resolve(String identifier, boolean isGroup) {
 		return isGroup ? getGroupDisplayName(identifier) : getUserDisplayName(identifier);
 	}

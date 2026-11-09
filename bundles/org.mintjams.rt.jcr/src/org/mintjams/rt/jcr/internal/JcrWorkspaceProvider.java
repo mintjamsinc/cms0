@@ -59,6 +59,7 @@ import org.mintjams.jcr.security.AdminPrincipal;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.LoginTimedOutException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.blob.BlobStore;
@@ -1061,6 +1062,15 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 	 */
 	public boolean hasPrivileges(UserPrincipal user, Collection<GroupPrincipal> groups, String absPath, String... privileges)
 			throws RepositoryException {
+		return hasPrivileges(user, groups, List.of(), absPath, privileges);
+	}
+
+	/**
+	 * As {@link #hasPrivileges(UserPrincipal, Collection, String, String...)}, with
+	 * the roles the user holds matched against the entries as well.
+	 */
+	public boolean hasPrivileges(UserPrincipal user, Collection<GroupPrincipal> groups, Collection<RolePrincipal> roles,
+			String absPath, String... privileges) throws RepositoryException {
 		if (user == null || absPath == null || !absPath.startsWith("/")) {
 			return false;
 		}
@@ -1073,7 +1083,7 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 			}
 			required |= bits;
 		}
-		return (privilegesMask(user, groups, absPath) & required) == required;
+		return (privilegesMask(user, groups, roles, absPath) & required) == required;
 	}
 
 	/**
@@ -1090,7 +1100,8 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		}
 	}
 
-	private long privilegesMask(UserPrincipal user, Collection<GroupPrincipal> groups, String absPath)
+	private long privilegesMask(UserPrincipal user, Collection<GroupPrincipal> groups, Collection<RolePrincipal> roles,
+			String absPath)
 			throws RepositoryException {
 		long all = JcrAccessControlManager.standardPrivilegeBits(javax.jcr.security.Privilege.JCR_ALL);
 		long read = JcrAccessControlManager.standardPrivilegeBits(javax.jcr.security.Privilege.JCR_READ);
@@ -1116,6 +1127,11 @@ public class JcrWorkspaceProvider implements Closeable, Adaptable {
 		if (groups != null) {
 			for (GroupPrincipal group : groups) {
 				principals.add(group.getName());
+			}
+		}
+		if (roles != null) {
+			for (RolePrincipal role : roles) {
+				principals.add(role.getName());
 			}
 		}
 		principals.add(user.getName());

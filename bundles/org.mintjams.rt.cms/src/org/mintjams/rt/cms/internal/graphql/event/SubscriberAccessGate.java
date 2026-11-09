@@ -37,6 +37,7 @@ import org.mintjams.jcr.Repository;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
@@ -131,8 +132,8 @@ public final class SubscriberAccessGate {
 
 		boolean readable;
 		try {
-			readable = repository.hasPrivileges(workspaceName, identity.principal, identity.groups, absPath,
-					Privilege.JCR_READ);
+			readable = repository.hasPrivileges(workspaceName, identity.principal, identity.groups, identity.roles,
+					absPath, Privilege.JCR_READ);
 		} catch (Throwable ex) {
 			// Undecidable: never deliver on a guess.
 			CmsService.getLogger(SubscriberAccessGate.class)
@@ -182,17 +183,17 @@ public final class SubscriberAccessGate {
 	private static Identity resolve(String userId, long now) {
 		Repository repository = repository();
 		if (repository == null) {
-			return new Identity(null, Collections.emptyList(), now);
+			return new Identity(null, Collections.emptyList(), Collections.emptyList(), now);
 		}
 		PrincipalProvider principalProvider = repository.getPrincipalProvider();
 		UserPrincipal principal;
 		try {
 			principal = principalProvider.getUserPrincipal(userId);
 		} catch (PrincipalNotFoundException ex) {
-			return new Identity(null, Collections.emptyList(), now);
+			return new Identity(null, Collections.emptyList(), Collections.emptyList(), now);
 		} catch (Throwable ex) {
 			CmsService.getLogger(SubscriberAccessGate.class).debug("Could not resolve the user '" + userId + "'.", ex);
-			return new Identity(null, Collections.emptyList(), now);
+			return new Identity(null, Collections.emptyList(), Collections.emptyList(), now);
 		}
 		Collection<GroupPrincipal> groups;
 		try {
@@ -204,7 +205,18 @@ public final class SubscriberAccessGate {
 					.debug("Could not resolve the groups of the user '" + userId + "'.", ex);
 			groups = Collections.emptyList();
 		}
-		return new Identity(principal, Collections.unmodifiableCollection(groups), now);
+		Collection<RolePrincipal> roles;
+		try {
+			roles = principalProvider.getRolesOf(principal);
+		} catch (PrincipalNotFoundException ex) {
+			roles = Collections.emptyList();
+		} catch (Throwable ex) {
+			CmsService.getLogger(SubscriberAccessGate.class)
+					.debug("Could not resolve the roles of the user '" + userId + "'.", ex);
+			roles = Collections.emptyList();
+		}
+		return new Identity(principal, Collections.unmodifiableCollection(groups),
+				Collections.unmodifiableCollection(roles), now);
 	}
 
 	private static Decisions decisions(String workspaceName, long revision, long generation) {
@@ -291,11 +303,14 @@ public final class SubscriberAccessGate {
 	private static final class Identity {
 		final UserPrincipal principal;
 		final Collection<GroupPrincipal> groups;
+		final Collection<RolePrincipal> roles;
 		final long resolvedAt;
 
-		Identity(UserPrincipal principal, Collection<GroupPrincipal> groups, long resolvedAt) {
+		Identity(UserPrincipal principal, Collection<GroupPrincipal> groups, Collection<RolePrincipal> roles,
+				long resolvedAt) {
 			this.principal = principal;
 			this.groups = groups;
+			this.roles = roles;
 			this.resolvedAt = resolvedAt;
 		}
 	}

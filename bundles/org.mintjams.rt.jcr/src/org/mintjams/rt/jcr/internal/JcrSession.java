@@ -72,6 +72,7 @@ import org.mintjams.jcr.security.AdminPrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.lock.JcrLock;
@@ -93,6 +94,7 @@ public class JcrSession implements Session, Adaptable {
 
 	private final UserPrincipal fPrincipal;
 	private Collection<GroupPrincipal> fGroups = null;
+	private Collection<RolePrincipal> fRoles = null;
 	private final JcrWorkspace fWorkspace;
 	private final Map<String, String> fNamespaces = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 	/**
@@ -809,6 +811,20 @@ public class JcrSession implements Session, Adaptable {
 			fGroups = Collections.unmodifiableCollection(groups);
 		}
 		return fGroups;
+	}
+
+	@Override
+	public Collection<RolePrincipal> getRoles() {
+		if (fRoles == null) {
+			Collection<RolePrincipal> roles;
+			try {
+				roles = Activator.getDefault().getRolesOf(fPrincipal);
+			} catch (PrincipalNotFoundException ex) {
+				roles = Collections.emptyList();
+			}
+			fRoles = Collections.unmodifiableCollection(roles);
+		}
+		return fRoles;
 	}
 
 	@Override

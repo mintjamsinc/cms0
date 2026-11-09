@@ -57,6 +57,7 @@ import org.mintjams.jcr.security.AccessControlManager;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.spi.security.Authenticator;
 import org.mintjams.jcr.spi.security.IdentityProvider;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
@@ -1050,6 +1051,37 @@ public class CmsService {
 			return true;
 		} catch (PrincipalNotFoundException ex) {
 			return false;
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	public static boolean roleExists(String roleId) throws RepositoryException {
+		Session jcrSession = null;
+		try {
+			jcrSession = getRepository().login(new CmsServiceCredentials(), "system");
+			Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider().getRolePrincipal(roleId);
+			return true;
+		} catch (PrincipalNotFoundException ex) {
+			return false;
+		} finally {
+			try {
+				jcrSession.logout();
+			} catch (Throwable ignore) {}
+		}
+	}
+
+	/** The roles the user holds directly, by the identifiers the security layer knows them by. */
+	public static Collection<RolePrincipal> getRolesOf(String userId) throws RepositoryException {
+		Session jcrSession = null;
+		try {
+			jcrSession = getRepository().login(new CmsServiceCredentials(), "system");
+			org.mintjams.jcr.security.PrincipalProvider pp = Workspace.class.cast(jcrSession.getWorkspace()).getPrincipalProvider();
+			return pp.getRolesOf(pp.getUserPrincipal(userId));
+		} catch (PrincipalNotFoundException ex) {
+			return List.of();
 		} finally {
 			try {
 				jcrSession.logout();

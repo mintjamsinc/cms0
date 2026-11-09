@@ -494,6 +494,7 @@ ${LIST_NODE_FIELDS}
             id
             displayName
             isGroup
+            isRole
           }
           privileges
           allow
@@ -512,6 +513,7 @@ ${LIST_NODE_FIELDS}
             id
             displayName
             isGroup
+            isRole
           }
           privileges
           allow
@@ -520,12 +522,13 @@ ${LIST_NODE_FIELDS}
     }
   `,
 
-  /** Search principals (users and groups) */
+  /** Search principals (users, groups and roles) */
   SEARCH_PRINCIPALS: `
     query SearchPrincipals($keyword: String!, $offset: Int, $limit: Int) {
       searchPrincipals(keyword: $keyword, offset: $offset, limit: $limit) {
         identifier
         isGroup
+        isRole
         isService
         displayName
       }

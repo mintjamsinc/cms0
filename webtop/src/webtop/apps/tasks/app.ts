@@ -509,7 +509,9 @@ export const App = {
 						}
 						this.myGroups = (me.effectiveGroups || me.memberOf || [])
 							.map(g => g.groupId || (g as any).name || '')
-							.filter(Boolean);
+							.filter(Boolean)
+							// Roles are candidate groups too (the engine reports them beside the groups).
+							.concat(((me as any).roles || []).map((r: any) => r.name || '').filter(Boolean));
 					}
 				}
 			} catch (err) {

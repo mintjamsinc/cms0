@@ -48,6 +48,7 @@ import org.mintjams.jcr.security.AccessControlList;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.security.UserHomeAccess;
 import org.mintjams.jcr.util.JCRs;
@@ -108,6 +109,9 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  *     acl:
  *       - group: commerce-operators
  *         privileges: jcr:read, jcr:write
+ *         effect: allow
+ *       - role: site-approver     # a role users hold (Identity Manager)
+ *         privileges: jcr:read
  *         effect: allow
  * </pre>
  *
@@ -321,10 +325,16 @@ public class Provisioner implements Closeable {
 			return;
 		}
 
+		requireFreeName(leafName(id), "role", id);
+
 		Node roleFolder = getOrCreateJcrFolder(session, folderPath);
 		Node profile = JCRs.createFile(roleFolder, "profile");
 		profile.addMixin("mix:referenceable");
 		JCRs.setProperty(profile, "jcr:mimeType", ROLE_CONTENT_TYPE);
+		Node contentNode = JCRs.getContentNode(profile);
+		// The leaf segment is the role identifier exposed to the security layer.
+		contentNode.setProperty("identifier", leafName(id));
+		contentNode.setProperty("isRole", true);
 		setStringIfPresent(profile, "displayName", definition);
 		setStringIfPresent(profile, "description", definition);
 		session.save();
@@ -338,6 +348,8 @@ public class Provisioner implements Closeable {
 		if (session.nodeExists(folderPath)) {
 			return;
 		}
+
+		requireNoRole(leafName(id), "group", id);
 
 		Node groupFolder = getOrCreateJcrFolder(session, folderPath);
 		Node profile = JCRs.createFile(groupFolder, "profile");
@@ -371,6 +383,8 @@ public class Provisioner implements Closeable {
 		if (!service && Strings.isEmpty(password)) {
 			throw new IOException("A password is required to provision user: " + id);
 		}
+
+		requireNoRole(id, "user", id);
 
 		Node userFolder = getOrCreateJcrFolder(session, userFolderPath);
 		Node profile = JCRs.createFile(userFolder, "profile");
@@ -411,6 +425,38 @@ public class Provisioner implements Closeable {
 	 * the set as weak references, exactly as the Identity Manager does. Unknown
 	 * ids are skipped so a descriptor never fails on a forward reference.
 	 */
+	/** A new role must not take the name of an existing user, group or role. */
+	private void requireFreeName(String name, String kind, String id) throws IOException {
+		Principal existing;
+		try {
+			existing = fSession.getPrincipalProvider().getPrincipal(name);
+		} catch (PrincipalNotFoundException free) {
+			return;
+		}
+		throw new IOException("Cannot provision " + kind + " '" + id + "': the name '" + name + "' is already taken by "
+				+ describe(existing) + ".");
+	}
+
+	/** A new user or group must not take the name of an existing role. */
+	private void requireNoRole(String name, String kind, String id) throws IOException {
+		try {
+			fSession.getPrincipalProvider().getRolePrincipal(name);
+		} catch (PrincipalNotFoundException free) {
+			return;
+		}
+		throw new IOException("Cannot provision " + kind + " '" + id + "': the name '" + name + "' is already taken by a role.");
+	}
+
+	private static String describe(Principal principal) {
+		if (principal instanceof GroupPrincipal) {
+			return "a group";
+		}
+		if (principal instanceof RolePrincipal) {
+			return "a role";
+		}
+		return "a user";
+	}
+
 	private void setReferences(Node contentNode, String propertyName, String root, List<String> ids) throws Exception {
 		if (ids.isEmpty()) {
 			return;
@@ -517,8 +563,8 @@ public class Provisioner implements Closeable {
 	}
 
 	/**
-	 * Resolves the ACE principal from the {@code principal}, {@code group} or
-	 * {@code user} key. The principal provider is consulted first so that the
+	 * Resolves the ACE principal from the {@code principal}, {@code group},
+	 * {@code user} or {@code role} key. The principal provider is consulted first so that the
 	 * canonical principal is stored; when it cannot be resolved (e.g. a built-in
 	 * or not-yet-known principal) a typed placeholder is used so the entry is
 	 * still recorded by name, matching the behaviour of the jcr.yml loader.
@@ -539,7 +585,13 @@ public class Provisioner implements Closeable {
 			}
 		}
 		if (Strings.isEmpty(name)) {
-			throw new IOException("An ACL principal must be specified as either a user or a group on: " + path);
+			name = string(entry.get("role"));
+			if (Strings.isNotEmpty(name)) {
+				kind = PrincipalKind.ROLE;
+			}
+		}
+		if (Strings.isEmpty(name)) {
+			throw new IOException("An ACL principal must be specified as a user, a group or a role on: " + path);
 		}
 
 		PrincipalProvider provider = fSession.getPrincipalProvider();
@@ -551,6 +603,9 @@ public class Provisioner implements Closeable {
 			if (kind == PrincipalKind.USER) {
 				return provider.getUserPrincipal(principalName);
 			}
+			if (kind == PrincipalKind.ROLE) {
+				return provider.getRolePrincipal(principalName);
+			}
 			return provider.getPrincipal(principalName);
 		} catch (PrincipalNotFoundException notFound) {
 			if (kind == PrincipalKind.GROUP) {
@@ -558,6 +613,9 @@ public class Provisioner implements Closeable {
 			}
 			if (kind == PrincipalKind.USER) {
 				return (UserPrincipal) () -> principalName;
+			}
+			if (kind == PrincipalKind.ROLE) {
+				return (RolePrincipal) () -> principalName;
 			}
 			return () -> principalName;
 		}
@@ -754,7 +812,7 @@ public class Provisioner implements Closeable {
 	}
 
 	private enum PrincipalKind {
-		ANY, USER, GROUP
+		ANY, USER, GROUP, ROLE
 	}
 
 	private static final class AccessControlEntryDescriptor {

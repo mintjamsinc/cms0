@@ -597,10 +597,11 @@ defineComponent('wt-inspector', {
 					allow: true,
 					principal: '',
 					principalIsGroup: false,
+					principalIsRole: false,
 					principalDisplayName: '' as string,
 					privileges: [] as string[],
 					searchKeyword: '',
-					searchResults: [] as { identifier: string; isGroup: boolean; isService?: boolean; displayName?: string | null }[],
+					searchResults: [] as { identifier: string; isGroup: boolean; isRole?: boolean; isService?: boolean; displayName?: string | null }[],
 					isSearching: false,
 					errorMessage: '',
 				},
@@ -2805,6 +2806,7 @@ defineComponent('wt-inspector', {
 			vm.aclDialog.addEntry.principal = '';
 			vm.aclDialog.addEntry.principalIsGroup = false;
 			vm.aclDialog.addEntry.principalDisplayName = '';
+			vm.aclDialog.addEntry.principalIsRole = false;
 			vm.aclDialog.addEntry.privileges = [];
 			vm.aclDialog.addEntry.searchKeyword = '';
 			vm.aclDialog.addEntry.searchResults = [];
@@ -2816,6 +2818,7 @@ defineComponent('wt-inspector', {
 			vm.aclDialog.addEntry.visible = false;
 			vm.aclDialog.addEntry.principal = '';
 			vm.aclDialog.addEntry.principalDisplayName = '';
+			vm.aclDialog.addEntry.principalIsRole = false;
 			vm.aclDialog.addEntry.privileges = [];
 			vm.aclDialog.addEntry.searchKeyword = '';
 			vm.aclDialog.addEntry.searchResults = [];
@@ -2861,9 +2864,11 @@ defineComponent('wt-inspector', {
 		buildPrincipalSuggestionItems(this: any) {
 			const vm = this;
 			return (vm.aclDialog.addEntry.searchResults as any[]).map(r => {
-				const kindLabel = r.isService
-					? (r.isGroup ? 'Service Group' : 'Service User')
-					: (r.isGroup ? 'Group' : 'User');
+				const kindLabel = r.isRole
+					? 'Role'
+					: r.isService
+						? (r.isGroup ? 'Service Group' : 'Service User')
+						: (r.isGroup ? 'Group' : 'User');
 				const description = r.displayName
 					? `${kindLabel} · ${r.identifier}`
 					: kindLabel;
@@ -2871,7 +2876,7 @@ defineComponent('wt-inspector', {
 					id: r.identifier,
 					label: r.displayName || r.identifier,
 					description,
-					icon: r.isGroup ? 'bi bi-people' : 'bi bi-person',
+					icon: r.isRole ? 'bi bi-person-badge' : (r.isGroup ? 'bi bi-people' : 'bi bi-person'),
 				};
 			});
 		},
@@ -2912,10 +2917,11 @@ defineComponent('wt-inspector', {
 				principalPopupHandle = null;
 			}
 		},
-		selectPrincipal(this: any, principal: { identifier: string; isGroup: boolean; isService?: boolean; displayName?: string | null }) {
+		selectPrincipal(this: any, principal: { identifier: string; isGroup: boolean; isRole?: boolean; isService?: boolean; displayName?: string | null }) {
 			const vm = this;
 			vm.aclDialog.addEntry.principal = principal.identifier;
 			vm.aclDialog.addEntry.principalIsGroup = principal.isGroup;
+			vm.aclDialog.addEntry.principalIsRole = !!principal.isRole;
 			vm.aclDialog.addEntry.principalDisplayName = principal.displayName || '';
 			vm.aclDialog.addEntry.searchKeyword = principal.identifier;
 			vm.aclDialog.addEntry.searchResults = [];
@@ -2946,7 +2952,7 @@ defineComponent('wt-inspector', {
 
 			vm.aclDialog.draftEntries.push({
 				key: ++aclEntrySeq,
-				principal: { id: principal.trim(), displayName: principalDisplayName || null, isGroup: vm.aclDialog.addEntry.principalIsGroup },
+				principal: { id: principal.trim(), displayName: principalDisplayName || null, isGroup: vm.aclDialog.addEntry.principalIsGroup, isRole: vm.aclDialog.addEntry.principalIsRole },
 				privileges: [...privileges],
 				allow,
 			});

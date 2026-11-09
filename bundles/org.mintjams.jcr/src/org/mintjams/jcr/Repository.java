@@ -29,6 +29,7 @@ import javax.jcr.RepositoryException;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 
 public interface Repository extends javax.jcr.Repository {
@@ -61,6 +62,15 @@ public interface Repository extends javax.jcr.Repository {
 	 */
 	boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups, String absPath,
 			String... privileges) throws RepositoryException;
+
+	/**
+	 * As {@link #hasPrivileges(String, UserPrincipal, Collection, String, String...)},
+	 * with the roles the user holds taken into account as well.
+	 *
+	 * @throws javax.jcr.NoSuchWorkspaceException when the workspace is not live
+	 */
+	boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups,
+			Collection<RolePrincipal> roles, String absPath, String... privileges) throws RepositoryException;
 
 	/**
 	 * The revision of the committed access control entries of a workspace. It

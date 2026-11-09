@@ -195,7 +195,9 @@ public class DefaultIdentityProvider implements IdentityProvider {
 
 		public RoleImpl(Node node) throws RepositoryException {
 			Node contentNode = JCRs.getContentNode(node);
-			fIdentifier = contentNode.getProperty("identifier").getString();
+			// Roles created before the identifier was written are known by their folder name.
+			fIdentifier = contentNode.hasProperty("identifier") ? contentNode.getProperty("identifier").getString()
+					: node.getParent().getName();
 			fDisplayName = contentNode.hasProperty("displayName") ? contentNode.getProperty("displayName").getString() : null;
 			fDescription = contentNode.hasProperty("description") ? contentNode.getProperty("description").getString() : null;
 		}

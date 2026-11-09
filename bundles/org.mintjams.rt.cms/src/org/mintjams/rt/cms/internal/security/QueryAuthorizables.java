@@ -38,7 +38,7 @@ import org.mintjams.searchindex.SearchIndex;
  * may read.
  *
  * <p>None for a system, service or admin session, which read everything;
- * everyone for a guest; everyone plus the user and its groups otherwise.
+ * everyone for a guest; everyone plus the user, its groups and its roles otherwise.
  */
 public final class QueryAuthorizables {
 
@@ -56,6 +56,7 @@ public final class QueryAuthorizables {
 		authorizables.add(new EveryonePrincipal());
 		if (!jcrSession.isGuest()) {
 			authorizables.addAll(jcrSession.getGroups());
+			authorizables.addAll(jcrSession.getRoles());
 			authorizables.add(jcrSession.getUserPrincipal());
 		}
 		return authorizables.toArray(Principal[]::new);

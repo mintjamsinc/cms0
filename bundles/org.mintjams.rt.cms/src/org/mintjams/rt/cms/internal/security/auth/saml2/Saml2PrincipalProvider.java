@@ -29,6 +29,7 @@ import java.util.List;
 
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.jcr.spi.security.PrincipalProvider;
 import org.mintjams.jcr.util.ExpressionContext;
@@ -85,6 +86,21 @@ public class Saml2PrincipalProvider implements PrincipalProvider {
 			}
 		}
 		return l;
+	}
+
+
+	@Override
+	public RolePrincipal getRolePrincipal(String name) throws PrincipalNotFoundException {
+		throw new UnsupportedOperationException();
+	}
+
+	/**
+	 * Roles are held in the identity store, not carried by the assertion: the
+	 * default provider answers for a signed-in SAML user with a local profile.
+	 */
+	@Override
+	public Collection<RolePrincipal> getRolesOf(Principal principal) throws PrincipalNotFoundException {
+		throw new UnsupportedOperationException();
 	}
 
 }

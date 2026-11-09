@@ -125,6 +125,7 @@ public class JcrXPathQueryResult implements QueryResult, Adaptable {
 				fAuthorizables.add(new EveryonePrincipal());
 				if (!session.isGuest()) {
 					fAuthorizables.addAll(session.getGroups());
+					fAuthorizables.addAll(session.getRoles());
 					fAuthorizables.add(session.getUserPrincipal());
 				}
 			}

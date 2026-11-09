@@ -480,6 +480,7 @@ export interface Principal {
   id: string;
   displayName: string | null;
   isGroup: boolean;
+  isRole?: boolean;
 }
 
 export interface AccessControlEntry {
@@ -506,6 +507,7 @@ export interface EffectiveAccessControlPolicy {
 export interface PrincipalInfo {
   identifier: string;
   isGroup: boolean;
+  isRole?: boolean;
   isService?: boolean;
   displayName?: string | null;
 }

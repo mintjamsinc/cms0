@@ -67,6 +67,7 @@ import org.mintjams.jcr.JcrPath;
 import org.mintjams.jcr.observation.Event;
 import org.mintjams.jcr.security.EveryonePrincipal;
 import org.mintjams.jcr.security.GroupPrincipal;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.jcr.internal.AccessControlStore;
 import org.mintjams.rt.jcr.internal.Activator;
@@ -1185,6 +1186,8 @@ public class JournalObserver implements Adaptable, Closeable {
 					String grantee = ace.getPrincipal().getName();
 					if (ace.getPrincipal() instanceof GroupPrincipal) {
 						grantee += "@group";
+					} else if (ace.getPrincipal() instanceof RolePrincipal) {
+						grantee += "@role";
 					} else {
 						grantee += "@user";
 					}

@@ -676,7 +676,7 @@
 								<div v-if="aclDialog.pendingEntries.length > 0" class="detail-acl">
 									<div v-for="entry in aclDialog.pendingEntries" :key="entry.key" class="detail-acl-entry">
 										<div class="detail-acl-principal">
-											<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
+											<i class="bi me-1" :class="entry.principal.isRole ? 'bi-person-badge' : (entry.principal.isGroup ? 'bi-people' : 'bi-person')"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
 										</div>
 										<div class="detail-acl-privileges">
 											<span v-for="p in entry.privileges" :key="p" class="badge" :class="entry.allow ? 'acl-badge-allow' : 'acl-badge-deny'">
@@ -699,7 +699,7 @@
 								<div class="detail-acl">
 									<div v-for="(entry, index) in policy.entries" :key="index" class="detail-acl-entry">
 										<div class="detail-acl-principal">
-											<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id }}
+											<i class="bi me-1" :class="entry.principal.isRole ? 'bi-person-badge' : (entry.principal.isGroup ? 'bi-people' : 'bi-person')"></i>{{ entry.principal.displayName || entry.principal.id }}
 										</div>
 										<div class="detail-acl-privileges">
 											<span v-for="p in entry.privileges" :key="p" class="badge" :class="entry.allow ? 'acl-badge-allow' : 'acl-badge-deny'">
@@ -1266,7 +1266,7 @@
 							<div v-if="aclDialog.draftEntries.length > 0" class="detail-acl">
 								<div v-for="(entry, index) in aclDialog.draftEntries" :key="entry.key" class="detail-acl-entry">
 									<div class="detail-acl-principal d-flex align-items-center">
-										<i class="bi me-1" :class="entry.principal.isGroup ? 'bi-people' : 'bi-person'"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
+										<i class="bi me-1" :class="entry.principal.isRole ? 'bi-person-badge' : (entry.principal.isGroup ? 'bi-people' : 'bi-person')"></i>{{ entry.principal.displayName || entry.principal.id || entry.principal }}
 										<button class="filter-input-clear-sm ms-auto" @click="moveAclEntry(index, -1)" :disabled="aclDialog.isSaving || index === 0" :title="t('webtop.inspector.acl.moveUp', undefined, 'Move up')">
 											<i class="bi bi-chevron-up"></i>
 										</button>

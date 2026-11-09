@@ -257,9 +257,13 @@ public class CmsIdentityProvider implements ReadOnlyIdentityProvider {
 		public List<Group> executeList(CommandContext commandContext, Page page) {
 			if (this.getUserId() != null) {
 				try {
-					return CmsService.getMemberOf(this.getUserId())
-							.stream()
-							.map(p -> p.getName())
+					// Camunda knows no roles: a user's roles are reported beside the
+					// groups so a task's candidateGroups may name either.
+					String userId = this.getUserId();
+					return java.util.stream.Stream.concat(
+							CmsService.getMemberOf(userId).stream().map(p -> p.getName()),
+							CmsService.getRolesOf(userId).stream().map(p -> p.getName()))
+							.distinct()
 							.map(CmsGroup::new)
 							.collect(Collectors.toList());
 				} catch (Throwable ex) {
@@ -269,7 +273,7 @@ public class CmsIdentityProvider implements ReadOnlyIdentityProvider {
 
 			if (this.getId() != null) {
 				try {
-					if (CmsService.groupExists(this.getId())) {
+					if (CmsService.groupExists(this.getId()) || CmsService.roleExists(this.getId())) {
 						return Collections.singletonList(new CmsGroup(this.getId()));
 					}
 				} catch (Throwable ex) {

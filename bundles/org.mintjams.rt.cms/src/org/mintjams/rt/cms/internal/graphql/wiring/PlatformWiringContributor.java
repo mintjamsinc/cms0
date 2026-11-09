@@ -555,10 +555,12 @@ public final class PlatformWiringContributor implements WiringContributor {
 			for (AccessControlEntry entry : ((AccessControlList) policy).getAccessControlEntries()) {
 				String principalName = entry.getPrincipal().getName();
 				boolean isGroup = entry.getPrincipal() instanceof org.mintjams.jcr.security.GroupPrincipal;
+				boolean isRole = entry.getPrincipal() instanceof org.mintjams.jcr.security.RolePrincipal;
 				Map<String, Object> principal = new HashMap<>();
 				principal.put("id", principalName);
-				principal.put("displayName", resolver.resolve(principalName, isGroup));
+				principal.put("displayName", resolver.resolve(principalName, isGroup, isRole));
 				principal.put("isGroup", isGroup);
+				principal.put("isRole", isRole);
 
 				List<String> privileges = new ArrayList<>();
 				for (Privilege privilege : entry.getPrivileges()) {

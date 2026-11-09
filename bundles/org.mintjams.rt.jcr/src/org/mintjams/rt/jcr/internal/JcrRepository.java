@@ -64,6 +64,7 @@ import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.Role;
 import org.mintjams.jcr.security.ServiceCredentials;
 import org.mintjams.jcr.security.User;
@@ -569,7 +570,7 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 				throw new LoginException("Invalid credentials.");
 			}
 		}
-		if (principal == null || principal instanceof GroupPrincipal) {
+		if (principal == null || principal instanceof GroupPrincipal || principal instanceof RolePrincipal) {
 			throw new LoginException("Invalid credentials.");
 		}
 
@@ -590,7 +591,13 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 	@Override
 	public boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups,
 			String absPath, String... privileges) throws RepositoryException {
-		return liveWorkspaceProvider(workspaceName).hasPrivileges(user, groups, absPath, privileges);
+		return liveWorkspaceProvider(workspaceName).hasPrivileges(user, groups, List.of(), absPath, privileges);
+	}
+
+	@Override
+	public boolean hasPrivileges(String workspaceName, UserPrincipal user, Collection<GroupPrincipal> groups,
+			Collection<RolePrincipal> roles, String absPath, String... privileges) throws RepositoryException {
+		return liveWorkspaceProvider(workspaceName).hasPrivileges(user, groups, roles, absPath, privileges);
 	}
 
 	@Override
@@ -863,6 +870,21 @@ public class JcrRepository implements Repository, WorkspaceManager, Closeable, A
 		@Override
 		public Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException {
 			return Activator.getDefault().getMemberOf(principal);
+		}
+
+		@Override
+		public RolePrincipal getRolePrincipal(String name) throws PrincipalNotFoundException {
+			Principal p = getPrincipal(name);
+			if (p instanceof RolePrincipal) {
+				return (RolePrincipal) p;
+			}
+
+			throw new PrincipalNotFoundException(name);
+		}
+
+		@Override
+		public Collection<RolePrincipal> getRolesOf(Principal principal) throws PrincipalNotFoundException {
+			return Activator.getDefault().getRolesOf(principal);
 		}
 	}
 

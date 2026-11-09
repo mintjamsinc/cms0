@@ -27,6 +27,7 @@ import java.util.Collection;
 
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.PrincipalNotFoundException;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 
 public interface PrincipalProvider {
@@ -66,5 +67,23 @@ public interface PrincipalProvider {
 	 * @throws PrincipalNotFoundException if the specified principal does not exist
 	 */
 	Collection<GroupPrincipal> getMemberOf(Principal principal) throws PrincipalNotFoundException;
+
+	/**
+	 * Returns the role principal with the specified name.
+	 * 
+	 * @param name the role principal name
+	 * @return the role principal with the specified name
+	 * @throws PrincipalNotFoundException if no such role principal exists
+	 */
+	RolePrincipal getRolePrincipal(String name) throws PrincipalNotFoundException;
+
+	/**
+	 * Returns the collection of role principals held by the specified user principal.
+	 * 
+	 * @param principal the user principal
+	 * @return the collection of role principals the user holds directly
+	 * @throws PrincipalNotFoundException if the specified principal does not exist
+	 */
+	Collection<RolePrincipal> getRolesOf(Principal principal) throws PrincipalNotFoundException;
 
 }
