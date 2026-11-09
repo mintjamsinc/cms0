@@ -40,6 +40,7 @@ import org.mintjams.jcr.cluster.ClusterLeaseStore;
 import org.mintjams.jcr.security.GroupPrincipal;
 import org.mintjams.jcr.security.IdentityProvider;
 import org.mintjams.jcr.security.PrincipalProvider;
+import org.mintjams.jcr.security.RolePrincipal;
 import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.provisioning.Provisioner;
@@ -81,6 +82,11 @@ public class Session implements Closeable, Adaptable {
 
 	public Collection<GroupPrincipal> getGroups() {
 		return adaptTo(org.mintjams.jcr.Session.class).getGroups();
+	}
+
+	/** The roles granted to the user of this session (see org.mintjams.jcr.Session#getRoles). */
+	public Collection<RolePrincipal> getRoles() {
+		return adaptTo(org.mintjams.jcr.Session.class).getRoles();
 	}
 
 	public boolean isAdmin() {
