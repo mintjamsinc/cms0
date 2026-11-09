@@ -109,13 +109,6 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  *       - group: commerce-operators
  *         privileges: jcr:read, jcr:write
  *         effect: allow
- *   - path: /content/commerce/README.md
- *     primaryType: nt:file        # a file: created with this content when missing,
- *     mimeType: text/markdown     #   never rewritten once it exists
- *     content: |
- *       # Commerce
- *     properties:                 # properties set on the node when it is created
- *       commerce:kind: readme
  * </pre>
  *
  * <p>Provisioning is <strong>idempotent</strong> because {@code deploy()} runs on
@@ -460,7 +453,7 @@ public class Provisioner implements Closeable {
 						.warn("Skipping ACL for missing node (no primaryType to create it): " + path);
 				return;
 			}
-			resource = createNode(path, primaryType, definition);
+			resource = createNode(path, primaryType);
 			fSession.commit();
 			CmsService.getLogger(getClass()).info("Provisioned node: " + path);
 		}
@@ -487,46 +480,13 @@ public class Provisioner implements Closeable {
 		}
 	}
 
-	/**
-	 * Creates the missing node. A file gets the {@code content} the entry
-	 * declares (text, written as UTF-8; an empty file otherwise) and its
-	 * {@code mimeType}; a file or a folder gets the {@code properties} the entry
-	 * declares. Nothing of this is applied to a node that already exists, so a
-	 * file a user has edited since is left as it is.
-	 */
-	private Resource createNode(String absPath, String primaryType, Map<String, Object> definition) throws Exception {
+	private Resource createNode(String absPath, String primaryType) throws Exception {
 		Resource parent = getOrCreateFolderPath(absPath.substring(0, absPath.lastIndexOf('/')));
 		String name = absPath.substring(absPath.lastIndexOf('/') + 1);
-		Resource resource;
 		if ("nt:file".equals(primaryType) || "mi:file".equals(primaryType)) {
-			resource = parent.createFile(name);
-			Object content = definition.get("content");
-			if (content != null) {
-				resource.write(content.toString());
-			}
-			String mimeType = string(definition.get("mimeType"));
-			if (!Strings.isEmpty(mimeType)) {
-				resource.setContentType(mimeType);
-			}
-		} else {
-			resource = parent.getOrCreateFolder(name);
+			return parent.createFile(name);
 		}
-		Object properties = definition.get("properties");
-		if (properties instanceof Map) {
-			for (Map.Entry<?, ?> e : ((Map<?, ?>) properties).entrySet()) {
-				String propertyName = String.valueOf(e.getKey());
-				Object value = e.getValue();
-				if (value == null) {
-					continue;
-				}
-				if (value instanceof List) {
-					resource.setProperty(propertyName, ((List<?>) value).stream().map(String::valueOf).toArray(String[]::new));
-				} else {
-					resource.setProperty(propertyName, value);
-				}
-			}
-		}
-		return resource;
+		return parent.getOrCreateFolder(name);
 	}
 
 	private Resource getOrCreateFolderPath(String absPath) throws Exception {

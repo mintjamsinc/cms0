@@ -135,14 +135,6 @@ public final class ProvisioningCheck implements PackageCheck {
 			if (acl != null && !(acl instanceof List)) {
 				findings.add(Finding.error("provisioning.invalid", "The acl must be a list" + where, name));
 			}
-			Object content = entry.get("content");
-			if (content != null && !(content instanceof String)) {
-				findings.add(Finding.error("provisioning.invalid", "The content of a file must be text" + where, name));
-			}
-			Object properties = entry.get("properties");
-			if (properties != null && !(properties instanceof Map)) {
-				findings.add(Finding.error("provisioning.invalid", "The properties must be a mapping" + where, name));
-			}
 			break;
 		default:
 			break;

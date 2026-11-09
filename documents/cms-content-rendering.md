@@ -78,33 +78,6 @@ render:
 Rules are evaluated nearest-folder-first, first match wins. A descriptor that is
 missing or malformed simply binds nothing (it never breaks serving).
 
-### Themes: `theme:` layouts
-
-A template name that starts with `theme:` names a **layout of the site's
-theme** rather than a template. `theme:article` is resolved to
-`themes/<theme>/article`, under the templates folder, where `<theme>` is
-`site.theme` of the descriptor of the file's **document root** (the nearest
-ancestor folder whose `.web.yml` says `site.root: true`):
-
-```yaml
-# /content/public/.web.yml
-site:
-  root: true
-  theme: corporate
-render:
-  - match: "*.md"
-    template: "theme:article"   # -> /content/WEB-INF/templates/themes/corporate/article(.html).<scriptExt>
-    output: [html]
-```
-
-The same works for a per-file `web.template: theme:event`. A file under no
-document root, or under a root that declares no theme, is rendered with the
-theme named `default`. The binding is returned whether or not the layout
-exists in the theme: a source bound to a missing layout is a 404, never served
-raw. Switching a site's theme is therefore one line in its root descriptor,
-and a page-specific template that is not a `theme:` name (`campaigns/2026`)
-is untouched by the switch.
-
 ## Raw sources are not exposed
 
 A templated source requested at its own source extension (e.g. `/foo/index.md`)
@@ -136,10 +109,6 @@ node(path: "/content/foo/index.md") {
   }
 }
 ```
-
-`WebRenders.describe` also reports `theme` (the site's theme, or null) and
-`templatePath` (the template the binding resolves to, a `theme:` name already
-expanded), which `explain_web_render` shows.
 
 This is computed by the same resolver used for serving
 (`WebRenders.resolveBinding`), so the editor preview always matches what the CMS
