@@ -217,8 +217,12 @@ and puts patched builds of
 the new `SessionStoreFactoryTracker`, in front of it on the
 `Bundle-ClassPath`, so that a `SessionDataStoreFactory` /
 `SessionCacheFactory` registered as an OSGi service is handed to Jetty
-before the server starts. The manifest repeats the upstream headers and
-carries `X-MintJams-Patch: session-store-factory`. The patched sources and
+before the server starts, and a patched build of
+`org.apache.felix.http.base.internal.dispatch.ServletRequestWrapper` (Apache
+Felix HTTP base 6.0.2, a private package embedded in the same JAR), so that a
+relative path given to `getRequestDispatcher` is resolved against the request
+path as the Servlet specification requires. The manifest repeats the upstream headers and
+carries `X-MintJams-Patch: session-store-factory, relative-request-dispatcher`. The patched sources and
 the unmodified originals are in `src/` and `upstream/` of this directory
 (see its README.md).
 

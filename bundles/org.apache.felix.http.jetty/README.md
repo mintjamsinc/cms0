@@ -1,7 +1,10 @@
 # org.apache.felix.http.jetty (patched)
 
-Apache Felix HTTP Jetty with one addition: Jetty's session store can be
-supplied by an OSGi service. This is an Eclipse PDE plug-in project like the
+Apache Felix HTTP Jetty with two changes: Jetty's session store can be
+supplied by an OSGi service, and a relative path given to
+`ServletRequest.getRequestDispatcher` is resolved against the request path,
+as the Servlet specification asks (a bug in Felix HTTP base, which the jar
+embeds). This is an Eclipse PDE plug-in project like the
 other bundles: the unchanged upstream jar lives in `lib/` and is embedded on
 the `Bundle-ClassPath`, the few sources we patch live in `src/`, and the
 exported bundle goes into `felix-dist/bundle`.
@@ -16,6 +19,18 @@ offers no hook that runs in between (`ConnectorFactory` is called after
 `server.start()`; there is no `JettyCustomizer` and no jetty.xml support), so
 without this patch the session store cannot be replaced from another bundle.
 
+Felix HTTP base resolves a relative path given to
+`ServletRequest.getRequestDispatcher` by appending it to the servlet path
+(`UriUtils.concat(getServletPath(), path)`, `ServletRequestWrapper`). The
+Servlet specification (3.0, section 9.1) makes it relative to the current
+request, and Jetty and Tomcat resolve it against the parent of the request
+path within the context (servlet path plus path info). With a servlet mapped
+to `/bin/cms.cgi/*`, `getRequestDispatcher("inc/part.gsp")` therefore pointed
+at `/bin/cms.cgi/inc/part.gsp` instead of a path beside the requested page.
+The code is unchanged in Felix HTTP base master (2026-11-09). The base
+classes are a private package inside the Jetty jar, so they are patched the
+same way as the Jetty ones.
+
 ## What is patched
 
 | File | Change |
@@ -23,12 +38,14 @@ without this patch the session store cannot be replaced from another bundle.
 | `internal/SessionStoreFactoryTracker.java` | New. Tracks `org.eclipse.jetty.server.session.SessionDataStoreFactory` and `SessionCacheFactory` services; the highest ranking of each kind wins; a change notifies `JettyService`. |
 | `internal/JettyService.java` | Opens the tracker in `start()` before Jetty starts. `configureSessionStore()` adds the tracked factories as server beans right after `configureSessionManager()`, before `server.start()`. A factory change restarts Jetty when it is running. With `org.apache.felix.http.session.store.require=true`, Jetty does not start until a `SessionDataStoreFactory` is available. Start / stop / configuration update are serialized on one lock. |
 | `internal/JettyConfig.java` | New property `org.apache.felix.http.session.store.require` (default `false`) and `isRequireSessionStore()`. |
+| `../base/internal/dispatch/ServletRequestWrapper.java` | `getRequestDispatcher(path)`: a relative path is resolved against the parent of the current request's path within the context (request URI without the context path, kept encoded because the servlet context decodes it), instead of being appended to the servlet path. From Felix HTTP base 6.0.2, the version the upstream pom embeds. |
 
 The bundle is laid out as
 
 ```
 META-INF/MANIFEST.MF                         upstream headers + Bundle-ClassPath + X-MintJams-Patch
 org/apache/felix/http/jetty/internal/*.class the patched classes (compiled from src/)
+org/apache/felix/http/base/internal/dispatch/ServletRequestWrapper.class  the patched base class (same)
 lib/org.apache.felix.http.jetty-5.2.6.jar    the upstream jar, unchanged
 ```
 
@@ -39,7 +56,7 @@ upstream manifest's headers (exports, imports, capabilities, activator)
 verbatim, except that the build-tool headers are dropped and
 `Bundle-RequiredExecutionEnvironment: JavaSE-17` replaces the upstream
 `osgi.ee` requirement (JavaSE 11), like the other bundles. It adds
-`Bundle-ClassPath` and the header `X-MintJams-Patch: session-store-factory`.
+`Bundle-ClassPath` and the header `X-MintJams-Patch: session-store-factory, relative-request-dispatcher`.
 
 `upstream/` holds the unmodified copies of the patched sources so the change
 stays reviewable:
@@ -95,7 +112,10 @@ upstream code and kept so that `upstream/` and `src/` differ only by the patch.
    (keeping `Bundle-ClassPath`, `Bundle-RequiredExecutionEnvironment` and
    `X-MintJams-Patch`).
 3. Copy the new upstream `JettyService.java` and `JettyConfig.java` (from the
-   sources jar) into `upstream/`, then re-apply the diff above onto `src/`.
+   Jetty sources jar) and `ServletRequestWrapper.java` (from the sources jar of
+   the `org.apache.felix.http.base` version named in the Jetty jar's
+   `META-INF/maven/.../pom.xml`) into `upstream/`, then re-apply the diff
+   above onto `src/`.
 4. Replace the jars in `compile-lib/` with the versions matching the upstream
    jar's `X-Jetty-Version`.
 5. Export, then check `Started Jetty <version>` and

@@ -314,4 +314,4 @@ Provide-Capability: osgi.implementation;osgi.implementation="osgi.http";
  osgi.serviceloader;osgi.serviceloader="org.eclipse.jetty.http.HttpField
  PreEncoder"
 X-Jetty-Version: 11.0.26
-X-MintJams-Patch: session-store-factory
+X-MintJams-Patch: session-store-factory, relative-request-dispatcher

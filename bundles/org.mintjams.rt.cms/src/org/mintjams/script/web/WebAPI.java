@@ -47,6 +47,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.disk.DiskFileItemFactory;
 import org.apache.commons.fileupload.servlet.ServletFileUpload;
+import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.script.ScriptingContext;
@@ -134,19 +135,44 @@ public class WebAPI implements Closeable {
 	public void include(String path) throws ServletException, IOException {
 		HttpServletRequest request = Webs.getRequest(fContext);
 		HttpServletResponse response = Webs.getResponse(fContext);
-		if (path.startsWith("/")) {
-			path = Webs.getWorkspacePath(fContext) + path;
-		}
-		request.getRequestDispatcher(path).include(request, response);
+		request.getRequestDispatcher(toDispatcherPath(path)).include(request, response);
 	}
 
 	public void forward(String path) throws ServletException, IOException {
 		HttpServletRequest request = Webs.getRequest(fContext);
 		HttpServletResponse response = Webs.getResponse(fContext);
-		if (path.startsWith("/")) {
-			path = Webs.getWorkspacePath(fContext) + path;
+		request.getRequestDispatcher(toDispatcherPath(path)).forward(request, response);
+	}
+
+	/**
+	 * Turns the path given to {@link #include(String)} or {@link #forward(String)}
+	 * into the path the servlet container dispatches to.
+	 * <p>
+	 * An absolute path ({@code /content/...}) names a resource of this workspace.
+	 * A relative path is resolved against the folder of the resource that is
+	 * currently being rendered, which is the included or forwarded resource when
+	 * the call is nested, not the resource the browser requested. The container's
+	 * own rule (Servlet specification, section 9.1) would resolve it against the
+	 * requested URL throughout, so a part included from several pages could not
+	 * include its own neighbours by a relative path.
+	 */
+	private String toDispatcherPath(String path) {
+		String query = "";
+		int q = path.indexOf('?');
+		if (q != -1) {
+			query = path.substring(q);
+			path = path.substring(0, q);
 		}
-		request.getRequestDispatcher(path).forward(request, response);
+
+		if (!path.startsWith("/")) {
+			String base = Webs.getCollectionPath(fContext);
+			if (!base.endsWith("/")) {
+				base += "/";
+			}
+			path = JCRs.normalizePath(base + path);
+		}
+
+		return Webs.getWorkspacePath(fContext) + path + query;
 	}
 
 	public String encodeURIComponent(String value) throws IOException {
