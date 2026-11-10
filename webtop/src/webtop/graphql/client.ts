@@ -5,6 +5,8 @@
  * Supports queries, mutations, and error handling.
  */
 
+import { authHeaders, reauthenticate } from './auth.js';
+
 export interface GraphQLClientOptions {
   /** GraphQL endpoint URL */
   endpoint: string;
@@ -131,23 +133,35 @@ export class GraphQLClient {
   ): Promise<T> {
     let response: Response;
 
-    try {
-      response = await fetch(this.#endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          ...this.#headers,
-        },
-        credentials: 'include',
-        body: JSON.stringify({ query, variables }),
-      });
-    } catch (networkError) {
-      const error = new GraphQLError(
-        `Network error: ${(networkError as Error).message}`
-      );
-      this.#onError?.(error);
-      throw error;
+    for (let attempt = 0; ; attempt++) {
+      // Empty until the shell knows who the user is; see ./auth.ts.
+      const auth = authHeaders();
+      try {
+        response = await fetch(this.#endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...this.#headers,
+            ...auth,
+          },
+          credentials: 'include',
+          body: JSON.stringify({ query, variables }),
+        });
+      } catch (networkError) {
+        const error = new GraphQLError(
+          `Network error: ${(networkError as Error).message}`
+        );
+        this.#onError?.(error);
+        throw error;
+      }
+
+      // The sign-in is gone: nothing was executed. Wait for the user to sign
+      // in again, then send the same operation.
+      if (response.status === 401 && Object.keys(auth).length > 0 && attempt < 3 && (await reauthenticate())) {
+        continue;
+      }
+      break;
     }
 
     if (!response.ok) {

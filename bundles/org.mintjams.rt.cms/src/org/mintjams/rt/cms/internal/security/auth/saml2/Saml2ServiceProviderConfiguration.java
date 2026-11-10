@@ -324,9 +324,9 @@ public class Saml2ServiceProviderConfiguration {
 
 	/**
 	 * Returns the lifetime of the cluster-portable authentication token in
-	 * milliseconds ({@code saml2.yml#authToken.ttl}, in seconds). The token
-	 * is bearer-style with no server-side revocation, so the lifetime
-	 * should stay moderate; logins simply repeat the SAML flow afterwards.
+	 * milliseconds ({@code saml2.yml#authToken.ttl}, in seconds; seven days
+	 * when not set). The token is bearer-style with no server-side
+	 * revocation; the user signs in again once it has expired.
 	 */
 	public long getAuthTokenTtlMillis() {
 		return getExpressionContext().getInt("config.authToken.ttl",

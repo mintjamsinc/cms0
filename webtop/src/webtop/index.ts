@@ -243,6 +243,12 @@ const WtDesktop = {
 				title: '',
 				message: '',
 			},
+			// The sign-in is gone (see graphql/auth.ts): the overlay stays until
+			// the same user has signed in again in the popup.
+			reauth: {
+				visible: false,
+				blocked: false,
+			},
 			// Rename dialog for a single desktop icon. Item is captured on open
 			// so subsequent selection changes don't redirect the rename target.
 			desktopRenameDialog: {
@@ -455,6 +461,8 @@ const WtDesktop = {
 				window.location.href = '/bin/auth.cgi/saml2/login?RelayState=' + encodeURIComponent(window.location.href);
 				return;
 			}
+
+			vm.watchSignIn();
 
 			// Register the webtop service worker (best-effort). It lets the
 			// text-editor preview reproduce published pages by rewriting their
@@ -3448,8 +3456,63 @@ const WtDesktop = {
 			const vm = this as any;
 			vm.desktopAlert = { ...vm.desktopAlert, visible: false };
 		},
+		// Shows the sign-in overlay while the shell waits for the user to sign
+		// in again, and checks the sign-in when it may have changed: the popup
+		// (or another tab) reports a sign-in, or the user comes back to the
+		// window, e.g. after the computer slept past the token's lifetime.
+		watchSignIn() {
+			const vm = this as any;
+			document.addEventListener('webtop-auth-required', () => {
+				vm.reauth = { visible: true, blocked: false };
+			});
+			document.addEventListener('webtop-auth-restored', () => {
+				vm.reauth = { visible: false, blocked: false };
+			});
+			try {
+				const channel = new BroadcastChannel(SIGN_IN_CHANNEL);
+				channel.onmessage = () => { void window.Webtop.checkSignIn(); };
+			} catch {
+				// No BroadcastChannel: the checks below still notice the sign-in.
+			}
+			let lastCheck = Date.now();
+			const check = () => {
+				if (document.visibilityState !== 'visible') return;
+				const gap = window.Webtop.reauthPending ? 2000 : 60000;
+				if (Date.now() - lastCheck < gap) return;
+				lastCheck = Date.now();
+				void window.Webtop.checkSignIn();
+			};
+			document.addEventListener('visibilitychange', check);
+			window.addEventListener('focus', check);
+			if (window.Webtop.reauthPending) {
+				vm.reauth = { visible: true, blocked: false };
+			}
+		},
+		// Opens the sign-in in a popup, so the desktop and its open apps stay.
+		// The popup ends on signed-in.html, which reports on SIGN_IN_CHANNEL.
+		signInAgain() {
+			const vm = this as any;
+			// Beside index.gsp, at the URL the desktop itself is served from.
+			const done = new URL('./signed-in.html', window.location.href).href;
+			const popup = window.open('/bin/auth.cgi/saml2/login?RelayState=' + encodeURIComponent(done),
+				'webtop-sign-in', 'popup=yes,width=560,height=720');
+			if (!popup) {
+				vm.reauth = { visible: true, blocked: true };
+				return;
+			}
+			vm.reauth = { visible: true, blocked: false };
+			const watch = setInterval(() => {
+				if (popup.closed) {
+					clearInterval(watch);
+					void window.Webtop.checkSignIn();
+				}
+			}, 500);
+		},
 	},
 };
+
+/** Where signed-in.html reports that a sign-in has completed. */
+const SIGN_IN_CHANNEL = 'webtop-auth';
 
 export class Webtop implements WebtopContext {
 	#api: WebtopAPI;
@@ -3461,6 +3524,7 @@ export class Webtop implements WebtopContext {
 	#apps: Application[];
 	#metadataDefinitions: MetadataDefinitionCache | null = null;
 	#i18n: I18nService | null = null;
+	#reauth: { promise: Promise<boolean>; resolve: (ok: boolean) => void } | null = null;
 
 	constructor() {
 		// webtop.js は webtop ルートに配置されるため、自身の配信位置からルートを導出する
@@ -3563,6 +3627,74 @@ export class Webtop implements WebtopContext {
 			id,
 			apps: apps.sort((a, b) => (a.title || '').localeCompare(b.title || '')),
 		}));
+	}
+
+	/** Whether calls are waiting for the user to sign in again. */
+	get reauthPending(): boolean { return this.#reauth !== null; }
+
+	/**
+	 * Called when a call found the sign-in gone (graphql/auth.ts). Shows the
+	 * sign-in overlay and resolves true once the same user is signed in again;
+	 * every caller that asks meanwhile waits for the same answer.
+	 */
+	reauthenticate(): Promise<boolean> {
+		if (!this.#reauth) {
+			let resolve!: (ok: boolean) => void;
+			const promise = new Promise<boolean>(r => { resolve = r; });
+			this.#reauth = { promise, resolve };
+			document.dispatchEvent(new CustomEvent('webtop-auth-required'));
+		}
+		return this.#reauth.promise;
+	}
+
+	/**
+	 * Compares who is signed in now with the user of this desktop: asks for a
+	 * sign-in when nobody is, releases the waiting calls when it is the same
+	 * user again, and reloads when it is someone else, whose desktop this is
+	 * not. Does nothing when the server cannot be asked.
+	 */
+	async checkSignIn(): Promise<void> {
+		const expected = this.#currentUser;
+		if (!expected || expected.isAnonymous) return;
+		const username = await this.#signedInUsername();
+		if (username === undefined) return;
+		if (username === null) {
+			void this.reauthenticate();
+			return;
+		}
+		if (username !== expected.id) {
+			window.location.reload();
+			return;
+		}
+		if (this.#reauth) {
+			const waiting = this.#reauth;
+			this.#reauth = null;
+			waiting.resolve(true);
+			document.dispatchEvent(new CustomEvent('webtop-auth-restored'));
+		}
+	}
+
+	/**
+	 * The signed-in user, null for a guest, undefined when the server did not
+	 * answer. Asked without the header of graphql/auth.ts, so a guest gets the
+	 * ordinary answer and not a 401.
+	 */
+	async #signedInUsername(): Promise<string | null | undefined> {
+		try {
+			const response = await fetch('/bin/graphql.cgi/system', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+				credentials: 'include',
+				cache: 'no-store',
+				body: JSON.stringify({ query: 'query { me { username } }' }),
+			});
+			if (!response.ok) return undefined;
+			const result = await response.json();
+			if (!result || (result.data === undefined && !result.errors)) return undefined;
+			return result.data?.me?.username ?? null;
+		} catch {
+			return undefined;
+		}
 	}
 
 	getFullPath(relPath: string): string {

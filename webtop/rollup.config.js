@@ -187,6 +187,8 @@ const webtopCoreConfig = makeConfig({
     // Service worker. Must sit at the webtop root so its registration scope
     // covers every app iframe (including the text-editor preview frame).
     { src: 'src/webtop/sw.js', dest: 'dist/webtop' },
+    // Where the sign-in popup ends when the user signs in again (index.ts, signInAgain).
+    { src: 'src/webtop/signed-in.html', dest: 'dist/webtop' },
     { src: 'src/webtop/assets', dest: 'dist/webtop' },
     { src: 'src/webtop/components/*.html', dest: 'dist/webtop/components' },
     { src: 'src/webtop/components/*.css', dest: 'dist/webtop/components' },

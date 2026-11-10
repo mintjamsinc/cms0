@@ -810,11 +810,15 @@ entry point falls back to the token when the local session has no login
 and transparently re-establishes the session, so a failover or node
 switch does not log the user out.
 
-- **Lifetime** — `saml2.yml#authToken.ttl` (seconds, default 43200 =
-  12 hours). The token is bearer-style with no server-side revocation
-  list: logging out (`/logout`) clears the cookie and invalidates the
-  local session, but a stolen token stays usable until it expires, so
-  keep the lifetime moderate.
+- **Lifetime** — `saml2.yml#authToken.ttl` (seconds, default 604800 =
+  7 days). It counts from the sign-in and is not extended by use: it is
+  how long a user stays signed in at most, working or away. The token is
+  bearer-style with no server-side revocation list: logging out
+  (`/logout`) clears the cookie and invalidates the local session, but a
+  stolen token stays usable until it expires. Set a shorter lifetime
+  where that matters more than staying signed in. When the token has
+  expired, the Webtop asks the user to sign in again and carries on (see
+  `documents/graphql.md`, "Who the request runs as").
 - **Factors** — the token carries the factors at login time
   (`saml2`). A factor added later (e.g. TOTP) lives in the session, which
   the cluster shares (see *The replicated table*), so a node switch keeps

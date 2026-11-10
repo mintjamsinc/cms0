@@ -77,6 +77,16 @@ caller may see and do. On a signed-in user's first request to a content
 workspace, `/home/users/<user>/Desktop` is created there and the user is
 given their home (see `documents/workspaces.md`, "User home directories").
 
+A client that expects to be signed in says so with the request header
+`X-MintJams-Auth: required`. Such a request is not run as the guest: when
+it carries no authentication (the auth token has expired, the user signed
+out in another tab), the answer is 401 with
+`errors[0].extensions.code = "UNAUTHORIZED"` and nothing is executed. This
+holds for queries, mutations and the four `/stream` requests. The Webtop
+sends the header on every call once it knows who the user is; on a 401 it
+asks the user to sign in again in a popup and then repeats the call, so
+open apps and unsaved edits are kept.
+
 **Subscriptions** use the graphql-sse protocol in single connection mode
 over Server-Sent Events, not WebSockets:
 

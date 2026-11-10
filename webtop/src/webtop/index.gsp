@@ -586,6 +586,26 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- The sign-in is gone: sign in again in a popup, and the calls that
+		     were waiting carry on. Outside #desktop so it does not depend on
+		     the desktop's state. -->
+		<div v-if="reauth.visible" class="session-overlay reauth-overlay">
+			<div class="dialog-frame" style="max-width: 30rem;">
+				<div class="island p-2">
+					<div class="dialog-header">
+						<h3>{{ t('webtop.reauth.title') }}</h3>
+					</div>
+					<div class="dialog-body">
+						<div class="mb-3">{{ t('webtop.reauth.message') }}</div>
+						<div class="mb-3" v-if="reauth.blocked">{{ t('webtop.reauth.blocked') }}</div>
+					</div>
+					<div class="dialog-footer">
+						<button class="wt wt-primary" @click="signInAgain"><i class="bi bi-box-arrow-in-right me-2"></i>{{ t('webtop.reauth.signIn') }}</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 
 	<!-- Boot screen (displayed before the template is evaluated, placed outside of Framework) -->

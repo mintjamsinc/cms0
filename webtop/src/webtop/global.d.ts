@@ -22,6 +22,12 @@ export interface WebtopContext {
 	launch(): void;
 	initMetadataDefinitions(): Promise<void>;
 	initI18n(): Promise<void>;
+	/** Whether calls are waiting for the user to sign in again. */
+	readonly reauthPending: boolean;
+	/** Asks the user to sign in again; resolves true once the same user has. */
+	reauthenticate(): Promise<boolean>;
+	/** Compares who is signed in now with the user of this desktop. */
+	checkSignIn(): Promise<void>;
 }
 
 declare global {

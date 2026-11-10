@@ -49,13 +49,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  *
  * <p>The token is bearer-style: possession proves authentication until the
  * embedded expiry. Logging out clears the cookie on the client; there is
- * no server-side revocation list, so the lifetime should stay moderate.
+ * no server-side revocation list. The lifetime counts from the sign-in and
+ * is not extended by use: it is how long a user stays signed in at most,
+ * whether they are working or away.
  */
 public final class AuthToken {
 
 	public static final String COOKIE_NAME = "mintjams.cms.auth";
 
-	public static final long DEFAULT_TTL_MILLIS = 12L * 60 * 60 * 1000;
+	public static final long DEFAULT_TTL_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
 	private static final ObjectMapper fObjectMapper = new ObjectMapper();
 

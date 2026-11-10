@@ -71,6 +71,10 @@ public class GraphQLServlet extends HttpServlet {
 	private static final long serialVersionUID = 1L;
 	// serializeNulls(): preserve explicit nulls so clients can observe nullable
 	// fields transitioning to null (matches the built-in GraphQLServlet).
+	/** Sent by a caller that expects to run as a signed-in user. */
+	private static final String AUTH_HEADER = "X-MintJams-Auth";
+	private static final String AUTH_REQUIRED = "required";
+
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	@Override
@@ -103,6 +107,13 @@ public class GraphQLServlet extends HttpServlet {
 			String workspaceName = getWorkspaceName(request);
 			if (workspaceName == null || workspaceName.isEmpty()) {
 				sendError(response, "Workspace name must be specified");
+				return;
+			}
+
+			// A caller that expects to be signed in is told when it is not, instead
+			// of being run as the guest.
+			if (requiresAuthentication(request) && getCredentials(request) instanceof javax.jcr.GuestCredentials) {
+				sendUnauthorized(response);
 				return;
 			}
 
@@ -193,6 +204,28 @@ public class GraphQLServlet extends HttpServlet {
 			return (Credentials) credentials;
 		}
 		return new javax.jcr.GuestCredentials();
+	}
+
+	/**
+	 * Whether the caller declared that the request must run as a signed-in
+	 * user ({@code X-MintJams-Auth: required}). The endpoint serves guests
+	 * too, so a request without the header runs as the guest when it carries
+	 * no authentication.
+	 */
+	private boolean requiresAuthentication(HttpServletRequest request) {
+		return AUTH_REQUIRED.equalsIgnoreCase(request.getHeader(AUTH_HEADER));
+	}
+
+	private void sendUnauthorized(HttpServletResponse response) throws IOException {
+		response.setContentType("application/json");
+		response.setCharacterEncoding("UTF-8");
+		response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+		Map<String, Object> error = Map.<String, Object>of("errors", List.of(Map.of(
+				"message", "Not signed in",
+				"extensions", Map.of("code", "UNAUTHORIZED"))));
+		PrintWriter writer = response.getWriter();
+		writer.write(GSON.toJson(error));
+		writer.flush();
 	}
 
 	private void sendResponse(HttpServletResponse response, Map<String, Object> result) throws IOException {

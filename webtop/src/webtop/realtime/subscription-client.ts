@@ -21,6 +21,8 @@
  * applied before the add it follows, leaving a subscription running.
  */
 
+import { authHeaders, reauthenticate } from '../graphql/auth.js';
+
 export type SubscriptionHandler<T = unknown> = (data: T) => void;
 
 export interface SubscriptionClientOptions {
@@ -123,7 +125,17 @@ export class SubscriptionClient {
 
   async #openConnection(): Promise<boolean> {
     // 1) Reserve a token.
-    const reservation = await fetch(this.#endpoint, { method: 'PUT', credentials: 'include' });
+    let reservation: Response;
+    for (let attempt = 0; ; attempt++) {
+      const auth = authHeaders();
+      reservation = await fetch(this.#endpoint, { method: 'PUT', credentials: 'include', headers: auth });
+      // The sign-in is gone: a stream reserved now would belong to the guest.
+      // Wait for the user to sign in again (see ../graphql/auth.ts).
+      if (reservation.status === 401 && Object.keys(auth).length > 0 && attempt < 3 && (await reauthenticate())) {
+        continue;
+      }
+      break;
+    }
     if (!reservation.ok) {
       throw new Error(`stream reservation failed: ${reservation.status}`);
     }
@@ -186,12 +198,13 @@ export class SubscriptionClient {
       const response = await fetch(`${this.#endpoint}?token=${encodeURIComponent(token)}`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ query: operation.document, extensions: { operationId } }),
       });
-      if (response.status === 404 || response.status === 503) {
-        // Token gone (server dropped the connection), or the node holding the
-        // stream cannot be reached — re-establish and re-post.
+      if (response.status === 404 || response.status === 503 || response.status === 401) {
+        // Token gone (server dropped the connection), the node holding the
+        // stream cannot be reached, or the sign-in is gone (the reservation
+        // waits for the user to sign in again) — re-establish and re-post.
         this.#handleConnectionError(new Event('error'));
       }
     });

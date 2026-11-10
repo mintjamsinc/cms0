@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Webtop</title>
+</head>
+
+<body>
+	<!-- The sign-in popup ends here when the user signs in again from the
+	     Webtop (index.ts, signInAgain). It tells the Webtop windows of this
+	     browser that a sign-in has completed and closes itself. Opened in an
+	     ordinary tab it cannot close, so it goes on to the Webtop. -->
+	<script>
+		try {
+			var channel = new BroadcastChannel('webtop-auth');
+			channel.postMessage({ type: 'signed-in' });
+			channel.close();
+		} catch (e) {
+			// The Webtop also checks when the popup closes.
+		}
+		window.close();
+		setTimeout(function () { window.location.replace('./'); }, 500);
+	</script>
+</body>
+
+</html>
