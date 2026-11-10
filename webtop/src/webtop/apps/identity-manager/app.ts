@@ -472,20 +472,41 @@ export const App = {
 				if (!fullUser) return;
 				this.selectedUser = fullUser;
 				this.userSubTab = 'profile';
-				this.editForm = {
-					sn: fullUser.sn || '',
-					givenName: fullUser.givenName || '',
-					displayName: fullUser.displayName || '',
-					mail: fullUser.mail || '',
-					mailVerified: false,
-					enabled: fullUser.enabled,
-				};
+				this.resetProfileForm();
 				this.passwordForm.newPassword = '';
 				this.pendingRoleChanges = {};
 				await this.loadUserSecurity();
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}
+		},
+
+		/** Fills the Profile form from the selected user as saved. */
+		resetProfileForm() {
+			const user = this.selectedUser as IdpUser | null;
+			if (!user) return;
+			this.editForm = {
+				sn: user.sn || '',
+				givenName: user.givenName || '',
+				displayName: user.displayName || '',
+				mail: user.mail || '',
+				mailVerified: false,
+				enabled: user.enabled,
+			};
+		},
+
+		/**
+		 * Reloads the selected user after a save on one tab. The open tab and
+		 * the other tabs' unsaved edits stay as they are; only the part that
+		 * was just saved is taken back from the server.
+		 */
+		async reloadSelectedUser(saved: { profile?: boolean; roles?: boolean }) {
+			if (!this.selectedUser) return;
+			const fullUser = await this.idp!.getUser(this.selectedUser.username);
+			if (!fullUser) return;
+			this.selectedUser = fullUser;
+			if (saved.profile) this.resetProfileForm();
+			if (saved.roles) this.pendingRoleChanges = {};
 		},
 
 		/** Takes back an address that waits for the user's confirmation. */
@@ -535,6 +556,28 @@ export const App = {
 					return;
 				}
 
+				await this.reloadSelectedUser({ profile: true });
+				await this.loadUsers();
+			} catch (err) {
+				this.errorMessage = err instanceof Error ? err.message : String(err);
+			}
+		},
+
+		/**
+		 * Saves the role checkboxes of the Security tab. Only the roles are
+		 * sent: an unsaved edit on the Profile tab is neither saved nor
+		 * checked here.
+		 */
+		async saveUserRoles() {
+			if (!this.selectedUser) return;
+			if (this.isSelf) {
+				this.errorMessage = this.t('app.identity-manager.error.selfEdit', undefined,
+					'You cannot edit your own account here.');
+				return;
+			}
+			try {
+				this.errorMessage = '';
+				const username = this.selectedUser.username;
 				const rolesToAssign: string[] = [];
 				const rolesToRevoke: string[] = [];
 				for (const [roleId, checked] of Object.entries(this.pendingRoleChanges)) {
@@ -542,15 +585,23 @@ export const App = {
 					if (checked && !hasNow) rolesToAssign.push(roleId);
 					if (!checked && hasNow) rolesToRevoke.push(roleId);
 				}
+				const errors: string[] = [];
 				if (rolesToAssign.length > 0) {
-					await this.idp!.assignRoles({ username, roles: rolesToAssign });
+					const result = await this.idp!.assignRoles({ username, roles: rolesToAssign });
+					if (result.errors) errors.push(...result.errors.map((e: { message: string }) => e.message));
 				}
 				if (rolesToRevoke.length > 0) {
-					await this.idp!.revokeRoles({ username, roles: rolesToRevoke });
+					const result = await this.idp!.revokeRoles({ username, roles: rolesToRevoke });
+					if (result.errors) errors.push(...result.errors.map((e: { message: string }) => e.message));
+				}
+				if (errors.length > 0) {
+					this.errorMessage = errors.join(', ');
+					// Show what was saved; the checkboxes that failed stay pending.
+					await this.reloadSelectedUser({});
+					return;
 				}
 
-				await this.selectUser({ username } as IdpUser);
-				await this.loadUsers();
+				await this.reloadSelectedUser({ roles: true });
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}
@@ -578,11 +629,15 @@ export const App = {
 			if (!this.selectedUser) return;
 			try {
 				this.errorMessage = '';
-				await this.idp!.removeGroupMembers({
+				const result = await this.idp!.removeGroupMembers({
 					groupId,
 					usernames: [this.selectedUser.username],
 				});
-				await this.selectUser({ username: this.selectedUser.username } as IdpUser);
+				if (result.errors) {
+					this.errorMessage = result.errors.map((e: { message: string }) => e.message).join(', ');
+					return;
+				}
+				await this.reloadSelectedUser({});
 			} catch (err) {
 				this.errorMessage = err instanceof Error ? err.message : String(err);
 			}

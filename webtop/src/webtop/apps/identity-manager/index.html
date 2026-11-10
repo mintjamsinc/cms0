@@ -257,7 +257,7 @@
 									</div>
 									<div v-if="allRolesFlat.length === 0" class="text-muted">{{ t('app.identity-manager.empty.rolesDefined', undefined, 'No roles defined') }}</div>
 									<div class="form-actions">
-										<button class="wt wt-primary" @click="saveUser" :disabled="isSelf">
+										<button class="wt wt-primary" @click="saveUserRoles" :disabled="isSelf">
 											<i class="bi bi-check-lg me-1"></i>{{ t('app.identity-manager.user.saveRoleChanges', undefined, 'Save Role Changes') }}
 										</button>
 									</div>
