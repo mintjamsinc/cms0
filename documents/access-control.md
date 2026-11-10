@@ -34,6 +34,22 @@ role's. Nested roles and groups are no exception: the identifier is the last
 path segment, so two roles `sales/approver` and `support/approver` cannot
 coexist.
 
+### Entries for principals that are gone
+
+Deleting a user, a group or a role leaves its entries in the access control
+lists that name it; they match nobody, and the access control dialog shows
+them under the bare name. Writing a policy (`setPolicy`: the `setAccessControl`
+and `deleteAccessControl` mutations, the permissions dialog, provisioning)
+refuses an entry whose principal does not exist, **unless the node's stored
+policy already has an entry for that name**. So a stale entry never blocks a
+change to the rest of the list — adding another entry, removing one, a
+package's provisioning adding its own — and it stays until someone removes it
+(`deleteAccessControl` with its name). A new entry for a name that resolves to
+nothing is still refused (`Unknown principal: <name>`).
+
+A group or role created later under the same name would gain what the stale
+entry grants, so remove such entries when the principal is retired.
+
 ### Hierarchy does not inherit
 
 A user holds the roles assigned to them and is a member of the groups listed

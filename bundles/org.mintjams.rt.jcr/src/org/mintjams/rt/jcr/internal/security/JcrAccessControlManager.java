@@ -29,9 +29,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.jcr.AccessDeniedException;
@@ -532,12 +534,28 @@ public class JcrAccessControlManager implements AccessControlManager, Adaptable 
 				throw new AccessControlException("Access control policy is not applicable.");
 			}
 
+			// A principal that does not exist is refused, except one the node's
+			// stored policy already names: a user, group or role removed after it
+			// was granted leaves its entry behind, and that must not make every
+			// later change to the policy fail. The entry is kept as it is.
+			Set<String> stored = new HashSet<>();
+			try (Query.Result result = getWorkspaceQuery().items().listAccessControlEntries(node.getPath())) {
+				for (AdaptableMap<String, Object> r : result) {
+					stored.add(r.getString("principal_name"));
+				}
+			} catch (IOException | SQLException ex) {
+				throw Cause.create(ex).wrap(RepositoryException.class);
+			}
 			List<AccessControlEntry> entries = Arrays.asList(acl.getAccessControlEntries());
 			for (AccessControlEntry ace : entries) {
+				String name = ace.getPrincipal().getName();
+				if (stored.contains(name)) {
+					continue;
+				}
 				try {
-					Activator.getDefault().getPrincipal(ace.getPrincipal().getName());
+					Activator.getDefault().getPrincipal(name);
 				} catch (PrincipalNotFoundException ex) {
-					throw new AccessControlException("Unknown principal: " + ace.getPrincipal().getName(), ex);
+					throw new AccessControlException("Unknown principal: " + name, ex);
 				}
 			}
 
