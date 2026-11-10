@@ -15,7 +15,8 @@ export const WEBTOP_QUERIES = {
    * The server discovers every app.yml descriptor under `path`, parses it, and
    * resolves the derived fields (icon fallback, index.html modified time) in a
    * single round trip. This replaces the legacy approach of issuing roughly
-   * three requests per app.
+   * three requests per app. An app whose app.yml names `roles` is returned
+   * only to the holders of one of them and to administrators.
    */
   LIST_APPS: `
     query ListApps($path: String!, $first: Int, $after: String) {
@@ -33,7 +34,6 @@ export const WEBTOP_QUERIES = {
             contentTypes
             category
             enableStartMenu
-            isAdminOnly
             singleton
             customWindowControls
             fileHandles

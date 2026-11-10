@@ -3593,8 +3593,9 @@ export class Webtop implements WebtopContext {
 		console.log('[Webtop] I18n bundles cache initialized');
 	}
 
-	// Enabled start-menu apps (start-menu opt-out honored). Admin-only apps are
-	// already filtered server-side for non-admin users in listApps().
+	// Enabled start-menu apps (start-menu opt-out honored). The apps whose
+	// app.yml names roles the user does not hold never reach listApps(): the
+	// server leaves them out.
 	#startMenuApps(): Application[] {
 		return (window.Webtop?.apps || []).filter(app => {
 			return app.enableStartMenu === undefined || app.enableStartMenu;

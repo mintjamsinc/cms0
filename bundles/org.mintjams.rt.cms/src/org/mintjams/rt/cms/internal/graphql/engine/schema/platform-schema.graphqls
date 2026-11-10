@@ -93,7 +93,7 @@ type Query {
   """Version history of a versionable node (null when the node is not versionable)."""
   versionHistory(path: String!): VersionHistory
 
-  """List Webtop applications (app.yml descriptors) under an apps root (Relay connection)."""
+  """List Webtop applications (app.yml descriptors) under an apps root (Relay connection). An app whose app.yml names `roles` is listed only for the holders of one of those roles and for administrators."""
   apps(path: String!, first: Int = 100, after: String): AppConnection!
 
   """The extensions in force at each path: the enabled items of the nearest .extensions.yml from the folder (or the file's folder) up to the root, read as the caller. At most 200 paths."""
@@ -1185,7 +1185,6 @@ type App {
   """Optional app-menu category id. Apps sharing a value are grouped under a collapsible section; unset apps stay in the flat list."""
   category: String
   enableStartMenu: Boolean
-  isAdminOnly: Boolean
   singleton: Boolean
   customWindowControls: Boolean
   """Whether the app opens files through a file handle (lib/file-handle.ts): a cloud file, or a file served at a URL such as a mail attachment, besides a repository path."""

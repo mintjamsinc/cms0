@@ -73,6 +73,7 @@ import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.files.Deadline;
 import org.mintjams.rt.cms.internal.files.SearchExcerpts;
 import org.mintjams.rt.cms.internal.extensions.FolderExtensions;
+import org.mintjams.rt.cms.internal.graphql.AppRoles;
 import org.mintjams.rt.cms.internal.graphql.AppWidgets;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
@@ -764,24 +765,31 @@ public final class PlatformWiringContributor implements WiringContributor {
 		String xpath = "/jcr:root" + appsPath + "//element(app.yml,nt:file)";
 		NodeIterator iterator = session.getWorkspace().getQueryManager()
 				.createQuery(xpath, Query.XPATH).execute().getNodes();
-		long totalCount = iterator.getSize();
-		if (start > 0) {
-			iterator.skip(start);
+		// The apps offered to the caller: an app.yml may name the roles it is
+		// for (AppRoles). Positions and the count are those of this list, so a
+		// page never reveals how many apps were left out.
+		List<Node> descriptorNodes = new ArrayList<>();
+		List<Map<String, Object>> descriptors = new ArrayList<>();
+		while (iterator.hasNext()) {
+			Node appYmlNode = iterator.nextNode();
+			Map<String, Object> data = parseAppDescriptor(appYmlNode);
+			if (AppRoles.isOffered(session, data.get("roles"))) {
+				descriptorNodes.add(appYmlNode);
+				descriptors.add(data);
+			}
 		}
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int position = start;
-		int count = 0;
-		while (iterator.hasNext() && count < first) {
-			edges.add(edge(appNode(iterator.nextNode(), appsPath), position));
+		while (position < descriptorNodes.size() && edges.size() < first) {
+			edges.add(edge(appNode(descriptorNodes.get(position), descriptors.get(position), appsPath), position));
 			position++;
-			count++;
 		}
-		return connection(edges, iterator.hasNext(), start > 0, totalCount);
+		return connection(edges, position < descriptorNodes.size(), start > 0, (long) descriptorNodes.size());
 	}
 
-	/** Builds an App node map from an {@code app.yml} node (mirrors QueryExecutor.toAppNode). */
+	/** Builds an App node map from an {@code app.yml} node and its parsed text (mirrors QueryExecutor.toAppNode). */
 	@SuppressWarnings("unchecked")
-	private static Map<String, Object> appNode(Node appYmlNode, String appsPath) throws Exception {
+	private static Map<String, Object> appNode(Node appYmlNode, Map<String, Object> data, String appsPath) throws Exception {
 		Node appDir = appYmlNode.getParent();
 		String appHome = appDir.getPath();
 		String name = appDir.getName();
@@ -789,8 +797,6 @@ public final class PlatformWiringContributor implements WiringContributor {
 		if (appHome.length() > appsPath.length() && appHome.startsWith(appsPath + "/")) {
 			relPath = appHome.substring(appsPath.length() + 1);
 		}
-		Map<String, Object> data = parseAppDescriptor(appYmlNode);
-
 		Map<String, Object> app = new HashMap<>();
 		app.put("identifier", data.get("identifier"));
 		app.put("name", name);
@@ -800,7 +806,6 @@ public final class PlatformWiringContributor implements WiringContributor {
 		app.put("category", asStringOrNull(data.get("category")));
 		app.put("editor", asBoolean(data.get("editor")));
 		app.put("enableStartMenu", asBooleanOrNull(data.get("enableStartMenu")));
-		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
 		app.put("singleton", asBoolean(data.get("singleton")));
 		app.put("customWindowControls", asBoolean(data.get("customWindowControls")));
 		app.put("fileHandles", asBoolean(data.get("fileHandles")));

@@ -1097,12 +1097,14 @@ public class QueryExecutor {
 	 * {@code app.yml} descriptor. This resolver discovers those descriptors,
 	 * parses them server-side, and resolves the derived fields the client used
 	 * to gather with one request per app (icon fallback, index.html modified
-	 * time). The whole page is returned in a single round trip.
+	 * time). The whole page is returned in a single round trip. An app whose
+	 * descriptor names {@code roles} is listed only for the holders of one of
+	 * them and for administrators (see {@link AppRoles}).
 	 *
 	 * Example:
 	 * {@code apps(path: "/usr/share/webtop/apps", first: 100, after: "cursor") {
 	 *   edges { node { identifier name title icon path relPath modified editor
-	 *     contentTypes enableStartMenu isAdminOnly singleton customWindowControls fileHandles
+	 *     contentTypes enableStartMenu singleton customWindowControls fileHandles
 	 *     minimumWidth minimumHeight actions { identifier label icon }
 	 *     widgets { identifier title entry width height layer } } cursor }
 	 *   pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }
@@ -1173,33 +1175,38 @@ public class QueryExecutor {
 		Query query = queryManager.createQuery(xpath, Query.XPATH);
 		QueryResult queryResult = query.execute();
 
+		// The apps offered to the caller: an app.yml may name the roles it is
+		// for (AppRoles). Positions and the count are those of this list.
 		NodeIterator nodeIterator = queryResult.getNodes();
-		long totalCount = nodeIterator.getSize();
+		List<Node> descriptorNodes = new ArrayList<>();
+		List<Map<String, Object>> descriptors = new ArrayList<>();
+		while (nodeIterator.hasNext()) {
+			Node appYmlNode = nodeIterator.nextNode();
+			Map<String, Object> data = parseAppDescriptor(appYmlNode);
+			if (AppRoles.isOffered(session, data.get("roles"))) {
+				descriptorNodes.add(appYmlNode);
+				descriptors.add(data);
+			}
+		}
+		long totalCount = descriptorNodes.size();
 
 		int startPosition = 0;
 		if (afterCursor != null && !afterCursor.isEmpty()) {
 			startPosition = decodeCursor(afterCursor) + 1;
 		}
-		if (startPosition > 0) {
-			nodeIterator.skip(startPosition);
-		}
 
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int currentPosition = startPosition;
-		int count = 0;
-		while (nodeIterator.hasNext() && count < first) {
-			Node appYmlNode = nodeIterator.nextNode();
-
+		while (currentPosition < descriptorNodes.size() && edges.size() < first) {
 			Map<String, Object> edge = new HashMap<>();
-			edge.put("node", toAppNode(appYmlNode, appsPath));
+			edge.put("node", toAppNode(descriptorNodes.get(currentPosition), descriptors.get(currentPosition), appsPath));
 			edge.put("cursor", encodeCursor(currentPosition));
 			edges.add(edge);
 			currentPosition++;
-			count++;
 		}
 
 		Map<String, Object> pageInfo = new HashMap<>();
-		pageInfo.put("hasNextPage", nodeIterator.hasNext());
+		pageInfo.put("hasNextPage", currentPosition < descriptorNodes.size());
 		pageInfo.put("hasPreviousPage", startPosition > 0);
 		if (!edges.isEmpty()) {
 			pageInfo.put("startCursor", edges.get(0).get("cursor"));
@@ -1242,7 +1249,7 @@ public class QueryExecutor {
 	 * (from a sibling {@code index.html}, then the descriptor itself).
 	 */
 	@SuppressWarnings("unchecked")
-	private Map<String, Object> toAppNode(Node appYmlNode, String appsPath) throws Exception {
+	private Map<String, Object> toAppNode(Node appYmlNode, Map<String, Object> data, String appsPath) throws Exception {
 		Node appDir = appYmlNode.getParent();
 		String appHome = appDir.getPath();
 		String name = appDir.getName();
@@ -1250,8 +1257,6 @@ public class QueryExecutor {
 		if (appHome.length() > appsPath.length() && appHome.startsWith(appsPath + "/")) {
 			relPath = appHome.substring(appsPath.length() + 1);
 		}
-
-		Map<String, Object> data = parseAppDescriptor(appYmlNode);
 
 		Map<String, Object> app = new HashMap<>();
 		app.put("identifier", data.get("identifier"));
@@ -1262,7 +1267,6 @@ public class QueryExecutor {
 		app.put("category", asStringOrNull(data.get("category")));
 		app.put("editor", asBoolean(data.get("editor")));
 		app.put("enableStartMenu", asBooleanOrNull(data.get("enableStartMenu")));
-		app.put("isAdminOnly", asBoolean(data.get("isAdminOnly")));
 		app.put("singleton", asBoolean(data.get("singleton")));
 		app.put("customWindowControls", asBoolean(data.get("customWindowControls")));
 		app.put("fileHandles", asBoolean(data.get("fileHandles")));

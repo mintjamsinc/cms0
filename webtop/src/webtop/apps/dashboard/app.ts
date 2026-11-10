@@ -437,15 +437,15 @@ const App = {
 			const client = createGraphQLClient(this._workspace);
 			this._bpm = this.$markRaw(new BpmServiceGraphQL(client));
 			this._eip = this.$markRaw(new EipServiceGraphQL(client));
-			this._webtop = this.$markRaw(new WebtopServiceGraphQL(client, { isAdmin: this.isAdmin, rootPath: this.instance.api.context.rootPath }));
+			this._webtop = this.$markRaw(new WebtopServiceGraphQL(client, { rootPath: this.instance.api.context.rootPath }));
 		},
 
 		// Resolve once whether the Workspace Manager app is deployed in this
 		// workspace, so the Workspaces card hides its drill-in link when it
 		// is not (e.g. the app is installed in the system workspace only).
 		// Only relevant for admins — the Operations section that carries the
-		// link is admin-only — and the admin-mode app list includes admin-only
-		// apps. On any failure the optimistic default (available) stands, so a
+		// link is admin-only — and the server lists the apps for administrators
+		// (app.yml `roles`) to them. On any failure the optimistic default (available) stands, so a
 		// transient error never hides a link that does work.
 		async detectWorkspaceManager() {
 			if (!this.isAdmin || !this._webtop) return;

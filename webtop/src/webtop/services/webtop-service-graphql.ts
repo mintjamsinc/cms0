@@ -238,7 +238,6 @@ interface AppNode {
   contentTypes?: string[] | null;
   category?: string | null;
   enableStartMenu?: boolean | null;
-  isAdminOnly?: boolean | null;
   singleton?: boolean | null;
   customWindowControls?: boolean | null;
   fileHandles?: boolean | null;
@@ -264,19 +263,10 @@ interface ListAppsQueryResult {
 export class WebtopServiceGraphQL {
   #client: GraphQLClient;
   #appsPath: string;
-  #isAdmin: boolean;
 
-  constructor(client: GraphQLClient, options: { isAdmin?: boolean, rootPath: string }) {
+  constructor(client: GraphQLClient, options: { rootPath: string }) {
     this.#client = client;
     this.#appsPath = UrlUtils.getAppsPath(options.rootPath);
-    this.#isAdmin = options.isAdmin ?? false;
-  }
-
-  /**
-   * Set admin mode (affects visibility of admin-only apps).
-   */
-  setAdminMode(isAdmin: boolean): void {
-    this.#isAdmin = isAdmin;
   }
 
   /**
@@ -285,8 +275,8 @@ export class WebtopServiceGraphQL {
    * Issues the `apps` GraphQL query, which returns each app's full metadata in
    * a single Relay-style cursor connection (instead of the legacy ~3 requests
    * per app). The connection is paged at {@link APPS_PAGE_SIZE} apps per
-   * request; all pages are accumulated. Admin-only apps are filtered out for
-   * non-admin users.
+   * request; all pages are accumulated. The server leaves out the apps whose
+   * app.yml names `roles` the user does not hold.
    */
   async listApps(): Promise<ListAppsResult> {
     const apps: Application[] = [];
@@ -301,10 +291,7 @@ export class WebtopServiceGraphQL {
 
         const connection = result.apps;
         for (const edge of connection.edges) {
-          const app = this.#toApplication(edge.node);
-          if (app) {
-            apps.push(app);
-          }
+          apps.push(this.#toApplication(edge.node));
         }
 
         after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
@@ -474,15 +461,8 @@ export class WebtopServiceGraphQL {
     return { jobId: payload.jobId!, status: payload.status ?? 'queued' };
   }
 
-  /**
-   * Convert an App node from the GraphQL response into an Application, applying
-   * the admin-only visibility rule. Returns null when the app must be hidden.
-   */
-  #toApplication(node: AppNode): Application | null {
-    if (node.isAdminOnly && !this.#isAdmin) {
-      return null;
-    }
-
+  /** Convert an App node from the GraphQL response into an Application. */
+  #toApplication(node: AppNode): Application {
     // Rebuild the action map keyed by identifier (the shape Application exposes).
     const actions: Record<string, AppAction> = {};
     for (const a of node.actions ?? []) {

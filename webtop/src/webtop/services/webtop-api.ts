@@ -148,9 +148,6 @@ export class WebtopAPI {
 		const groups = this.#context.currentUser.groups.map(g => g.groupId);
 		this.#eventHub.initialize(userId, groups);
 
-		// Set admin mode for WebtopServiceGraphQL
-		this.#webtopGraphQL.setAdminMode(this.#context.currentUser.isAdmin);
-
 		// Subscribe to preference / wallpaper / avatar changes for cross-browser/tab sync
 		this.#setupPreferencesSubscription(userId);
 		this.#setupWallpaperSubscription(userId);

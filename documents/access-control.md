@@ -85,6 +85,32 @@ configuration grant read without entries.
   role (`camunda:candidateGroups="site-approver"`), and the Tasks app lists
   such tasks under "my group tasks".
 
+## Roles an app is offered to
+
+A Webtop app may name, in its `app.yml`, the roles it is for:
+
+```yaml
+# apps/site/app.yml
+roles: [site-editor, site-approver, site-administrator]
+```
+
+- Without `roles` the app is offered to everyone.
+- With `roles` it is offered to the holders of at least one of them — the
+  roles a user holds directly, as in the entries above — and to
+  administrators, whatever the list names. `roles: [administrator]` is an
+  app for administrators only; so is an empty list.
+- The server applies this when it lists the apps (the `apps` query), so an
+  app that is not offered is absent from everything the shell builds from
+  that list: the app menu, the widgets, the apps a file opens with, the
+  extensions the app adds to the Content Browser, and the apps a task form
+  can open.
+
+This decides what is listed, not what may be read: the files of the app stay
+readable under the entries of `/usr/share/webtop/apps`, and what the app
+calls is guarded by each operation. To close the files as well, give the
+app's folder entries of its own. The shell reads the list when the desktop
+loads, so a role granted or revoked shows there from the next load on.
+
 ## Granting
 
 - **Content Browser.** The access control dialog searches users, groups and
