@@ -106,7 +106,7 @@
 	"webtop.apps.updated.title": "{app} was updated",
 	"webtop.apps.updated.body": "Open windows keep running; the new version starts from the next launch.",
 	"webtop.apps.removed.title": "{app} was removed",
-	"webtop.apps.removed.body": "The app was uninstalled. Open windows keep running until closed.",
+	"webtop.apps.removed.body": "The app was uninstalled. Please close its open windows.",
 	"webtop.window.launchFailed": "The application could not be started.",
 	"webtop.workspace.switch": "Switch workspace",
 	"webtop.notifications.title": "Notifications",

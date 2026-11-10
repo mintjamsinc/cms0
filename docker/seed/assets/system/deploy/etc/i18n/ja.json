@@ -106,7 +106,7 @@
 	"webtop.apps.updated.title": "{app} が更新されました",
 	"webtop.apps.updated.body": "開いているウィンドウはそのまま動きます。次回の起動から新しいバージョンになります。",
 	"webtop.apps.removed.title": "{app} が削除されました",
-	"webtop.apps.removed.body": "アプリがアンインストールされました。開いているウィンドウは閉じるまでそのまま使えます。",
+	"webtop.apps.removed.body": "アプリがアンインストールされました。開いているウィンドウは閉じてください。",
 	"webtop.window.launchFailed": "アプリケーションを起動できませんでした。",
 	"webtop.workspace.switch": "ワークスペースの切り替え",
 	"webtop.notifications.title": "通知",

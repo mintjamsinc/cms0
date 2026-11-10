@@ -930,9 +930,11 @@ const WtDesktop = {
 			}, APPS_RELOAD_DEBOUNCE_MS);
 		},
 		// Re-read the app list and tell the user what changed. Running
-		// instances are left alone: a window of a removed app stays open until
-		// closed, and an upgraded app runs its new version from its next
-		// launch. Failures are non-fatal — the last known list is kept.
+		// instances are left alone: a window of a removed app stays open, but
+		// the app's files are gone from the repository, so anything it still
+		// fetches (server-side scripts, i18n, assets) fails — the notice asks
+		// the user to close it. An upgraded app runs its new version from its
+		// next launch. Failures are non-fatal — the last known list is kept.
 		async reloadApps() {
 			const vm = this;
 			let apps: Application[];
