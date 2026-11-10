@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -53,6 +54,7 @@ import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.security.UserHomeAccess;
 import org.mintjams.jcr.util.JCRs;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.extensions.FolderExtensions;
 import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.Session;
@@ -207,6 +209,7 @@ public class Provisioner implements Closeable {
 		List<Map<String, Object>> groups = new ArrayList<>();
 		List<Map<String, Object>> users = new ArrayList<>();
 		List<Map<String, Object>> nodes = new ArrayList<>();
+		List<Map<String, Object>> extensions = new ArrayList<>();
 		for (Map<String, Object> document : documents) {
 			if (document == null) {
 				continue;
@@ -216,6 +219,7 @@ public class Provisioner implements Closeable {
 			groups.addAll(section(document, "groups"));
 			users.addAll(section(document, "users"));
 			nodes.addAll(section(document, "nodes"));
+			extensions.addAll(section(document, "extensions"));
 		}
 
 		try {
@@ -233,6 +237,9 @@ public class Provisioner implements Closeable {
 			}
 			for (Map<String, Object> node : nodes) {
 				provisionNode(node);
+			}
+			for (Map<String, Object> extension : extensions) {
+				provisionExtensions(extension);
 			}
 		} catch (IOException | RuntimeException ex) {
 			throw ex;
@@ -526,6 +533,85 @@ public class Provisioner implements Closeable {
 		}
 	}
 
+	// =========================================================================
+	// Folder extensions (.extensions.yml of the current workspace)
+	// =========================================================================
+
+	/**
+	 * Turns extensions on for a folder by adding their items to its
+	 * {@code .extensions.yml}:
+	 *
+	 * <pre>
+	 * extensions:
+	 *   - path: /content/drafts
+	 *     content-browser:
+	 *       - site/drafts
+	 *       - use: site/public
+	 *         options: { draftRoot: /content/drafts }
+	 * </pre>
+	 *
+	 * The file is shared by every app and by the people who run the workspace,
+	 * so an item is only ever added: the file is created when missing, an item
+	 * that is already there (enabled or not, with whatever options) is left as
+	 * it is, and every other line stays untouched. A file that cannot be added
+	 * to is left alone with a warning.
+	 */
+	private void provisionExtensions(Map<String, Object> definition) throws Exception {
+		String path = string(definition.get("path"));
+		if (Strings.isEmpty(path) || !path.startsWith("/")) {
+			throw new IOException("An absolute path is required for every extensions provisioning entry.");
+		}
+
+		for (Map.Entry<String, Object> kind : definition.entrySet()) {
+			if ("path".equals(kind.getKey()) || !(kind.getValue() instanceof List)) {
+				continue;
+			}
+			for (Object item : (List<?>) kind.getValue()) {
+				String use = null;
+				Map<String, Object> options = null;
+				if (item instanceof String) {
+					use = ((String) item).trim();
+				} else if (item instanceof Map) {
+					use = string(((Map<?, ?>) item).get("use"));
+					Object optionsObj = ((Map<?, ?>) item).get("options");
+					if (optionsObj instanceof Map) {
+						options = new LinkedHashMap<>();
+						for (Map.Entry<?, ?> option : ((Map<?, ?>) optionsObj).entrySet()) {
+							options.put(String.valueOf(option.getKey()), option.getValue());
+						}
+					}
+				}
+				if (!FolderExtensions.isUse(use)) {
+					CmsService.getLogger(getClass()).warn("Skipping an extension that is not <app>/<name>: " + item
+							+ " (" + path + ")");
+					continue;
+				}
+				addExtension(path, kind.getKey(), use, options);
+			}
+		}
+	}
+
+	private void addExtension(String folderPath, String kind, String use, Map<String, Object> options) throws Exception {
+		Resource folder = getOrCreateFolderPath(folderPath);
+		Resource file = folder.getResource(FolderExtensions.FILE_NAME);
+		boolean exists = file.exists();
+		String text = exists ? file.getContent() : "";
+		FolderExtensions.Addition addition = FolderExtensions.add(text, kind, use, options);
+		if (addition.text == null) {
+			if (!"present".equals(addition.skipped)) {
+				CmsService.getLogger(getClass()).warn("Could not add the extension " + use + " to "
+						+ file.getPath() + " (" + addition.skipped + "); the file is left as it is.");
+			}
+			return;
+		}
+		if (!exists) {
+			file = folder.createFile(FolderExtensions.FILE_NAME);
+		}
+		file.write(addition.text);
+		fSession.commit();
+		CmsService.getLogger(getClass()).info("Provisioned extension: " + use + " (" + file.getPath() + ")");
+	}
+
 	private Resource createNode(String absPath, String primaryType) throws Exception {
 		Resource parent = getOrCreateFolderPath(absPath.substring(0, absPath.lastIndexOf('/')));
 		String name = absPath.substring(absPath.lastIndexOf('/') + 1);
@@ -699,7 +785,7 @@ public class Provisioner implements Closeable {
 	}
 
 	/** The section names a descriptor may declare. */
-	public static final List<String> SECTIONS = List.of("namespaces", "roles", "groups", "users", "nodes");
+	public static final List<String> SECTIONS = List.of("namespaces", "roles", "groups", "users", "nodes", "extensions");
 
 	@SuppressWarnings("unchecked")
 	private List<Map<String, Object>> section(Map<String, Object> document, String name) throws IOException {

@@ -712,6 +712,12 @@
 		<input type="file" ref="importArchiveInput" accept=".zip,application/zip" class="cb-upload-input"
 			@change="onImportInputChange" />
 
+		<!-- The notes of the extensions in force for this folder: one line each. -->
+		<div v-for="banner in extBanners" :key="banner.key" class="ext-banner" :class="'ext-banner-' + banner.tone">
+			<span class="ext-banner-text">{{ banner.text }}</span>
+			<button v-for="action in banner.actions" :key="action.id" type="button" class="wt wt-sm" @click="runExtBannerAction(banner, action.id)">{{ action.label }}</button>
+		</div>
+
 		<div class="content-list" ref="contentList" @scroll="onContentListScroll" @mousedown="onContentMouseDown" @contextmenu="onBackgroundContextMenu">
 			<div v-if="currentFolderDeleted" class="folder-deleted-notice">
 				<i class="bi bi-exclamation-triangle"></i>
@@ -760,6 +766,8 @@
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
 							</span>
 						</th>
+						<!-- The columns of the extensions in force for this folder (extensions.ts). -->
+						<th v-for="column in extColumns" :key="column.key" class="text-start th-inert">{{ column.title }}</th>
 						<th v-if="!isCloudLocation" class="text-start" :class="{ 'c-pointer': canSortColumn('lockOwner'), 'th-inert': !canSortColumn('lockOwner') }" @click="sortHeader('lockOwner')">{{ t('app.content-browser.column.lockOwner') }}
 							<span v-if="sortColumn == 'lockOwner'" class="ms-1">
 								<i class="bi" :class="{'bi-chevron-up': (sortDirection == 'asc'), 'bi-chevron-down': (sortDirection == 'desc')}"></i>
@@ -814,6 +822,13 @@
 								<span>{{ item.lastModifiedByDisplayName || item.lastModifiedBy }}</span>
 							</div>
 						</td>
+						<td v-for="column in extColumns" :key="column.key" class="ext-column">
+							<div class="ext-block pe-1">
+								<span v-if="extState(item, column)" class="ext-chip" :class="'ext-chip-' + extState(item, column).tone" :title="extState(item, column).title || ''">
+									<span class="ext-chip-label">{{ extState(item, column).label }}</span>
+								</span>
+							</div>
+						</td>
 						<td v-if="!isCloudLocation" class="lock-owner-column">
 							<div class="lock-owner-block pe-1">
 								<span v-if="item.isLocked" class="lock-chip"
@@ -864,6 +879,11 @@
 					</div>
 					<div class="grid-name">
 						<span v-if="item.color" class="item-color-dot" :style="{ backgroundColor: colorHex(item.color) }"></span><span>{{ item.name }}</span>
+					</div>
+					<div v-if="extFirstState(item)" class="grid-ext">
+						<span class="ext-chip" :class="'ext-chip-' + extFirstState(item).tone" :title="extFirstState(item).title || ''">
+							<span class="ext-chip-label">{{ extFirstState(item).label }}</span>
+						</span>
 					</div>
 				</div>
 			</div>

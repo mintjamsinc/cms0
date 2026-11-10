@@ -115,3 +115,23 @@ This is the same convention used by the `acl` blocks in
 [`../jcr.yml`](../jcr.yml), so the two are interchangeable in spirit: `jcr.yml`
 seeds the very first nodes at repository creation, while descriptors here are the
 application-facing, re-runnable mechanism layered on top of `deploy()`.
+
+### Folder extensions
+
+```yaml
+extensions:               # turn an app's extensions on for a folder
+  - path: /content/drafts
+    content-browser:      # the kind: what is extended
+      - site/drafts       # <app relPath>/<name>, as the app's app.yml declares it
+      - use: site/public  # the same, with settings for the extension
+        options: { draftRoot: /content/drafts }
+```
+
+Each item is added to the folder's `.extensions.yml`, which is created when
+missing. An item for the same extension that is already there is left as it
+is (enabled or not, with whatever options), and so is every other line of the
+file: it is shared with other apps and with the people who run the workspace.
+To turn an extension off, set `enabled: false` on its item instead of deleting
+it; a deleted item is added again at the next boot. See
+`documents/cms-provisioning.md` (*Folder extensions*) and
+`documents/webtop-content-browser.md` (*Extensions*).

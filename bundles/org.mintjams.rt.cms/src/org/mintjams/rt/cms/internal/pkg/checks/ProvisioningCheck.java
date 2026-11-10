@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
+import org.mintjams.rt.cms.internal.extensions.FolderExtensions;
 import org.mintjams.rt.cms.internal.pkg.Finding;
 import org.mintjams.rt.cms.internal.pkg.InspectionContext;
 import org.mintjams.rt.cms.internal.pkg.PackageCheck;
@@ -134,6 +135,35 @@ public final class ProvisioningCheck implements PackageCheck {
 			Object acl = entry.get("acl");
 			if (acl != null && !(acl instanceof List)) {
 				findings.add(Finding.error("provisioning.invalid", "The acl must be a list" + where, name));
+			}
+			break;
+		case "extensions":
+			Object folder = entry.get("path");
+			if (isBlank(folder) || !String.valueOf(folder).startsWith("/")) {
+				findings.add(Finding.error("provisioning.invalid", "An extensions entry needs an absolute path" + where, name));
+				break;
+			}
+			String reservedRoot = ReservedPathCheck.reservedRoot(String.valueOf(folder).trim());
+			if (reservedRoot != null) {
+				findings.add(Finding.error("provisioning.reservedPath",
+						"A package may not provision extensions under " + reservedRoot + ": " + folder, name));
+			}
+			for (Map.Entry<?, ?> kind : entry.entrySet()) {
+				if ("path".equals(kind.getKey())) {
+					continue;
+				}
+				if (!(kind.getValue() instanceof List)) {
+					findings.add(Finding.error("provisioning.invalid",
+							"The extensions of '" + kind.getKey() + "' must be a list" + where, name));
+					continue;
+				}
+				for (Object item : (List<?>) kind.getValue()) {
+					Object use = item instanceof Map ? ((Map<?, ?>) item).get("use") : item;
+					if (!(use instanceof String) || !FolderExtensions.isUse(((String) use).trim())) {
+						findings.add(Finding.error("provisioning.invalid",
+								"An extension is named <app>/<name>: " + use + where, name));
+					}
+				}
 			}
 			break;
 		default:

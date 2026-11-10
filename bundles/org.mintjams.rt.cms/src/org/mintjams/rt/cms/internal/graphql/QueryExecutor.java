@@ -1316,6 +1316,7 @@ public class QueryExecutor {
 		app.put("actions", actions);
 
 		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
+		app.put("extensions", org.mintjams.rt.cms.internal.extensions.FolderExtensions.fromDescriptor(data.get("extensions")));
 
 		return app;
 	}

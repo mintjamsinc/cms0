@@ -659,6 +659,92 @@
 	max-width: 8rem;
 }
 
+/* What an extension says of a row (extensions.ts): a chip in its column, or
+   under the name of a tile. The tone picks the color; the words are the
+   extension's. */
+.content-list .ext-column {
+	min-width: 5rem;
+	max-width: 10rem;
+}
+
+.ext-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	padding: 0.05rem 0.5rem;
+	border-radius: 9999px;
+	font-size: 0.85em;
+	line-height: 1.5;
+	background-color: rgb(from var(--text-muted-color, #6c757d) r g b / 0.14);
+	color: var(--text-color);
+}
+
+.ext-chip .ext-chip-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ext-chip-info {
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+	color: var(--primary-color);
+}
+
+.ext-chip-success {
+	background-color: rgb(from var(--success-color) r g b / 0.14);
+	color: var(--success-color);
+}
+
+.ext-chip-warning {
+	background-color: rgb(from var(--warning-color) r g b / 0.18);
+	color: var(--warning-color);
+}
+
+.ext-chip-danger {
+	background-color: rgb(from var(--danger-color) r g b / 0.12);
+	color: var(--danger-color);
+}
+
+.grid-ext {
+	display: flex;
+	justify-content: center;
+	margin-top: 0.15rem;
+}
+
+/* An extension's note above the list: one line, its words and up to three buttons. */
+.ext-banner {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.75rem;
+	border-bottom: 1px solid var(--island-border-color, var(--border-color));
+	font-size: 0.9em;
+}
+
+.ext-banner .ext-banner-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ext-banner-info {
+	background-color: rgb(from var(--primary-color) r g b / 0.08);
+}
+
+.ext-banner-success {
+	background-color: rgb(from var(--success-color) r g b / 0.10);
+}
+
+.ext-banner-warning {
+	background-color: rgb(from var(--warning-color) r g b / 0.14);
+}
+
+.ext-banner-danger {
+	background-color: rgb(from var(--danger-color) r g b / 0.10);
+}
+
 .content-list .type-column {
 	min-width: 5rem;
 	max-width: 10rem;

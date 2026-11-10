@@ -8,7 +8,7 @@
 import { GraphQLClient } from '../graphql/client.js';
 import { WEBTOP_MUTATIONS, WEBTOP_QUERIES } from '../graphql/queries/webtop.js';
 import { UrlUtils } from '../utils/url.js';
-import { Application, type AppWidget } from './webtop-service.js';
+import { Application, type AppExtension, type AppWidget } from './webtop-service.js';
 
 // =============================================================================
 // Types
@@ -246,6 +246,7 @@ interface AppNode {
   minimumHeight?: number | null;
   actions?: AppActionNode[] | null;
   widgets?: AppWidget[] | null;
+  extensions?: AppExtension[] | null;
 }
 
 interface ListAppsQueryResult {
@@ -517,6 +518,7 @@ export class WebtopServiceGraphQL {
       fileHandles: node.fileHandles ?? undefined,
       singleton: node.singleton ?? undefined,
       widgets: node.widgets ?? [],
+      extensions: node.extensions ?? [],
     });
   }
 

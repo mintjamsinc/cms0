@@ -72,6 +72,7 @@ import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.files.Deadline;
 import org.mintjams.rt.cms.internal.files.SearchExcerpts;
+import org.mintjams.rt.cms.internal.extensions.FolderExtensions;
 import org.mintjams.rt.cms.internal.graphql.AppWidgets;
 import org.mintjams.rt.cms.internal.graphql.ClusterQueryExecutor;
 import org.mintjams.rt.cms.internal.graphql.GraphQLRequest;
@@ -188,6 +189,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 				.dataFetcher("Query", "accessControl", (DataFetcher<Object>) PlatformWiringContributor::accessControl)
 				.dataFetcher("Query", "versionHistory", (DataFetcher<Object>) PlatformWiringContributor::versionHistory)
 				.dataFetcher("Query", "apps", (DataFetcher<Object>) PlatformWiringContributor::apps)
+				.dataFetcher("Query", "folderExtensions", (DataFetcher<Object>) PlatformWiringContributor::folderExtensions)
 				.dataFetcher("Query", "effectiveAccessControl", (DataFetcher<Object>) PlatformWiringContributor::effectiveAccessControl)
 				.dataFetcher("Query", "searchPrincipals", (DataFetcher<Object>) PlatformWiringContributor::searchPrincipals)
 				.dataFetcher("Query", "installedPackages", (DataFetcher<Object>) PlatformWiringContributor::installedPackages)
@@ -847,7 +849,31 @@ public final class PlatformWiringContributor implements WiringContributor {
 		}
 		app.put("actions", actions);
 		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
+		app.put("extensions", FolderExtensions.fromDescriptor(data.get("extensions")));
 		return app;
+	}
+
+	/** The most folders one folderExtensions call resolves: a page of a search result and some. */
+	private static final int MAX_FOLDER_EXTENSION_PATHS = 200;
+
+	/**
+	 * The extensions in force at each path: the items of the nearest
+	 * .extensions.yml on the way up, read as the caller.
+	 */
+	private static Object folderExtensions(DataFetchingEnvironment environment) throws Exception {
+		Session session = session(environment);
+		List<String> paths = environment.getArgument("paths");
+		List<Map<String, Object>> results = new ArrayList<>();
+		if (paths == null) {
+			return results;
+		}
+		if (paths.size() > MAX_FOLDER_EXTENSION_PATHS) {
+			throw new IllegalArgumentException("At most " + MAX_FOLDER_EXTENSION_PATHS + " paths can be resolved at once.");
+		}
+		for (String path : paths) {
+			results.add(FolderExtensions.resolve(session, path));
+		}
+		return results;
 	}
 
 	@SuppressWarnings("unchecked")

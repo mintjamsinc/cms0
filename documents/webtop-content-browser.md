@@ -316,3 +316,154 @@ work as in the repository; the context menu copies in both directions
 its facets, the Folder column of a result, opening a cloud file in an app of
 the Webtop) and what stays with the provider (Google documents and Office
 files open in its editor).
+
+## Extensions
+
+Another app can add to the Content Browser, in the folders that ask for it:
+a column with a state for each row, items in the context menu, and a note
+above the list. What is added is declared by the app; where it applies is
+said by the folder.
+
+### What an app declares
+
+`app.yml` names the extensions the app offers, each a module of the app:
+
+```yaml
+# apps/site/app.yml
+extensions:
+  content-browser:
+    drafts:
+      title: Site (drafts)          # for the person who reads .extensions.yml
+      module: browser/drafts.js     # inside the app directory
+    public:
+      title: Site (public site)
+      module: browser/public.js
+```
+
+The key under `extensions` is what is extended (`content-browser` is the
+only kind there is); the names under it are the app's own. The server hands
+them to the shell with the app (`App.extensions`: `kind`, `identifier`,
+`title`, `module`). A module path that leaves the app directory, or is not a
+`.js` / `.mjs` file, is dropped.
+
+### What a folder turns on
+
+A file `.extensions.yml` in a folder turns extensions on for the folder and
+everything below it:
+
+```yaml
+# /content/drafts/.extensions.yml
+content-browser:
+  - site/drafts                 # <app relPath>/<name>
+  - use: blog/posts             # the same, with settings for the extension
+    options:
+      feed: /content/public/feed
+  - use: shop/items
+    enabled: false              # kept in the file, turned off
+```
+
+- **The nearest file counts**, as with `.web.yml`: the browser walks up from
+  the folder shown and takes the first `.extensions.yml` it finds, and only
+  that one. A file with an empty list turns everything off below it.
+- **The file names extensions; it never says which code runs.** Only what an
+  installed app declares can be turned on, so someone who can write a folder
+  cannot make other people's browsers run a script of their choosing.
+- **An item no installed app declares is dropped without a word.** Removing
+  an app leaves its items in the files (see *Packages* below); nothing is
+  shown for them, and they work again when the app is back.
+- A file that is not YAML turns nothing on; the browser says so in the
+  console, once per file.
+
+The server resolves the file: `folderExtensions(paths)` answers, for each
+path (a folder, or a file's folder), the folder whose `.extensions.yml`
+counts (`root`) and its enabled items (`kind`, `use`, `options`), read as the
+caller — a file the caller cannot read does not count. The browser asks once
+per folder shown, and once per page of a search result for the folders of
+its rows.
+
+### The module
+
+The module's default export is called once per extension and root, with a
+context, and answers with hooks. Every hook is optional, and all of them
+hand back **data**; the browser draws it.
+
+```js
+export default function (ctx) {
+	return {
+		column: { title: 'Site' },
+		// path -> { label, tone, title }; a row without an entry shows nothing
+		async states(items, folder) { … },
+		// [{ id, label, icon, danger }]; synchronous: a menu does not wait
+		menu(selection, folder) { … },
+		// a menu item or a button of the note was chosen
+		async run(id, selection, folder) { … },
+		// { text, tone, actions: [{ id, label }] } or null
+		async banner(folder) { … },
+	};
+}
+```
+
+| `ctx` | |
+| --- | --- |
+| `root` | The folder of the `.extensions.yml` that turned the extension on. |
+| `options` | The item's `options` (an empty object without). |
+| `api` | The browser's `instance.api`: `graphql`, `eventHub`, `content`, `i18n`. |
+| `userId`, `locale` | The signed-in user and the display language. |
+| `t(id, params, fallback)` | A string of the extension's own app (`app.<relPath>.*`). |
+| `openApp(options)` | Opens the extension's app with launch options (a singleton gets them as `app-reopen`). |
+| `openFolder(path)`, `select(paths)` | Moves the browser. |
+| `refresh()` | Asks the browser to call `states` and `banner` again: for a change the extension learned of that the folder's own events do not show. |
+| `notify(text, tone)` | A toast in the browser's window. |
+
+`items` and `selection` are rows as `{ path, name, isCollection, mimeType,
+modified, lockOwner }`; a selected row also carries `state`, what the
+extension said of it last. `folder` is the folder shown, or `null` in a
+search result, whose rows come from many folders and which shows no note.
+`tone` is `neutral`, `info`, `success`, `warning` or `danger`; anything else
+is `neutral`.
+
+When the hooks run:
+
+| Hook | When |
+| --- | --- |
+| `states` | A folder is opened; a page of a search result arrives; rows change (the folder's `nodeChanged` events, after the rows are read again); `refresh()`. |
+| `menu` | The context menu opens, on rows or on the empty area of the list. |
+| `banner` | With `states`, except in a search result. |
+
+What the browser does with the answers:
+
+- **List**: one column per extension, left of *Lock owner*, shown only while
+  an extension with a `column` is in force; the state is a chip (`label`, in
+  the color of `tone`, `title` as its tooltip). The column is not sortable.
+- **Grid**: the chip of the first extension that has one, under the name.
+- **Menu**: the extensions' items as a group of their own, before *Delete*
+  (and at the end of the empty area's menu).
+- **Note**: one line above the list per extension, its text and up to three
+  buttons.
+
+Nothing an extension does holds the list back: the list is shown first and
+the states are added when they arrive, `states` and `banner` are given five
+seconds, and a module that fails to load, throws or answers late is logged
+and left out. An extension cannot remove or replace what the browser offers,
+and it is for showing, not for protection: whoever can write a folder can
+also turn an extension off there, so what must not happen is refused by the
+server, with access control and locks.
+
+Screens of an extension's own (a comparison, a preview, a confirmation)
+belong in its app's window, opened with `openApp`.
+
+### Packages
+
+A package turns its extensions on with the `extensions` section of a
+provisioning descriptor (see [cms-provisioning.md](cms-provisioning.md)),
+which adds its items to a folder's `.extensions.yml` without touching what
+is there. The file is not placed through `deploy/`: it is shared by every
+app and by the people who run the workspace, and a deployed file is
+replaced on every update.
+
+Uninstalling a package leaves the items it added, as it leaves everything
+provisioning made; they are ignored from then on.
+
+Source: `apps/content-browser/extensions.ts` (the host),
+`org.mintjams.rt.cms.internal.extensions.FolderExtensions` (the two
+descriptors, the resolution, adding an item).

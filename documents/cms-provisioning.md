@@ -137,6 +137,45 @@ a regular group.
 - `org.mintjams.script.resource.Session#deploy()` — calls the provisioner after
   the content deploy, within the existing deploy/rollback boundary.
 
+## Folder extensions
+
+The `extensions` section turns an app's extensions on for a folder, by
+adding their names to the folder's `.extensions.yml` (see
+[webtop-content-browser.md](webtop-content-browser.md), *Extensions*):
+
+```yaml
+extensions:
+  - path: /content/drafts
+    content-browser:
+      - site/drafts
+      - use: site/public
+        options: { draftRoot: /content/drafts }
+```
+
+`path` is the folder; every other key is a kind of extension with the items
+to add, each `<app relPath>/<name>` or a mapping with `use` and `options`.
+
+The file belongs to every app and to the people who run the workspace, so
+an item is only ever **added**:
+
+| The folder's `.extensions.yml` | What happens |
+| --- | --- |
+| missing | The folder is created if need be, and the file with the item. |
+| has an item for the same extension | Nothing — whether it is enabled or not, whatever its options. |
+| has no such item | The item is appended to the list of its kind, in the list's own indentation; a kind the file does not have is appended to the file. Every other line, comment and the order stay as they are. |
+| is not YAML, or holds the kind in a form a line cannot be appended to (a flow list `[a, b]`) | Nothing; a warning is logged. |
+
+The result is read back before it is written: if it does not hold everything
+the file held plus the new item, the file is left alone.
+
+Provisioning runs at every boot, so an item that was **deleted** from the
+file comes back. To turn an extension off, keep the item and set
+`enabled: false`; it is then "there", and left as it is.
+
+The section is applied after `nodes`, so a `nodes` entry can give the file an
+ACL once it exists. Uninstalling the package leaves the items: nothing
+provisioning made is removed, and an item whose app is gone is ignored.
+
 ## Schema
 
 See [`provisioning/README.md`](../docker/seed/config/common/workspaces/system/etc/jcr/provisioning/README.md)

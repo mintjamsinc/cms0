@@ -96,6 +96,9 @@ type Query {
   """List Webtop applications (app.yml descriptors) under an apps root (Relay connection)."""
   apps(path: String!, first: Int = 100, after: String): AppConnection!
 
+  """The extensions in force at each path: the enabled items of the nearest .extensions.yml from the folder (or the file's folder) up to the root, read as the caller. At most 200 paths."""
+  folderExtensions(paths: [String!]!): [FolderExtensions!]!
+
   """Effective access control for the node: its own ACL plus every ancestor policy that applies (current + inherited)."""
   effectiveAccessControl(path: String!): [EffectiveAccessControlPolicy!]!
 
@@ -1192,6 +1195,37 @@ type App {
   actions: [AppAction!]!
   """Desktop widgets the app offers (the `widgets` map of app.yml)."""
   widgets: [AppWidget!]!
+  """What the app extends in other apps (the `extensions` map of app.yml). A folder's .extensions.yml turns them on by name."""
+  extensions: [AppExtension!]!
+}
+
+"""An extension an app declares: a module of the app that the extended app loads where a folder's .extensions.yml names it."""
+type AppExtension {
+  """What is extended, e.g. content-browser."""
+  kind: String!
+  """The name of the extension within the app; .extensions.yml names it as <app relPath>/<identifier>."""
+  identifier: String!
+  title: String
+  """ES module inside the app directory, relative to it."""
+  module: String!
+}
+
+"""The extensions in force at a path."""
+type FolderExtensions {
+  path: String!
+  """The folder whose .extensions.yml counts, or null when there is none on the way up."""
+  root: String
+  """Whether that file could not be read as YAML (it then turns nothing on)."""
+  invalid: Boolean!
+  entries: [FolderExtensionEntry!]!
+}
+
+"""One enabled item of a .extensions.yml. It may name an extension no installed app declares; such an item is to be ignored."""
+type FolderExtensionEntry {
+  kind: String!
+  """<app relPath>/<extension identifier>."""
+  use: String!
+  options: JSON
 }
 
 """A desktop widget: a page of the app the shell places on the desktop, outside any window."""

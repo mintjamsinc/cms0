@@ -58,6 +58,12 @@ export const WEBTOP_QUERIES = {
               multiple
               layer
             }
+            extensions {
+              kind
+              identifier
+              title
+              module
+            }
           }
           cursor
         }

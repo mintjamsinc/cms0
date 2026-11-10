@@ -15,6 +15,7 @@ import { nodeToInspectorTarget, THUMBNAIL_PROPERTY, type InspectorTarget } from 
 import { SWATCH_COLORS, SWATCH_COLOR_MAP } from "../../lib/color-palette.js";
 import { NEW_FILE_TYPES, withExtension } from "../../lib/new-file-types.js";
 import { readArchiveManifest } from "./archive-manifest.js";
+import { ExtensionHost, toExtensionItem, type ExtensionBanner, type ExtensionColumn, type ExtensionState } from "./extensions.js";
 import {
 	createLocalizationSnapshot,
 	refreshLocalization,
@@ -78,6 +79,9 @@ function parentPathOf(path: string): string {
 // Helper to convert GraphQL Node to CmsItem-compatible object. The Inspector
 // target fields come from the shared nodeToInspectorTarget(); the list view adds
 // a few extras on top (existence, children, derived display attributes).
+/** The extensions host of this window (see _extHost). */
+let extensionHost: ExtensionHost | null = null;
+
 function nodeToContentItem(node: Node): ContentItem {
 	return {
 		...nodeToInspectorTarget(node),
@@ -876,6 +880,12 @@ export const App = {
 			smartFolderEditName: '' as string,
 			// Completion toast at the bottom of the window (<wt-toast>)
 			toast: null as WtToastMessage | null,
+			// What the extensions in force add to the list (extensions.ts): their
+			// columns, the state of each row under them, and the notes above the list.
+			extColumns: [] as ExtensionColumn[],
+			extStates: {} as Record<string, Record<string, ExtensionState>>,
+			extBanners: [] as ExtensionBanner[],
+			_extSeq: 0,
 			_suppressServerSync: false,
 			// Sidebar collapsible sections (true = expanded)
 			sidebarSectionExpanded: {
@@ -1768,6 +1778,12 @@ export const App = {
 			vm._cancelFolderSizes();
 			vm.items = [];
 			vm.gridMediaErrors = [];
+			// The list is empty until the folder arrives; so is what the
+			// extensions added to the one before.
+			vm._extSeq++;
+			vm.extColumns = [];
+			vm.extStates = {};
+			vm.extBanners = [];
 
 			// Enter the navigating state. A transparent shield (rendered while
 			// isNavigating is true) now blocks clicks / right-clicks on the
@@ -1817,6 +1833,7 @@ export const App = {
 
 				vm.items = items;
 				vm.sortItems(vm.sortColumn, vm.sortDirection);
+				vm._extRefresh(true);
 				// Sizes follow the list: it is shown first, and each folder's
 				// total fills in as the server computes it.
 				if (vm._navSeq === seq) {
@@ -1851,6 +1868,93 @@ export const App = {
 			// Update node watch subscription for new path
 			vm._setupNodeWatch();
 
+		},
+		// ----- extensions (extensions.ts) -----
+		// The host lives outside the reactive state: it holds module instances,
+		// which must not be proxied.
+		_extHost(): ExtensionHost | null {
+			const vm = this;
+			if (extensionHost) return extensionHost;
+			if (!vm.instance?.api) return null;
+			extensionHost = new ExtensionHost({
+				api: vm.instance.api,
+				userId: vm.instance.currentUser?.id || null,
+				locale: () => vm.localization.locale || null,
+				apps: () => (window.parent as any).Webtop?.apps || [],
+				openApp: (relPath, options) => {
+					const app = ((window.parent as any).Webtop?.apps || []).find((a: any) => a.relPath === relPath);
+					if (!app) return;
+					window.parent.postMessage({ type: 'open-app', appId: app.id, options }, window.location.origin);
+				},
+				openFolder: (path) => { vm.navigateToPath(path); },
+				select: (paths) => {
+					const ids = (vm.items as any[]).filter((i: any) => paths.includes(i.path)).map((i: any) => i.id);
+					vm.selectedItems = ids;
+					vm.selectionAnchorID = ids[0] || null;
+					vm.focusedItemID = ids[0] || null;
+				},
+				notify: (text, tone) => {
+					vm.toast = { text, type: tone === 'danger' ? 'error' : tone === 'warning' ? 'warning' : tone === 'success' ? 'success' : 'info' };
+				},
+				refresh: () => { vm._extRefresh(false); },
+			});
+			return extensionHost;
+		},
+		/**
+		 * Asks the extensions in force about the list as it is now. The list is
+		 * never held back for them: it is already showing, and their columns,
+		 * states and notes are added when they answer. `resolve` asks again what
+		 * the folders' .extensions.yml turn on.
+		 */
+		async _extRefresh(resolve: boolean) {
+			const vm = this;
+			const host = vm._extHost();
+			if (!host || vm.isCloudLocation) return;
+			const seq = ++vm._extSeq;
+			if (resolve) host.forget();
+			try {
+				const decoration = await host.decorate(
+					(vm.items as any[]).map(toExtensionItem),
+					vm.xpathSearchActive ? null : vm.currentPath,
+				);
+				// A list that moved on meanwhile has its own answer coming.
+				if (seq !== vm._extSeq) return;
+				vm.extColumns = decoration.columns;
+				vm.extStates = decoration.states;
+				vm.extBanners = decoration.banners;
+			} catch (error) {
+				console.warn('[content-browser] extensions failed', error);
+			}
+		},
+		/** The state an extension's column shows for a row, if any. */
+		extState(item: any, column: ExtensionColumn): ExtensionState | null {
+			return this.extStates[item.path]?.[column.key] || null;
+		},
+		/** The first state any extension gave a row: what a tile of the grid shows. */
+		extFirstState(item: any): ExtensionState | null {
+			const states = this.extStates[item.path];
+			if (!states) return null;
+			for (const column of this.extColumns as ExtensionColumn[]) {
+				if (states[column.key]) return states[column.key];
+			}
+			return null;
+		},
+		_extMenu(selection: any[]): { id: string; label: string; icon?: string; danger?: boolean }[] {
+			const vm = this;
+			if (!extensionHost || vm.isCloudLocation) return [];
+			return extensionHost.menu(selection.map(toExtensionItem), vm.xpathSearchActive ? null : vm.currentPath);
+		},
+		_extRun(action: string, selection: any[]) {
+			const vm = this;
+			if (!extensionHost) return;
+			extensionHost.run(action, selection.map(toExtensionItem), vm.xpathSearchActive ? null : vm.currentPath);
+		},
+		/** A button of an extension's note above the list. */
+		runExtBannerAction(banner: ExtensionBanner, id: string) {
+			const vm = this;
+			if (!extensionHost) return;
+			const selection = (vm.items as any[]).filter((i: any) => vm.selectedItems.includes(i.id));
+			extensionHost.run(id, selection.map(toExtensionItem), vm.currentPath, banner.key);
 		},
 		/**
 		 * Set up or update node watch subscription for real-time content updates.
@@ -2152,6 +2256,11 @@ export const App = {
 			if (changedFolderPaths.length > 0) {
 				vm._requestFolderSizes(changedFolderPaths);
 			}
+
+			// The rows changed, and so may what the extensions say of them. A
+			// change to the folder's own .extensions.yml is one of these events,
+			// so what the folder resolves to is asked again too.
+			vm._extRefresh(true);
 
 			// Trigger flash animation for changed items
 			if (flashIds.length > 0) {
@@ -3772,6 +3881,12 @@ export const App = {
 			if (isSingleSelection) {
 				menuItems.push({ id: 'permissions', label: vm.t('app.content-browser.menu.permissions', undefined, 'Permissions'), icon: 'bi-shield-lock' });
 			}
+			// What the extensions of this folder add, as a group of their own.
+			const extensionItems = vm._extMenu(selectedItemObjects);
+			if (extensionItems.length > 0) {
+				menuItems.push({ type: 'separator', id: '', label: '' });
+				menuItems.push(...extensionItems);
+			}
 			menuItems.push({ type: 'separator', id: '', label: '' });
 			menuItems.push({ id: 'delete', label: vm.t('app.content-browser.menu.delete', undefined, 'Delete'), icon: 'bi-trash', danger: true });
 
@@ -3874,6 +3989,7 @@ export const App = {
 			if (vm.xpathSearchActive) {
 				return;
 			}
+			const backgroundExtensionItems = vm._extMenu([]);
 			const menuItems: { id: string; label: string; icon?: string; danger?: boolean; type?: string }[] = [];
 			menuItems.push({ id: 'new-folder', label: vm.t('app.content-browser.menu.newFolder', undefined, 'New Folder'), icon: 'bi-folder-plus' });
 			menuItems.push({ id: 'new-file', label: vm.t('app.content-browser.menu.newFile', undefined, 'New File'), icon: 'bi-file-earmark-plus' });
@@ -3883,6 +3999,10 @@ export const App = {
 			if (vm.clipboardHasItems()) {
 				menuItems.push({ type: 'separator', id: '', label: '' });
 				menuItems.push({ id: 'paste', label: vm.t('app.content-browser.menu.paste', undefined, 'Paste'), icon: 'bi-clipboard-check' });
+			}
+			if (backgroundExtensionItems.length > 0) {
+				menuItems.push({ type: 'separator', id: '', label: '' });
+				menuItems.push(...backgroundExtensionItems);
 			}
 
 			const screenX = event.clientX;
@@ -3909,6 +4029,11 @@ export const App = {
 				} else if (choice) {
 					vm.applySort(choice, vm.sortDirection);
 				}
+				return;
+			}
+
+			if (ExtensionHost.isAction(action)) {
+				vm._extRun(action, selectedItemObjects);
 				return;
 			}
 
@@ -6428,6 +6553,7 @@ export const App = {
 					return;
 				}
 				vm.items = vm._xpathPageItems(result.edges);
+				vm._extRefresh(true);
 				vm.xpathSearchTotalCount = result.totalCount;
 				vm.xpathSearchCursor = result.pageInfo.endCursor ?? null;
 				vm.xpathSearchHasMore = !!result.pageInfo.hasNextPage;
@@ -6694,6 +6820,7 @@ export const App = {
 				const known = new Set((vm.items as ContentItem[]).map(i => i.id));
 				const appended = vm._xpathPageItems(result.edges).filter((i: ContentItem) => !known.has(i.id));
 				vm.items = (vm.items as ContentItem[]).concat(appended);
+				vm._extRefresh(false);
 				vm.xpathSearchTotalCount = result.totalCount;
 				const nextCursor = result.pageInfo.endCursor ?? null;
 				// A cursor that did not advance would fetch the same page forever.
