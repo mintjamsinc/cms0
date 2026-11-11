@@ -1170,6 +1170,8 @@ type Version {
   name: String!
   created: DateTime
   createdBy: String
+  """Display name of the createdBy user; null when the user has none or no longer exists."""
+  createdByDisplayName: String
   frozenNodePath: String
   predecessors: [String!]
   successors: [String!]

@@ -458,6 +458,8 @@ export interface Version {
   name: string;
   created: string;
   createdBy?: string;
+  /** Display name of createdBy; only the version history query fills it. */
+  createdByDisplayName?: string | null;
   predecessors: string[];
   successors: string[];
   frozenNodePath?: string;

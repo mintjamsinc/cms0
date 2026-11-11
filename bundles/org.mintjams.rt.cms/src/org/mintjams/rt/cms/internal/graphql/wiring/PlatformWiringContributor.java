@@ -701,6 +701,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 			}
 		}
 
+		PrincipalDisplayNameResolver resolver = new PrincipalDisplayNameResolver(session);
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int index = 0;
 		for (VersionIterator versions = history.getAllVersions(); versions.hasNext();) {
@@ -716,7 +717,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 			Node frozen = version.getFrozenNode();
 			if (frozen != null) {
 				if (frozen.hasProperty("jcr:createdBy")) {
-					versionData.put("createdBy", frozen.getProperty("jcr:createdBy").getString());
+					String createdBy = frozen.getProperty("jcr:createdBy").getString();
+					versionData.put("createdBy", createdBy);
+					versionData.put("createdByDisplayName", resolver.getUserDisplayName(createdBy));
 				}
 				versionData.put("frozenNodePath", frozen.getPath());
 			}

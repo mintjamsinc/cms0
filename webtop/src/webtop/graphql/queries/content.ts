@@ -544,6 +544,7 @@ ${LIST_NODE_FIELDS}
             name
             created
             createdBy
+            createdByDisplayName
             predecessors
             successors
             frozenNodePath

@@ -579,7 +579,7 @@ defineComponent('wt-inspector', {
 			versionHistoryDialog: {
 				visible: false,
 				item: null as any,
-				versions: [] as { name: string; created: string; predecessors: string[]; successors: string[]; createdBy?: string; labels?: string[] }[],
+				versions: [] as { name: string; created: string; predecessors: string[]; successors: string[]; createdBy?: string; createdByDisplayName?: string | null; labels?: string[] }[],
 				baseVersionName: '',
 				confirmVersionName: '',
 				isLoading: false,

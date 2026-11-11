@@ -770,7 +770,7 @@
 						</div>
 						<div class="version-item-meta">
 							<span>{{ formatVersionDate(version.created) }}</span>
-							<span v-if="version.createdBy" class="version-item-author"><i class="bi bi-person me-1"></i>{{ version.createdBy }}</span>
+							<span v-if="version.createdBy" class="version-item-author"><i class="bi bi-person me-1"></i>{{ version.createdByDisplayName || version.createdBy }}</span>
 						</div>
 						<!-- Labels: chips with a remove button, and an input that adds
 						     on Enter and stays open for the next one (Esc closes). -->
