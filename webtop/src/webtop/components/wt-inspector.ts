@@ -571,15 +571,22 @@ defineComponent('wt-inspector', {
 			actionErrorMessage: '',
 			actionConfirm: '' as string,
 			// Version history dialog state. confirmVersionName holds the version
-			// awaiting restore confirmation ('' = none).
+			// awaiting restore confirmation ('' = none). loadedPath is the path
+			// `versions` was read for, so a refresh of the same node replaces
+			// the list in place. labelEdit.versionName is the version whose
+			// label input is open ('' = none); moveFrom names the version that
+			// holds the typed label while moving it awaits the user's answer.
 			versionHistoryDialog: {
 				visible: false,
 				item: null as any,
-				versions: [] as { name: string; created: string; predecessors: string[]; successors: string[]; createdBy?: string }[],
+				versions: [] as { name: string; created: string; predecessors: string[]; successors: string[]; createdBy?: string; labels?: string[] }[],
 				baseVersionName: '',
 				confirmVersionName: '',
 				isLoading: false,
 				errorMessage: '',
+				loadedPath: '',
+				labelEdit: { versionName: '', value: '', moveFrom: '', error: '' },
+				labelBusy: false,
 			},
 			// Access control editing. pendingEntries is the item's own entries as
 			// the section shows them and originalEntries what the server holds;
@@ -726,6 +733,21 @@ defineComponent('wt-inspector', {
 		// dirty flag). Destructive quick actions warn about discarding them.
 		hostHasUnsavedChanges(this: any): boolean {
 			return this.viewOptions?.hasUnsavedChanges === true;
+		},
+		// Title of the version history sub-view, split around the file name
+		// ("index.gsp のバージョン履歴") so only the name is shortened in a
+		// narrow pane. Without a single item it is the plain title.
+		versionHistoryTitle(this: any): { prefix: string; name: string; suffix: string; full: string } {
+			const name = this.versionHistoryDialog.item?.name || '';
+			if (!name) {
+				const title = this.t('webtop.inspector.versionHistory.title', undefined, 'Version History');
+				return { prefix: title, name: '', suffix: '', full: title };
+			}
+			const mark = '\u0001';
+			const parts = String(this.t('webtop.inspector.versionHistory.titleFor', { name: mark }, 'Version history of {name}')).split(mark);
+			const prefix = parts[0] ?? '';
+			const suffix = parts.slice(1).join(name);
+			return { prefix, name, suffix, full: prefix + name + suffix };
 		},
 		// Whether the host has taken the panel over with viewOptions.pane: the
 		// node sections and overlays step aside and the `pane` slot shows.
@@ -1174,9 +1196,16 @@ defineComponent('wt-inspector', {
 						vm.closeAclDialog();
 					}
 				} else if (vm.detailVersionHistoryVisible) {
+					// An open label input takes the first Escape (not the one
+					// that ends an IME composition).
+					if (e.isComposing) return;
 					e.preventDefault();
 					e.stopPropagation();
-					vm.closeDetailVersionHistory();
+					if (vm.versionHistoryDialog.labelEdit.versionName) {
+						if (!vm.versionHistoryDialog.labelBusy) vm.cancelVersionLabelEdit();
+					} else {
+						vm.closeDetailVersionHistory();
+					}
 				}
 			};
 			document.addEventListener('keydown', vm._.keydownListener, true);
@@ -2564,25 +2593,41 @@ defineComponent('wt-inspector', {
 		},
 		async refreshDetailVersionHistory(this: any) {
 			const vm = this;
-			const item = vm.versionHistoryDialog.item;
+			const dialog = vm.versionHistoryDialog;
+			const item = dialog.item;
 			if (!item) return;
-			vm.versionHistoryDialog.versions = [];
-			vm.versionHistoryDialog.baseVersionName = '';
-			vm.versionHistoryDialog.confirmVersionName = '';
-			vm.versionHistoryDialog.errorMessage = '';
-			vm.versionHistoryDialog.isLoading = true;
+			// A refresh of the node already listed (a node update, a label
+			// change) replaces the list in place: the rows, an open label input
+			// and a pending restore confirmation stay where they are.
+			const inPlace = dialog.loadedPath === item.path && dialog.versions.length > 0;
+			if (!inPlace) {
+				dialog.versions = [];
+				dialog.baseVersionName = '';
+				dialog.confirmVersionName = '';
+				dialog.loadedPath = '';
+				dialog.labelEdit = { versionName: '', value: '', moveFrom: '', error: '' };
+			}
+			dialog.errorMessage = '';
+			dialog.isLoading = true;
 
 			try {
 				const contentService = vm.api.content;
 				const history = await contentService.getVersionHistory(item.path);
+				// The selection moved on while this was loading.
+				if (dialog.item?.path !== item.path) return;
 				if (history) {
-					vm.versionHistoryDialog.versions = (history.edges || []).map((edge: any) => edge.node).reverse();
-					vm.versionHistoryDialog.baseVersionName = history.baseVersion?.name || '';
+					dialog.versions = (history.edges || []).map((edge: any) => edge.node).reverse();
+					dialog.baseVersionName = history.baseVersion?.name || '';
+					dialog.loadedPath = item.path;
+					if (dialog.labelEdit.versionName && !dialog.versions.some((v: any) => v.name === dialog.labelEdit.versionName)) {
+						dialog.labelEdit = { versionName: '', value: '', moveFrom: '', error: '' };
+					}
 				}
 			} catch (error: any) {
-				vm.versionHistoryDialog.errorMessage = error?.message || vm.t('webtop.inspector.versionHistory.loadFailed', undefined, 'Failed to load version history');
+				if (dialog.item?.path !== item.path) return;
+				dialog.errorMessage = error?.message || vm.t('webtop.inspector.versionHistory.loadFailed', undefined, 'Failed to load version history');
 			} finally {
-				vm.versionHistoryDialog.isLoading = false;
+				if (dialog.item?.path === item.path) dialog.isLoading = false;
 			}
 		},
 		closeDetailVersionHistory(this: any) {
@@ -2594,10 +2639,111 @@ defineComponent('wt-inspector', {
 			vm.versionHistoryDialog.confirmVersionName = '';
 			vm.versionHistoryDialog.errorMessage = '';
 			vm.versionHistoryDialog.isLoading = false;
+			vm.versionHistoryDialog.loadedPath = '';
+			vm.versionHistoryDialog.labelEdit = { versionName: '', value: '', moveFrom: '', error: '' };
+			vm.versionHistoryDialog.labelBusy = false;
 			vm._notifyOverlayState();
 		},
 		isCurrentVersion(this: any, versionName: string) {
 			return versionName === this.versionHistoryDialog.baseVersionName;
+		},
+		// Version labels. A label names one version of the history at a time,
+		// so adding one that another version holds asks before moving it.
+		startVersionLabelEdit(this: any, versionName: string) {
+			const vm = this;
+			vm.versionHistoryDialog.labelEdit = { versionName, value: '', moveFrom: '', error: '' };
+			vm.focusVersionLabelInput();
+		},
+		cancelVersionLabelEdit(this: any) {
+			this.versionHistoryDialog.labelEdit = { versionName: '', value: '', moveFrom: '', error: '' };
+		},
+		focusVersionLabelInput(this: any) {
+			const vm = this;
+			vm.$nextTick(() => {
+				const panel = vm.$refs.detailPanel as HTMLElement | undefined;
+				(panel?.querySelector('.version-label-input') as HTMLInputElement | null)?.focus();
+			});
+		},
+		// Typing again withdraws the question about moving and the last error.
+		onVersionLabelInput(this: any) {
+			const edit = this.versionHistoryDialog.labelEdit;
+			edit.moveFrom = '';
+			edit.error = '';
+		},
+		handleVersionLabelKeydown(this: any, e: KeyboardEvent) {
+			// Enter that confirms an IME conversion is not a commit. Escape is
+			// taken by the component's document-level handler.
+			if (e.key !== 'Enter' || e.isComposing) return;
+			e.preventDefault();
+			this.commitVersionLabel(false);
+		},
+		// Leaving an empty input closes it; typed text stays until it is
+		// committed or cancelled.
+		onVersionLabelBlur(this: any) {
+			const vm = this;
+			setTimeout(() => {
+				const dialog = vm.versionHistoryDialog;
+				if (dialog.labelBusy || !dialog.labelEdit.versionName) return;
+				if ((document.activeElement as HTMLElement | null)?.classList?.contains('version-label-input')) return;
+				if (!String(dialog.labelEdit.value || '').trim()) vm.cancelVersionLabelEdit();
+			}, 200);
+		},
+		async commitVersionLabel(this: any, move: boolean) {
+			const vm = this;
+			const dialog = vm.versionHistoryDialog;
+			const edit = dialog.labelEdit;
+			const item = dialog.item;
+			const versionName = edit.versionName;
+			if (!item || !versionName || dialog.labelBusy) return;
+			const label = String(edit.value || '').trim();
+			if (!label) {
+				vm.cancelVersionLabelEdit();
+				return;
+			}
+			// The server refuses the same: a label is stored as a name.
+			if (label.length > 64 || /[\/:\[\]*|\u0000-\u001f\u007f-\u009f]/.test(label)) {
+				edit.error = vm.t('webtop.inspector.versionHistory.labelInvalid', undefined, 'A label can be up to 64 characters long and cannot contain / : [ ] * |');
+				return;
+			}
+			const holder = dialog.versions.find((v: any) => (v.labels || []).includes(label));
+			if (holder && holder.name === versionName) {
+				edit.value = '';
+				return;
+			}
+			if (holder && !move) {
+				edit.moveFrom = holder.name;
+				return;
+			}
+			dialog.labelBusy = true;
+			edit.error = '';
+			try {
+				await vm.api.content.addVersionLabel(item.path, versionName, label, !!holder);
+				edit.value = '';
+				edit.moveFrom = '';
+				await vm.refreshDetailVersionHistory();
+			} catch (error: any) {
+				edit.moveFrom = '';
+				edit.error = error?.message || vm.t('webtop.inspector.versionHistory.labelAddFailed', undefined, 'Failed to add the label');
+			} finally {
+				dialog.labelBusy = false;
+				if (dialog.labelEdit.versionName) vm.focusVersionLabelInput();
+			}
+		},
+		async removeVersionLabel(this: any, label: string) {
+			const vm = this;
+			const dialog = vm.versionHistoryDialog;
+			const item = dialog.item;
+			if (!item || !label || dialog.labelBusy) return;
+			dialog.labelBusy = true;
+			dialog.errorMessage = '';
+			try {
+				await vm.api.content.removeVersionLabel(item.path, label);
+				await vm.refreshDetailVersionHistory();
+			} catch (error: any) {
+				dialog.errorMessage = error?.message || vm.t('webtop.inspector.versionHistory.labelRemoveFailed', undefined, 'Failed to remove the label');
+			} finally {
+				dialog.labelBusy = false;
+			}
 		},
 		// Restoring rewrites the node's stored content, so it always goes
 		// through a confirmation dialog first (with an extra warning when the

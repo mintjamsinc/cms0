@@ -547,6 +547,7 @@ ${LIST_NODE_FIELDS}
             predecessors
             successors
             frozenNodePath
+            labels
           }
           cursor
         }
@@ -976,6 +977,20 @@ export const CONTENT_MUTATIONS = {
         modified
         modifiedBy
       }
+    }
+  `,
+
+  /** Attach a label to a version (move: take it from the version holding it) */
+  ADD_VERSION_LABEL: `
+    mutation AddVersionLabel($input: AddVersionLabelInput!) {
+      addVersionLabel(input: $input)
+    }
+  `,
+
+  /** Remove a label from a node's version history */
+  REMOVE_VERSION_LABEL: `
+    mutation RemoveVersionLabel($input: RemoveVersionLabelInput!) {
+      removeVersionLabel(input: $input)
     }
   `,
 

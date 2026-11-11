@@ -229,6 +229,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 				.dataFetcher("Mutation", "checkpoint", (DataFetcher<Object>) PlatformWiringContributor::checkpoint)
 				.dataFetcher("Mutation", "restoreVersion",
 						(DataFetcher<Object>) PlatformWiringContributor::restoreVersion)
+				.dataFetcher("Mutation", "addVersionLabel",
+						(DataFetcher<Object>) PlatformWiringContributor::addVersionLabel)
+				.dataFetcher("Mutation", "removeVersionLabel",
+						(DataFetcher<Object>) PlatformWiringContributor::removeVersionLabel)
 				.dataFetcher("Mutation", "initDeleteNodes",
 						(DataFetcher<Object>) PlatformWiringContributor::initDeleteNodes)
 				.dataFetcher("Mutation", "appendDeleteNodes",
@@ -684,6 +688,19 @@ public final class PlatformWiringContributor implements WiringContributor {
 		VersionManager versionManager = session.getWorkspace().getVersionManager();
 		VersionHistory history = versionManager.getVersionHistory(path);
 
+		// Labels are properties of the history's jcr:versionLabels node, each a
+		// reference to the version it names: read them once, grouped by version.
+		Map<String, List<String>> labelsByVersion = new HashMap<>();
+		if (history.hasNode("jcr:versionLabels")) {
+			for (PropertyIterator labels = history.getNode("jcr:versionLabels").getProperties(); labels.hasNext();) {
+				Property label = labels.nextProperty();
+				if (label.getType() != PropertyType.REFERENCE || label.isMultiple()) {
+					continue;
+				}
+				labelsByVersion.computeIfAbsent(label.getString(), k -> new ArrayList<>()).add(label.getName());
+			}
+		}
+
 		List<Map<String, Object>> edges = new ArrayList<>();
 		int index = 0;
 		for (VersionIterator versions = history.getAllVersions(); versions.hasNext();) {
@@ -715,6 +732,9 @@ public final class PlatformWiringContributor implements WiringContributor {
 				successors.add(successor.getName());
 			}
 			versionData.put("successors", successors);
+			List<String> versionLabels = labelsByVersion.getOrDefault(version.getIdentifier(), new ArrayList<>());
+			Collections.sort(versionLabels);
+			versionData.put("labels", versionLabels);
 
 			Map<String, Object> edge = new HashMap<>();
 			edge.put("node", versionData);
@@ -1524,6 +1544,67 @@ public final class PlatformWiringContributor implements WiringContributor {
 		session.save();
 		return NodeMapper.toGraphQL(session.getNode(path), astSelection(environment.getSelectionSet()),
 				new PrincipalDisplayNameResolver(session));
+	}
+
+	/**
+	 * {@code Mutation.addVersionLabel(input)} — attaches a label to a version.
+	 * A label names one version of a history at a time: when another version
+	 * holds it, {@code move} decides whether it moves or the call fails.
+	 */
+	private static Object addVersionLabel(DataFetchingEnvironment environment) throws Exception {
+		Session session = session(environment);
+		Map<String, Object> input = inputArg(environment);
+		String path = versionablePath(session, input);
+		String versionName = (String) input.get("versionName");
+		if (versionName == null || versionName.isEmpty() || versionName.equals("jcr:rootVersion")) {
+			throw new IllegalArgumentException("versionName is required");
+		}
+		String label = versionLabel(input);
+		VersionHistory history = session.getWorkspace().getVersionManager().getVersionHistory(path);
+		if (!history.hasNode(versionName)) {
+			throw new IllegalArgumentException("Version not found: " + versionName);
+		}
+		boolean move = Boolean.TRUE.equals(input.get("move"));
+		if (!move && history.hasVersionLabel(label)) {
+			String holder = history.getVersionByLabel(label).getName();
+			if (holder.equals(versionName)) {
+				return true;
+			}
+			throw new IllegalArgumentException("Label '" + label + "' is already on version " + holder);
+		}
+		history.addVersionLabel(versionName, label, move);
+		return true;
+	}
+
+	/** {@code Mutation.removeVersionLabel(input)} — removes a label from the node's version history. */
+	private static Object removeVersionLabel(DataFetchingEnvironment environment) throws Exception {
+		Session session = session(environment);
+		Map<String, Object> input = inputArg(environment);
+		String path = versionablePath(session, input);
+		String label = versionLabel(input);
+		session.getWorkspace().getVersionManager().getVersionHistory(path).removeVersionLabel(label);
+		return true;
+	}
+
+	/**
+	 * Validates {@code input.label} and returns it trimmed. A label is stored
+	 * as a property name, so the characters a name cannot carry are refused.
+	 */
+	private static String versionLabel(Map<String, Object> input) {
+		String label = (input.get("label") instanceof String) ? ((String) input.get("label")).trim() : "";
+		if (label.isEmpty()) {
+			throw new IllegalArgumentException("label is required");
+		}
+		if (label.length() > 64) {
+			throw new IllegalArgumentException("A label can be up to 64 characters long");
+		}
+		for (int i = 0; i < label.length(); i++) {
+			char c = label.charAt(i);
+			if (Character.isISOControl(c) || "/:[]*|".indexOf(c) != -1) {
+				throw new IllegalArgumentException("A label cannot contain / : [ ] * | or control characters");
+			}
+		}
+		return label;
 	}
 
 	/** Validates {@code input.path} points to an existing mix:versionable node; returns the path. */

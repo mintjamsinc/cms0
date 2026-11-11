@@ -263,6 +263,12 @@ type Mutation {
   """Restore a versionable node to a named version; returns the node."""
   restoreVersion(input: RestoreVersionInput!): Node!
 
+  """Attach a label to a version. A label names one version of the node's history at a time; when another version holds it, `move` decides whether it moves here or the call fails. Returns true."""
+  addVersionLabel(input: AddVersionLabelInput!): Boolean!
+
+  """Remove a label from the node's version history; returns true (also when no version holds it)."""
+  removeVersionLabel(input: RemoveVersionLabelInput!): Boolean!
+
   # Async jobs — kick off background work; live progress is delivered via the
   # jobProgress(jobId) subscription (Phase 3). Job records are written under a
   # privileged management session running as the caller (audit identity kept).
@@ -686,6 +692,20 @@ input CheckpointInput {
 input RestoreVersionInput {
   path: String!
   versionName: String!
+}
+
+input AddVersionLabelInput {
+  path: String!
+  versionName: String!
+  """Up to 64 characters, without / : [ ] * | or control characters; surrounding whitespace is trimmed."""
+  label: String!
+  """Move the label here when another version of the history holds it (otherwise that is an error)."""
+  move: Boolean = false
+}
+
+input RemoveVersionLabelInput {
+  path: String!
+  label: String!
 }
 
 # Write-side ACL result. NOTE: distinct from the read-side AccessControl —
@@ -1153,6 +1173,8 @@ type Version {
   frozenNodePath: String
   predecessors: [String!]
   successors: [String!]
+  """Labels attached to the version, sorted. Null on baseVersion and on the Version a checkin/checkpoint returns."""
+  labels: [String!]
 }
 
 # -----------------------------------------------------------------------------

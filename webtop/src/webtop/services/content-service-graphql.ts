@@ -785,6 +785,30 @@ export class ContentServiceGraphQL {
   }
 
   /**
+   * Attach a label to a version. A label names one version of a history at
+   * a time; with `move` it is taken from the version holding it, otherwise
+   * that is an error.
+   */
+  async addVersionLabel(path: string, versionName: string, label: string, move = false): Promise<boolean> {
+    const data = await this.#client.mutation<{ addVersionLabel: boolean }>(
+      CONTENT_MUTATIONS.ADD_VERSION_LABEL,
+      { input: { path, versionName, label, move } }
+    );
+    return data.addVersionLabel;
+  }
+
+  /**
+   * Remove a label from a node's version history
+   */
+  async removeVersionLabel(path: string, label: string): Promise<boolean> {
+    const data = await this.#client.mutation<{ removeVersionLabel: boolean }>(
+      CONTENT_MUTATIONS.REMOVE_VERSION_LABEL,
+      { input: { path, label } }
+    );
+    return data.removeVersionLabel;
+  }
+
+  /**
    * Add version control to a node (makes it versionable)
    */
   async addVersionControl(path: string): Promise<Node> {

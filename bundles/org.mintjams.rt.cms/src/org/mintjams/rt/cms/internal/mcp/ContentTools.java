@@ -476,7 +476,7 @@ final class ContentTools {
 
 	private static McpTool versionHistory() {
 		return McpTool.named("version_history").title("Version history")
-				.description("Versions of a versionable node, with who created each and when. Each version has a",
+				.description("Versions of a versionable node, with who created each, when, and its labels. Each version has a",
 						"frozenNodePath; pass it to read_file to read the content as it was in that version, e.g.",
 						"to compare a file with what it contained before it was overwritten.")
 				.required("path", Schema.string("Absolute repository path of the node"))
@@ -485,7 +485,7 @@ final class ContentTools {
 					Map<String, Object> data = McpGraphQL.data(context,
 							"query($path: String!) { versionHistory(path: $path) { totalCount baseVersion { name }"
 									+ " edges { node { name created createdBy frozenNodePath predecessors"
-									+ " successors } } } }",
+									+ " successors labels } } } }",
 							vars("path", path));
 					Object history = data.get("versionHistory");
 					if (!(history instanceof Map)) {

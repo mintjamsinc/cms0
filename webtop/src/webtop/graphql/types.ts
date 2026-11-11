@@ -461,6 +461,8 @@ export interface Version {
   predecessors: string[];
   successors: string[];
   frozenNodePath?: string;
+  /** Labels attached to the version; only the version history query fills it. */
+  labels?: string[];
 }
 
 export interface VersionEdge {

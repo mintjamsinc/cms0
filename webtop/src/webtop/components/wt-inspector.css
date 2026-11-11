@@ -511,21 +511,172 @@ wt-inspector {
 }
 
 /* --- version history --- */
-/* Version history table within detail overlay */
-/* Version table uses the shared table.wt styling. Current-version row is
- * highlighted to match content-list's selected item style. */
-.version-current {
+/* Title "<name> のバージョン履歴": the fixed words keep their width and only
+ * the file name is shortened. */
+.version-history-title {
+	display: flex;
+	align-items: baseline;
+	flex: 1;
+	min-width: 0;
+}
+
+.version-history-title-text {
+	flex: none;
+	white-space: pre;
+}
+
+.version-history-title-name {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: pre;
+}
+
+/* One block per version, stacked, so the list reads the same at any pane
+ * width. The current version is highlighted to match content-list's
+ * selected item style. */
+.version-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.version-item {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	padding: 0.5rem 0.625rem;
+	border-radius: 0.5rem;
+}
+
+.version-item:hover {
+	background-color: var(--item-hover-bg);
+}
+
+.version-item.version-current {
 	background-color: var(--item-selected-bg);
 }
 
-.version-current-badge {
-	display: inline-block;
-	padding: 0.25rem 0.75rem;
-	border-radius: 9999px;
+.version-item-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 1.5rem;
+}
+
+.version-item-name {
 	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Restore sits on every row but the current one, so it is a quiet outline
+ * pill rather than a filled button. */
+.version-item-action {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	margin-left: auto;
+	padding: 0.125rem 0.625rem 0.125rem 0.5rem;
+	border: 1px solid var(--input-border-color);
+	border-radius: 9999px;
+	background: none;
+	color: inherit;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.version-item-action:hover:not(:disabled) {
+	border-color: var(--primary-color);
+	color: var(--primary-color);
+}
+
+.version-item-action:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.version-item-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 0.75rem;
+	color: var(--text-muted-color);
+	font-size: 12px;
+}
+
+.version-item-author {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.version-current-badge {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	height: 1.125rem;
+	padding: 0 0.75em;
+	border-radius: 9999px;
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1;
 	color: var(--primary-color);
 	border: 1px solid rgb(from var(--primary-color) r g b / 0.3);
-	background-color: rgb(from var(--primary-color) r g b / 0.05);
+	background-color: rgb(from var(--primary-color) r g b / 0.06);
+}
+
+/* Labels reuse the tag chips (.insp-tags / .insp-tag). On the hovered or
+ * current row the chip needs its own surface to stay visible. */
+.version-item-labels .insp-tag {
+	background: rgb(from var(--neutral-color) r g b / 0.12);
+}
+
+.version-label-icon {
+	font-size: 10px;
+	color: var(--text-muted-color);
+}
+
+.version-label-add {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.125rem;
+	padding: 0 0.5rem 0 0.25rem;
+	border: 1px dashed var(--input-border-color);
+	border-radius: 9999px;
+	background: none;
+	color: var(--text-muted-color);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.version-label-add:hover:not(:disabled) {
+	border-style: solid;
+	color: var(--primary-color);
+}
+
+.version-label-note {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.375rem 0.5rem;
+	font-size: 12px;
+}
+
+.version-label-note-actions {
+	display: inline-flex;
+	gap: 0.375rem;
+	margin-left: auto;
+}
+
+.version-label-error {
+	color: var(--danger-color);
+	font-size: 12px;
 }
 
 /* --- access control entries --- */

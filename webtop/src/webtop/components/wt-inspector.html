@@ -724,8 +724,13 @@
 				<button class="detail-overlay-back-btn" @click="closeDetailVersionHistory" :title="t('webtop.inspector.back')">
 					<i class="bi bi-arrow-left"></i>
 				</button>
-				<span class="detail-overlay-title">
-					<i class="bi bi-clock-history me-1"></i>{{ t('webtop.inspector.versionHistory.title') }}
+				<!-- The file name is part of the title; only the name gives way
+				     (ellipsis) when the pane is narrow. -->
+				<span class="detail-overlay-title version-history-title" :title="versionHistoryTitle.full">
+					<i class="bi bi-clock-history me-1"></i>
+					<span v-if="versionHistoryTitle.prefix" class="version-history-title-text">{{ versionHistoryTitle.prefix }}</span>
+					<span v-if="versionHistoryTitle.name" class="version-history-title-name">{{ versionHistoryTitle.name }}</span>
+					<span v-if="versionHistoryTitle.suffix" class="version-history-title-text">{{ versionHistoryTitle.suffix }}</span>
 				</span>
 			</div>
 
@@ -741,9 +746,6 @@
 
 			<!-- Single selection: not versionable -->
 			<div v-else-if="versionHistoryDialog.item && !versionHistoryDialog.item.isVersionable" class="detail-overlay-body">
-				<div class="mb-2">
-					<span>{{ versionHistoryDialog.item.name }}</span>
-				</div>
 				<div class="text-muted py-3">
 					<i class="bi bi-info-circle me-1"></i>{{ t('webtop.inspector.versionHistory.notVersionable') }}
 				</div>
@@ -751,38 +753,62 @@
 
 			<!-- Single selection: versionable -->
 			<div v-else-if="versionHistoryDialog.item" class="detail-overlay-body">
-				<div class="mb-2">
-					<span>{{ versionHistoryDialog.item.name }}</span>
-				</div>
 				<div v-if="versionHistoryDialog.isLoading && versionHistoryDialog.versions.length === 0" class="text-center py-4">
 					<span class="spinner-border spinner-border-sm me-2"></span>{{ t('common.loading') }}
 				</div>
-				<div v-else-if="versionHistoryDialog.versions.length > 0" class="content-list p-0">
-					<table class="wt w-100">
-						<thead>
-							<tr>
-								<th>{{ t('webtop.inspector.versionHistory.colVersion') }}</th>
-								<th>{{ t('webtop.inspector.versionHistory.colCreated') }}</th>
-								<th></th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr v-for="version in versionHistoryDialog.versions" :key="version.name" class="item item-on-hover" :class="{ 'version-current': isCurrentVersion(version.name) }">
-								<td class="text-center">{{ version.name }}</td>
-								<td class="text-center">
-									<div>{{ formatVersionDate(version.created) }}</div>
-									<div>{{ version.createdBy }}</div>
-								</td>
-								<td class="text-center">
-									<span v-if="isCurrentVersion(version.name)" class="version-current-badge">{{ t('webtop.inspector.version.current') }}</span>
-									<button v-else-if="version.name !== 'jcr:rootVersion'" class="wt wt-primary wt-slim" @click="requestRestoreVersion(version.name)" :disabled="versionHistoryDialog.isLoading">
-										<span>{{ t('webtop.inspector.version.restore') }}</span>
-									</button>
-								</td>
-							</tr>
-						</tbody>
-					</table>
-				</div>
+				<!-- One block per version rather than a table row, so nothing
+				     depends on the pane's width: version and action on the first
+				     line, date and creator on the second, labels on the third. -->
+				<ul v-else-if="versionHistoryDialog.versions.length > 0" class="version-list">
+					<li v-for="version in versionHistoryDialog.versions" :key="version.name" class="version-item" :class="{ 'version-current': isCurrentVersion(version.name) }">
+						<div class="version-item-head">
+							<span class="version-item-name">{{ version.name }}</span>
+							<span v-if="isCurrentVersion(version.name)" class="version-current-badge">{{ t('webtop.inspector.version.current') }}</span>
+							<button v-if="!isCurrentVersion(version.name)" type="button" class="version-item-action" @click="requestRestoreVersion(version.name)" :disabled="versionHistoryDialog.isLoading">
+								<i class="bi bi-arrow-counterclockwise me-1"></i>{{ t('webtop.inspector.version.restore') }}
+							</button>
+						</div>
+						<div class="version-item-meta">
+							<span>{{ formatVersionDate(version.created) }}</span>
+							<span v-if="version.createdBy" class="version-item-author"><i class="bi bi-person me-1"></i>{{ version.createdBy }}</span>
+						</div>
+						<!-- Labels: chips with a remove button, and an input that adds
+						     on Enter and stays open for the next one (Esc closes). -->
+						<div class="insp-tags version-item-labels" :class="{ 'insp-labels-saving': versionHistoryDialog.labelBusy }">
+							<span v-for="label in version.labels" :key="label" class="insp-tag">
+								<i class="bi bi-tag version-label-icon"></i>
+								<span class="insp-tag-label">{{ label }}</span>
+								<button type="button" class="insp-tag-remove" :disabled="versionHistoryDialog.labelBusy"
+									:title="t('webtop.inspector.versionHistory.removeLabel', { label: label })" @click="removeVersionLabel(label)">
+									<i class="bi bi-x"></i>
+								</button>
+							</span>
+							<input v-if="versionHistoryDialog.labelEdit.versionName === version.name" type="text" class="insp-tag-input version-label-input"
+								v-model="versionHistoryDialog.labelEdit.value" maxlength="64"
+								:placeholder="t('webtop.inspector.versionHistory.labelPlaceholder')"
+								:disabled="versionHistoryDialog.labelBusy"
+								@input="onVersionLabelInput"
+								@keydown="handleVersionLabelKeydown"
+								@blur="onVersionLabelBlur" />
+							<button v-else type="button" class="version-label-add" :disabled="versionHistoryDialog.labelBusy"
+								:title="t('webtop.inspector.versionHistory.addLabelTitle')" @click="startVersionLabelEdit(version.name)">
+								<i class="bi bi-plus"></i>{{ t('webtop.inspector.versionHistory.addLabel') }}
+							</button>
+						</div>
+						<!-- The typed label names another version: moving it is the
+						     user's call. -->
+						<div v-if="versionHistoryDialog.labelEdit.versionName === version.name && versionHistoryDialog.labelEdit.moveFrom" class="version-label-note">
+							<span>{{ t('webtop.inspector.versionHistory.labelInUse', { label: versionHistoryDialog.labelEdit.value.trim(), version: versionHistoryDialog.labelEdit.moveFrom }) }}</span>
+							<span class="version-label-note-actions">
+								<button type="button" class="wt wt-slim" @click="cancelVersionLabelEdit" :disabled="versionHistoryDialog.labelBusy">{{ t('common.cancel') }}</button>
+								<button type="button" class="wt wt-primary wt-slim" @click="commitVersionLabel(true)" :disabled="versionHistoryDialog.labelBusy">{{ t('webtop.inspector.versionHistory.moveLabel') }}</button>
+							</span>
+						</div>
+						<div v-if="versionHistoryDialog.labelEdit.versionName === version.name && versionHistoryDialog.labelEdit.error" class="version-label-error">
+							<i class="bi bi-exclamation-circle me-1"></i>{{ versionHistoryDialog.labelEdit.error }}
+						</div>
+					</li>
+				</ul>
 				<div v-else-if="!versionHistoryDialog.isLoading" class="text-muted py-3">
 					{{ t('webtop.inspector.versionHistory.empty') }}
 				</div>
