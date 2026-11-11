@@ -1,5 +1,6 @@
 identifier: a3f7c2e1-9b4d-4e8a-b6f0-1d2e3f4a5b6c
 title: Schema Manager
+category: administration
 icon: assets/icons/icon.svg
 roles: [administrator]
 editor: true

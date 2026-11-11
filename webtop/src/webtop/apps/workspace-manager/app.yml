@@ -1,5 +1,6 @@
 identifier: 3f6a9c1e-58d2-4b7a-9e04-c7b51a2d8f63
 title: Workspace Manager
+category: administration
 icon: assets/icons/icon.svg
 roles: [administrator]
 actions:

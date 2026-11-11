@@ -1,5 +1,6 @@
 identifier: 7c5e4a8b-9f3d-4e2a-b1c6-8d7f3a9e5b40
 title: OSGi Console
+category: administration
 icon: assets/icons/icon.svg
 roles: [administrator]
 actions:
