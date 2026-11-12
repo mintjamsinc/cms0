@@ -79,9 +79,14 @@ Variable and incident events ride the engine's history event stream, so they
 follow the configured level (see `bpm-configuration.md`):
 
 - `none` — variable/incident events are **not** produced.
-- `audit` (default) — variable create/update/delete and incident events are
-  produced.
-- `full` — additionally records the variable-update *detail* stream; the bridge
+- `activity` — variable/incident events are **not** produced (the engine
+  produces history for processes, activities and tasks only).
+- `audit` (default) — variable create/update/migrate/delete events are
+  produced. Incident events are **not**.
+- `full` — incident events are produced as well: the engine creates incident
+  history only at this level, so subscribing to incidents needs
+  `history: full`. It additionally records the variable-update *detail*
+  stream; the bridge
   deliberately ignores the extra `UPDATE_DETAIL` record so a single value change
   still yields at most one `VariableInstance/UPDATED` event.
 

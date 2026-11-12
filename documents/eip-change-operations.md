@@ -95,9 +95,10 @@ no `type=` to misspell: the value decides.
 Two consequences:
 
 - **A number read out of JSON is whatever the parser made it.** `JSON.parse`
-  gives `Integer`, `Long`, `BigDecimal` or `Double` depending on the text, so a
-  price written straight from the payload is a `DECIMAL` for `"12.50"` and a
-  `LONG` for `12`. A property that has to compare and sort across orders is
+  gives `Integer` or `Long` for a whole number (`BigInteger` when it overflows)
+  and `Double` for a decimal, and a quoted value stays a `String`, so a price
+  written straight from the payload is a `STRING` for `"12.50"`, a `DOUBLE` for
+  `12.50` and a `LONG` for `12`. A property that has to compare and sort across orders is
   written with one explicit type: `new BigDecimal(order.total_price as String)`
   or `order.quantity as long`. **One property name, one type, repository-wide**
   — the index stores a property under its type, and a value of another type in
@@ -189,8 +190,10 @@ receipt.moveTo("/var/cache/commerce/done/${name}");
 context.session.getResource(stalePath).remove();
 ```
 
-`moveTo` is JCR's move: naming an existing folder as the destination is an
-error, not a move into it, and the parent of the destination has to exist.
+`moveTo` is JCR's move: the destination is the path the node ends up at, not
+a folder to move into. **A node already at the destination — a folder
+included — is removed and replaced.** The parent of the destination has to
+exist.
 `copyTo` copies a file or a folder with everything beneath it the same way.
 `remove()` removes the subtree. All three stay in the session until the
 commit, and a rollback undoes them — **a deletion belongs to the transaction
@@ -230,8 +233,10 @@ exchange.setProperty('hasMore', result.hasMore());
 
 `$name` in the statement, `.variable(name, value)` beside it. The builder
 writes each value as the literal its type needs — a `String` quoted and
-escaped, a `Date` as `xs:dateTime(...)`, a `Boolean` as `true()` / `false()`,
-numbers bare — and refuses a `null` or a type it does not know. A `$name` inside
+escaped, a `Date` as `xs:dateTime('…')`, a `Boolean` as `xs:boolean('1')` /
+`xs:boolean('0')`, an `Integer` or `Long` as `xs:long('…')`, a `Double` or
+`BigDecimal` as `xs:decimal('…')` — and refuses a `null` or any other type
+(`Calendar`, `Float`, `BigInteger`). A `$name` inside
 a quoted string in the statement is left alone. A value a route author
 concatenates into the statement is a value the route author is escaping by
 hand, and the apostrophe in a customer's name is where that goes wrong.
@@ -324,40 +329,54 @@ value (`eip-conventions.md` §7).
 
 ## 8. Conflicts and guards
 
-### `InvalidItemStateException`
+### Concurrent writes to one node
 
-The repository's only concurrency signal is optimistic. A session that saves a
-node another session has changed since it read it gets
-`InvalidItemStateException`; there is no lock held in between. Absorbing that is
-a read, a rollback, a re-read and another attempt:
+The repository does not compare, when a session saves, whether another session
+changed the node since this one read it. A conflict is not detected and nothing
+is thrown: the value saved last stays and the earlier update is lost. A write
+that only sets a value does not mind. A write that depends on what it read — a
+counter — loses increments when two run at once, and the way not to lose them
+is to lock the node before reading it:
 
 ```groovy
-def attempts = 0;
-while (true) {
-    try {
-        def metric = context.session.getResource(metricPath);
-        def count = metric.hasProperty('commerce:count') ? metric.getProperty('commerce:count').long : 0L;
-        metric.setProperty('commerce:count', count + 1);
-        context.session.commit();
-        break;
-    } catch (javax.jcr.InvalidItemStateException ex) {
-        context.session.rollback();
-        if (++attempts > 6) {
-            throw ex;
-        }
-        Thread.sleep(Math.min(500L, 20L << attempts));
+def metric = context.session.getResource(metricPath);
+def locked = null;
+for (int attempt = 0; attempt < 7 && locked == null; attempt++) {
+    if (attempt > 0) {
+        Thread.sleep(Math.min(500L, 20L << attempt));
     }
+    locked = metric.tryLock(false, true, 30);
+}
+if (locked == null) {
+    throw new IllegalStateException("${metricPath} stayed locked; the count was not recorded.");
+}
+try {
+    metric = context.session.getResource(metricPath);
+    def count = metric.hasProperty('commerce:count') ? metric.getProperty('commerce:count').long : 0L;
+    metric.setProperty('commerce:count', count + 1);
+    context.session.commit();
+} finally {
+    try { metric.unlock(); } catch (Throwable ignore) {}
 }
 ```
 
-**The rollback is the whole session's.** A retry loop therefore belongs in a
-script that owns its session, never in one that joined the route's — the
-discard would throw away every other pending change in the transaction. That is
+**Lock, then read.** A value read before the lock can be stale by the time the
+lock is won.
+
+**Commit before locking.** Locking a node with unsaved changes is refused
+(`InvalidItemStateException`), so the node is created and committed beforehand.
+
+**Commit before unlocking.** Otherwise the next session to win the lock adds to
+the old value, because the new one is not committed yet.
+
+**The commit is the whole session's.** This therefore belongs in a script that
+owns its session, never in one that joined the route's — the commit would
+commit every other pending change in the transaction halfway through. That is
 the same rule as `eip-conventions.md` §1 seen from the other side: a counter
-that needs this loop is a counter that must not be in the transaction anyway,
+that needs this lock is a counter that must not be in the transaction anyway,
 because an order that failed and rolled back still has to be counted as failed.
 
-**When the attempts are used up, throw.** A counter that quietly stops counting
+**When the lock cannot be won, throw.** A counter that quietly stops counting
 is worse than one that fails, because nothing downstream can tell "no events"
 from "not recording".
 
@@ -381,7 +400,7 @@ session can interleave between the read and the commit, and reading it as
 |---|---|
 | The precondition of a transition is visible | The comparison above, and a branch on its result |
 | No other node is in the critical section | A **lock** around it (`tryLock`, lifecycle §6). Not a comparison |
-| Concurrent writes to one node do not lose | The retry loop above, in a session of its own |
+| Concurrent writes to one node do not lose | A **lock** on the node before reading it, as above, in a session of its own |
 
 **A guard has to be branched on.** The script that did not write carries on
 exactly like the one that did unless something reads `claimed`. `<filter>` on

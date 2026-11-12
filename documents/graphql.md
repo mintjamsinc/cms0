@@ -121,7 +121,7 @@ is turned off for it.
 | MCP | the caller's MCP connection, `mcpToolDeployments` (`documents/mcp-server.md`) |
 | GraphQL | `graphqlSchemaDeployment`: how the workspace's application schema last deployed (below) |
 | Files | `documentText`, `fileDiff`, `grepFiles`, `findFiles`, `editFile` |
-| Linked accounts, cloud files | `linkedAccounts`, `cloudPicker`, `importCloudFile`, ... (`documents/linked-accounts.md`) |
+| Linked accounts, cloud files | `linkedAccounts`, `cloudStorages`, `importCloudFile`, ... (`documents/linked-accounts.md`) |
 
 The core schema defines the root types `Query`, `Mutation` and
 `Subscription` and the scalars `Long`, `DateTime` (ISO-8601, UTC), `Base64`
@@ -267,7 +267,9 @@ caller may not see. `extensions.code` classifies it:
 | `LockException` | `LOCKED` |
 | `IllegalStateException` | `UNAVAILABLE` |
 | `ConsentRequiredException` (linked accounts) | `CONSENT_REQUIRED` |
-| anything else | `RESOLVER_ERROR` |
+| the cloud provider is throttling the caller | `RATE_LIMITED` |
+| anything else, in an application resolver | `RESOLVER_ERROR` |
+| anything else, in a platform resolver | `INTERNAL_ERROR` |
 
 The message is also in `extensions.reason`. Application errors are not
 logged; log what you need with `log`. An internal error of the platform is

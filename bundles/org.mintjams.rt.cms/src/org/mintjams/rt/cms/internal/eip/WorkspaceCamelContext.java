@@ -45,25 +45,23 @@ public class WorkspaceCamelContext extends DefaultCamelContext {
 		addComponent(BpmComponent.COMPONENT_NAME, new BpmComponent(config.getWorkspaceName()));
 		addComponent(CmsComponent.COMPONENT_NAME, new CmsComponent(config.getWorkspaceName()));
 
+		// aggregationStrategy="#commerce.LatestExchange" resolves to the Groovy script
+		// /etc/eip/strategies/aggregation/commerce/LatestExchange.groovy, so how a
+		// <split> or <aggregate> folds its items is deployed and edited the same way
+		// the route is - by uploading a file. The platform supplies the adapter and
+		// no aggregation of its own. See BeanRepositoryImpl and
+		// WorkspaceIntegrationEngineProvider#getAggregationStrategy.
+		//
+		// Set before anything binds into the registry: replacing it afterwards would
+		// discard what was already there.
+		getCamelContextExtension().setRegistry(new DefaultRegistry(new BeanRepositoryImpl(config.getWorkspaceName())));
+
 		// The predicate language for <when> and <filter>. Simple has no parenthesis
 		// grouping and cannot dereference a header whose name contains a colon, so a
 		// condition like (a || b) && (c || d) over commerce:* headers becomes a flag
 		// header and two nested <choice> elements. Registered under both names Camel
 		// looks a language up by: which one it uses depends on how the route was
 		// assembled, and registering one leaves the other failing at startup.
-		// aggregationStrategy="#commerceTally" resolves to a script under
-		// /etc/eip/aggregators, so how a <split> counts what it did is deployed and
-		// edited the same way the route is - by uploading a file. The platform
-		// supplies the adapter and no aggregation of its own; the alternative was a
-		// platform release every time an application wanted another column in a
-		// summary line. See ScriptAggregatorRepository.
-		//
-		// Set before anything binds into the registry: replacing it afterwards would
-		// discard what was already there.
-//		getCamelContextExtension().setRegistry(
-//				new DefaultRegistry(new ScriptAggregatorRepository(config.getWorkspaceName())));
-		getCamelContextExtension().setRegistry(new DefaultRegistry(new BeanRepositoryImpl(config.getWorkspaceName())));
-
 		JexlLanguage jexl = new JexlLanguage();
 		getCamelContextExtension().getRegistry().bind(JexlLanguage.NAME, jexl);
 		getCamelContextExtension().getRegistry().bind(JexlLanguage.REGISTRY_ALIAS, jexl);

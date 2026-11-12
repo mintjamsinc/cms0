@@ -59,21 +59,17 @@ import org.apache.commons.jexl3.MapContext;
  * <h2>Bracket notation is the convention</h2>
  *
  * Write {@code header['commerce:status']}, never {@code header.status}. It reads
- * a colon-bearing name, and it is what keeps {@code strict} mode usable: a map
- * access to an absent key is null, while a property access to an absent property
- * throws. Being able to say "false when the header is missing" without loosening
- * the engine is worth a convention.
+ * a colon-bearing name, which dot notation cannot. This is a convention: the
+ * engine evaluates dot notation as written and does not refuse it.
  *
- * <h2>No method calls</h2>
+ * <h2>No method calls, by convention</h2>
  *
- * {@code header['email'].toLowerCase()} does not parse. That closes
- * {@code ''.getClass().forName(...)} at the same time as it closes the smaller
- * problem: a predicate that lower-cases before comparing has a transformation
- * hidden inside a condition, and the whole point of the node graph is that
- * transformations are nodes. Use {@code transform:lowerCase} in front.
- * <p>
- * Operators, {@code empty()}, {@code size()} and map access are evaluated by the
- * interpreter itself, so refusing every method leaves the useful language intact.
+ * Nothing here refuses a method call: the engine runs with JEXL's default
+ * features and permissions, so {@code header['email'].toLowerCase()} parses and
+ * is evaluated. It is not written, because a predicate that lower-cases before
+ * comparing has a transformation hidden inside a condition, and the whole point
+ * of the node graph is that transformations are nodes. Compute the value in a
+ * {@code <script><groovy>} node in front.
  */
 public class JexlLanguage implements Language {
 

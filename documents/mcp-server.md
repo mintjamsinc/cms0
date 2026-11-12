@@ -615,7 +615,7 @@ The keys of a tool:
 | --- | --- |
 | `title` | Shown to the user. Defaults to the name. |
 | `description` | Required: it is what the model decides by. A string, or a list of lines. |
-| `input` | `properties` (name → JSON Schema, each with a `type`) and `required`. No `input` means no arguments. The schema is closed: an argument that is not declared is refused. |
+| `input` | `properties` (name → JSON Schema, each with a `type`) and `required`. No `input` means no arguments. The schema is closed: an argument that is not declared is refused. The server checks this for every tool, the built-in ones included, whatever the client does with the schema; the call answers the tool error `The tool <name> has no argument '<argument>'.` followed by the declared names. |
 | `access` | `read`, `write` or `destructive`. Decides whether a read-only connection is shown the tool and may call it, and what the client is told (`readOnlyHint`, `destructiveHint`). |
 | `idempotent` | Calling it again with the same arguments changes nothing more. |
 | `enabled` | `false` keeps the tool out of the listing without deleting it. |

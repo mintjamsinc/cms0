@@ -42,12 +42,12 @@ the difference is one an author has to see.
 
 ### The same rule, from the other direction
 
-A retry on `InvalidItemStateException` (`eip-change-operations.md` §8) rolls
-back the whole session before it reads again. In a script that joined the
-route's session that discards the rest of the transaction, so the retry loop
-only ever belongs in a script that owns its session. That looks like a
-restriction on retries; it is the same rule again. A counter that needs the
-loop is a counter that must not be in the transaction anyway.
+A counter that adds to what it read (`eip-change-operations.md` §8) locks its
+node, adds, and commits before it lets the lock go. In a script that joined the
+route's session that commit commits the rest of the transaction halfway
+through, so such a counter only ever belongs in a script that owns its session.
+That looks like a restriction on counters; it is the same rule again. A counter
+that needs the lock is a counter that must not be in the transaction anyway.
 
 ---
 
@@ -131,10 +131,10 @@ The worked example is the `jexl` language. The specification banned dot notation
 and assigned the check to a linter that was not written. Under the permissions
 that ship, a refused method call does not throw — it evaluates to `null`, so
 `header['email'].toLowerCase() == 'a@b.com'` was a predicate that was quietly
-always false. The ban moved into the language, which refuses it when the route
-is added; the linter can still come later and say it more kindly. An
-unimplemented tool cannot be the only thing standing between an author and a
-condition that never matches.
+always false. The ban moved into the language for a while, which refused it
+when the route was added. That restriction has since been removed together with
+the permissions: `jexl` now evaluates dot notation and method calls as written
+(the example above is `true`), so avoiding them is a review rule (§7).
 
 ### Turning a rule on before every route obeys it
 
@@ -158,8 +158,12 @@ started at 74 across 37 routes and reached zero.
 
 **The mechanism is gone with it.** Keeping it past zero would leave a way to
 declare an exemption with nothing left to be exempt from, which is the silent
-thing these rules exist to stop. `mi:conventions.pending` is no longer read, no
-longer accepted, and no longer documented anywhere but here.
+thing these rules exist to stop. `mi:conventions.pending` is no longer read by
+anything — writing it is ignored — and no longer documented anywhere but here.
+
+The route checker that enforced these rules was later removed as well. Nothing
+refuses a route for breaking a convention when it is added now, the rules in the
+table below included; every rule in this document is a review rule.
 
 ### What the staged rules found on the way down
 
@@ -222,17 +226,22 @@ is a value nobody can see on the canvas, in the log, or in the history.
 
 ```xml
 <when>
-    <language language="jexl">(exchange.properties['txn_kind'] == 'sale' || exchange.properties['txn_kind'] == 'capture')
-        &amp;&amp; (empty(exchange.properties['txn_status']) || exchange.properties['txn_status'] == 'success')</language>
+    <language language="jexl">(property['txn_kind'] == 'sale' || property['txn_kind'] == 'capture')
+        &amp;&amp; (empty(property['txn_status']) || property['txn_status'] == 'success')</language>
 </when>
 ```
+
+A predicate sees three variables — `header`, `property` (the exchange
+properties) and `body` — and nothing else. There is no `exchange`:
+`exchange.properties[...]` fails as an undefined variable when it is evaluated.
 
 - **Bracket notation, never a dot into a name.** `header['commerce:status']`
   reads a name containing a colon, which Simple cannot do at all, and an absent
   key is null rather than an error.
-- **No method calls.** The language refuses them: a predicate that lower-cases
-  before comparing has a transformation hidden inside a condition, and the
-  transformation is a line in the script in front.
+- **No method calls.** A convention, not something the language refuses —
+  `header['email'].toLowerCase()` and dot notation are evaluated as written. A
+  predicate that lower-cases before comparing has a transformation hidden
+  inside a condition, and the transformation is a line in the script in front.
 - **`empty(x)`** is true for null, an empty string, and an empty collection or
   map. It is the usual way to say "not set".
 - **`=~` is both** membership and pattern: `header['status'] =~
@@ -265,10 +274,14 @@ fact. Sorting a materialised page would sort the rows that happened to arrive �
 the first N of an arbitrary order, re-sorted to look deliberate — and slicing one
 still fetches everything, which is the cost the option exists to avoid.
 
-**`orderBy` and `order` are written literally.** They name one of a fixed set of
-words, so `orderBy=${header.sortColumn}` is refused: there is nothing to check
-until a message arrives, and a sort order chosen by a header is a sort nobody
-reading the route can see. `maxResults` is data and may come from configuration.
+**`orderBy` and `order` are written literally.** `orderBy` names one of a fixed
+set of words — for `queryTasks`: `createTime`, `dueDate`, `priority`, `name`,
+`assignee`, `id` — and a word the operation does not know is refused. Nothing
+refuses `orderBy=${header.sortColumn}` as such: a `<toD>` resolves it to text
+before the component sees it. It is still not written, because a sort order
+chosen by a header is a sort nobody reading the route can see. `order` is
+descending for `desc` and ascending for anything else. `maxResults` is data and
+may come from configuration.
 
 **`total` is how many matched; `count` is how many came back.** With a page they
 answer different questions, and a monitor needs the first one so that it can say
@@ -306,35 +319,37 @@ remove.
 attribute:
 
 ```xml
-<split id="sla-per-task" aggregationStrategy="#commerceTally">
+<split id="sla-per-task" aggregationStrategy="#commerce.Tally">
 ```
 
-**The strategy is a script the application owns.** `#commerceTally` resolves to
-`/etc/eip/aggregators/commerce/commerceTally.groovy`, alongside
-`/etc/eip/routes/commerce/`: the two halves are deployed by uploading a file and
-withdrawn by deleting a folder, and adding a column to a summary line does not
-need a platform release. The platform supplies the adapter and no arithmetic at
-all — what is worth counting is the application's business.
+**The strategy is a Groovy script the application owns.** It is a `.groovy`
+file under `/etc/eip/strategies/aggregation/`, and its name is its path below
+that folder without `.groovy`, with `/` written as `.`:
+`/etc/eip/strategies/aggregation/commerce/Tally.groovy` is `#commerce.Tally`
+(`#commerce/Tally` finds it too). The folder is part of the name. commerce's
+`#commerce.LatestExchange` (`commerce/LatestExchange.groovy`) is a real one. Like
+a route it is deployed by uploading a file and withdrawn by deleting it, and
+adding a column to a summary line does not need a platform release. The platform
+supplies the adapter that calls the script and no arithmetic at all — what is
+worth counting is the application's business.
 
-The name is flat and unique across the tree. A folder is where a script is
-deployed, not part of what it is called, and two files with the same base name
-are an error naming both paths rather than a route whose behaviour depends on
-directory order.
+**The script is given exchanges and returns the one to keep.** Its bindings are
+`oldExchange` (what has been accumulated so far; `null` on the first call),
+`newExchange` (this item) and `inputExchange` (when Camel passes it). It runs in
+the context named by the exchange property `mi:cms.context` of `newExchange`
+when there is one, and in a throwaway context otherwise, with the usual bindings
+(`ScriptAPI`, `log` and the rest). It can therefore reach the repository; that a
+strategy folds headers and does nothing else is a convention.
 
-**A strategy can fold headers and can do nothing else.** It runs against a bare
-script context with six names in scope — `sub` (the item's headers, copied),
-`acc` (the accumulator's headers, writable), `index`, `size`, `last`, `log` —
-and nothing more. No repository session, no process API, no integration API: not
-withheld by a rule, absent from the context. That matters because
-`aggregationStrategy="#x"` declares no inputs or outputs the way a `cms:` part
-does, so the channel is kept narrow enough not to need declaring.
-
-**What leaves the split is the exchange that entered it.** The adapter
-accumulates onto the parent and returns the parent, so its body and headers
-survive with the totals added. Returning the last item instead — the obvious
-implementation — would silently replace both.
+**What leaves the split is what the strategy returned.** After a `<split>` with
+a strategy the message is the aggregated result (Camel's rule for a split). A
+route that needs the body that entered the split afterwards saves it in a
+property before the split, or has the strategy keep it.
 
 ### The contract a route has to keep
+
+What follows is the route's side of the contract when the application has
+written a strategy that sums `tally_*` headers.
 
 **An item reports its own contribution, never a running total.** Sub-exchanges
 inherit the parent's headers, so a node that read the inherited value and added
@@ -346,7 +361,7 @@ all to their zero at the top of the split body and overwrite the ones a branch
 earns:
 
 ```xml
-<split id="sla-per-task" aggregationStrategy="#commerceTally">
+<split id="sla-per-task" aggregationStrategy="#commerce.Tally">
     <simple>${header.slaTasks}</simple>
     <setHeader id="sla-tally-examined" name="tally_slaExamined"><constant>1</constant></setHeader>
     <setHeader id="sla-tally-alerted" name="tally_slaAlerted"><constant>0</constant></setHeader>
@@ -428,9 +443,12 @@ a property written as the string `"null"` three nodes later. So:
   applied to an inline script. Nothing checks it; it is what a reader uses.
 
 - **The `cms:` nodes that remain are checked by eye.** `cms:login` reads
-  `runAs`; `cms:commit`, `cms:rollback` and `cms:logout` read `context`;
-  `cms:lock` reads `path`, `isDeep`, `isSessionScoped` and `timeoutSeconds`;
-  `cms:unlock` reads `path`. Anything else on one of them is ignored without a
+  `runAs` and its output binding (`@property.x=context` / `@header.x=context`);
+  `cms:commit`, `cms:rollback` and `cms:logout` read `context`; `cms:lock` reads
+  `path`, `isDeep`, `isSessionScoped`, `timeoutSeconds` and its output binding
+  (`@property.x=lock`); `cms:unlock` reads `path`. `cms:lock` and `cms:unlock`
+  also read `context`, and `runAs` when they own their session. Anything else
+  on one of them is ignored without a
   word, which is the reason the list is this short and this document says what
   is on it.
 
@@ -455,8 +473,9 @@ Nothing in that line says whether the script wants those headers. A misspelt
 than an error** — so it travels, and the failure surfaces somewhere else as a
 missing field.
 
-So a part declares its contract, in a comment block at the top of the file, and
-the platform compares the two when the route is added:
+So a part declares its contract, in a comment block at the top of the file.
+Nothing compares the two any more — the check that did was removed with the
+route checker (§6) — so the descriptor is what a reader and a reviewer use:
 
 ```groovy
 // Name the bucket an outcome is counted under.
@@ -482,7 +501,10 @@ the platform compares the two when the route is added:
 **In the comment, not beside it.** These applications are deployed by uploading
 a file; a contract in a second file is a contract that gets left behind.
 
-### What is refused
+### What a reviewer looks for
+
+Nothing here is refused when the route is added; these are what the descriptor
+lets a reader see.
 
 A binding the part does not declare, and a required input the node does not
 bind — the same mistake from each side. An output taken that the part does not
@@ -521,21 +543,10 @@ already had.
 
 ### Turning it on before every part has one
 
-The same mechanism as §6, with one difference: **the exemption names the part.**
-
-```xml
-<routeProperty key="mi:conventions.pending"
-               value="undescribed-parts:/etc/commerce/scripts/shopify/screenOrder.groovy"/>
-```
-
-`undescribed-parts` on its own is refused. It would cover every part the route
-calls — including one added tomorrow — so the exemption would widen as the route
-grew, which is the failure the staging mechanism exists to prevent.
-
-Naming the part means writing one descriptor deletes one line, and the count is
-the work. A part called from four routes appears four times; that is not noise
-either, because one descriptor retires all four and the spread is how far that
-one part reaches.
+While the check existed it was staged with the same mechanism as §6, the
+exemption naming the part (`undescribed-parts:<script path>`), so that writing
+one descriptor deleted one line. That mechanism is gone with the check, and
+`mi:conventions.pending` is not read.
 
 ## 12. A value that must not be written down is not bound
 
@@ -552,46 +563,17 @@ copies JCR properties onto the exchange, one that puts a whole file in the
 body, and a part's `outputs=` all publish what they read. Naming one of them
 would close one door in a room with four.
 
-### How it is enforced
+### Nothing enforces it
 
-Nothing can decide by looking whether a value is a secret. An application can
-say so, and then the rule is checkable, which is the difference between a rule
-and a preference (§6):
+Nothing can decide by looking whether a value is a secret. For a while an
+application declared the paths and keys that hold secrets in
+`/etc/eip/secrets/<app>.yml`, and a binding that would publish one of them was
+refused when the route was added. That check was removed with the route checker
+(§6): the platform no longer reads the file, nothing refuses a binding, and
+leaving a declaration there does nothing.
 
-```yaml
-# /etc/eip/secrets/commerce.yml
-secrets:
-  - path: /etc/commerce/config/shopify.yml
-    keys:
-      - adminApi.clientSecret
-      - webhookSecret
-  - path: /etc/commerce/config/access_token
-```
-
-One file per application, beside its routes and its aggregators, so removing the
-application removes the declaration too. A binding that would publish anything
-declared here is refused when the route is added.
-
-**`keys` narrows a declaration to part of a document**, and that matters more
-than it looks: a settings file usually holds one secret among twenty, and
-declaring the whole file would refuse the nineteen legitimate bindings — which
-would get the declaration deleted rather than the bindings fixed. A key covers
-what is under it, and binding the whole document (`=document`) is refused by any
-declaration on that path, because it publishes everything.
-
-### What it does not reach
-
-**A part's `outputs=`.** A part can read a secret and hand it back, and no
-declaration of paths can see that happening. That is not a hole left open by
-accident: it is why the descriptor asks a part to declare what it produces, and
-why a part that depends on a secret says so with `reads:` rather than by
-publishing it. `getAccessToken.groovy?outputs=shopifyAccessToken` was exactly
-this shape, and it was deleted rather than declared.
-
-**And forgetting to declare a new secret.** The declaration is a list somebody
-maintains. That is still stronger than a sentence in a document, which does
-nothing at all when it is broken — but it is worth being plain that this rule
-protects what has been declared, not what is secret.
+So this is a review rule. What a reader looks for is a script that reads a
+secret and puts it on the exchange, and a part whose `outputs=` hands one back.
 
 ### Depending on a secret anyway
 
