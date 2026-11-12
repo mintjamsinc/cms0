@@ -85,6 +85,16 @@ public final class McpTool {
 	}
 
 	public McpToolResult call(JsonObject arguments, McpCallContext context) throws Exception {
+		// The input schema is closed (additionalProperties: false in describe).
+		// A client need not honour that, so it is enforced here: a misspelt
+		// argument is refused, not dropped and the call run without it.
+		for (String name : arguments.keySet()) {
+			if (!fProperties.has(name)) {
+				throw new McpToolException("The tool " + fName + " has no argument '" + name + "'."
+						+ (fProperties.size() == 0 ? " It takes no arguments."
+								: " Its arguments are: " + String.join(", ", fProperties.keySet()) + "."));
+			}
+		}
 		return fHandler.call(arguments, context);
 	}
 
