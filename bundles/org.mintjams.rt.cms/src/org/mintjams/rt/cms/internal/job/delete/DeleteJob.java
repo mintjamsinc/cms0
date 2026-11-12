@@ -24,7 +24,9 @@ package org.mintjams.rt.cms.internal.job.delete;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.jcr.Node;
 import javax.jcr.NodeIterator;
@@ -79,6 +81,12 @@ import org.mintjams.rt.cms.internal.security.CmsServiceCredentials;
  *
  * A batch refused for referential integrity is retried with per-node saves
  * (see {@link #fSaveEveryNode}) so only the referenced node itself remains.
+ * That node is held back rather than failing the job: when what refers to it
+ * is itself part of the request, it merely comes later in the walk, and the
+ * node can be removed once the walk has got there. Held-back nodes are retried
+ * in further passes for as long as a pass removes something; nodes that refer
+ * to each other are finally removed together in one transaction. Only a node
+ * referenced from outside the request fails the job.
  *
  * The progress row only advances after the deletions it reports are
  * committed, so a crash between commits never skips paths that were not
@@ -135,6 +143,12 @@ public class DeleteJob implements Job {
 	 * its whole batch down with it on every retry.
 	 */
 	private boolean fSaveEveryNode;
+	/**
+	 * Paths whose removal was refused for referential integrity in the current
+	 * pass. They stay in place, together with the containers above them, until
+	 * a later pass has removed what refers to them.
+	 */
+	private final Set<String> fHeldBack = new LinkedHashSet<>();
 
 	public DeleteJob(String jobId, String workspaceName, String userId, int priority) {
 		fJobId = jobId;
@@ -225,8 +239,21 @@ public class DeleteJob implements Job {
 		if (initError == null && paths != null) {
 			for (;;) {
 				try {
+					long deletedBefore = fItemsDeleted;
 					aborted = deletePass(jobSession, paths, context, progressContent, progressSession);
-					break;
+					if (aborted || fHeldBack.isEmpty()) {
+						break;
+					}
+
+					// Some nodes were still referenced when their turn came. If the
+					// pass removed anything, what referred to them may be gone by
+					// now: walk again. Otherwise they refer to each other or are
+					// referenced from outside the request â removing them together
+					// settles the first case and reports the second.
+					if (fItemsDeleted == deletedBefore) {
+						removeHeldBackTogether(jobSession, progressContent, progressSession);
+					}
+					fHeldBack.clear();
 				} catch (Throwable ex) {
 					// Drop the uncommitted batch and rewind to the committed state.
 					try {
@@ -304,7 +331,11 @@ public class DeleteJob implements Job {
 			}
 			try {
 				deleteRecursively(jobSession, paths.get(i), context, progressContent, progressSession);
-				fItemsProcessed = i + 1L;
+				// The position stops at the first path that still has a held-back
+				// node: the next pass, and a resumed job, start again from there.
+				if (fHeldBack.isEmpty()) {
+					fItemsProcessed = i + 1L;
+				}
 			} catch (AbortedException ex) {
 				aborted = true;
 				break;
@@ -344,6 +375,10 @@ public class DeleteJob implements Job {
 				return;
 			}
 			node = session.getNode(path);
+			if (hasHeldBackBelow(path)) {
+				// The container still holds a node waiting for its referrer.
+				return;
+			}
 		}
 
 		// Fast path: a plain file or folder is removed with set-based statements —
@@ -376,7 +411,58 @@ public class DeleteJob implements Job {
 		if (countable) {
 			fItemsDeleted++;
 		}
-		flushIfNeeded(session, progressContent, progressSession, path, false);
+		if (!fSaveEveryNode) {
+			flushIfNeeded(session, progressContent, progressSession, path, false);
+			return;
+		}
+
+		// Per-node saves: this removal is the whole transaction, so a refusal
+		// names this node. Put it back and leave it for a later pass.
+		try {
+			flushIfNeeded(session, progressContent, progressSession, path, false);
+		} catch (Exception ex) {
+			if (!isReferentialIntegrityViolation(ex)) {
+				throw ex;
+			}
+			session.refresh(false);
+			fPendingNodes = 0;
+			fItemsDeleted = fItemsDeletedFlushed;
+			fHeldBack.add(path);
+		}
+	}
+
+	private boolean hasHeldBackBelow(String path) {
+		String prefix = path.endsWith("/") ? path : path + "/";
+		for (String heldBack : fHeldBack) {
+			if (heldBack.startsWith(prefix)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Removes every held-back node in one transaction. Nodes that refer to each
+	 * other can only go together; if something outside the request still refers
+	 * to one of them, the save is refused and the job fails with that node named.
+	 */
+	private void removeHeldBackTogether(Session session, Node progressContent, Session progressSession)
+			throws Exception {
+		String lastPath = null;
+		for (String path : fHeldBack) {
+			if (!session.nodeExists(path)) {
+				continue;
+			}
+			Node node = session.getNode(path);
+			boolean countable = JCRs.isFile(node) || JCRs.isFolder(node);
+			node.remove();
+			fPendingNodes++;
+			if (countable) {
+				fItemsDeleted++;
+			}
+			lastPath = path;
+		}
+		flushIfNeeded(session, progressContent, progressSession, lastPath, true);
 	}
 
 	/**
@@ -440,6 +526,7 @@ public class DeleteJob implements Job {
 			}
 
 			List<Node> batch = new ArrayList<>();
+			List<String> batchPaths = new ArrayList<>();
 			String lastPath = null;
 			while (i < childPaths.size() && batch.size() < REMOVE_BATCH_ITEMS) {
 				String childPath = childPaths.get(i++);
@@ -447,6 +534,7 @@ public class DeleteJob implements Job {
 					continue;
 				}
 				batch.add(session.getNode(childPath));
+				batchPaths.add(childPath);
 				lastPath = childPath;
 			}
 			if (batch.isEmpty()) {
@@ -463,8 +551,8 @@ public class DeleteJob implements Job {
 			if (removed < 0) {
 				// The batch needs per-node checks (descendant ACLs or locks), or
 				// the job is isolating a node that blocks referential integrity.
-				for (Node child : batch) {
-					deleteRecursively(session, child.getPath(), context, progressContent, progressSession);
+				for (String childPath : batchPaths) {
+					deleteRecursively(session, childPath, context, progressContent, progressSession);
 				}
 				continue;
 			}
