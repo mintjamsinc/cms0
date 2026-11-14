@@ -121,6 +121,62 @@ carry it encrypted as `ENC[v1:...]` — see
 |---|---|
 | `8080` | HTTP. Terminate TLS at a reverse proxy and forward to this port. |
 
+### Behind a reverse proxy
+
+The HTTP service reads the forwarding headers of a request and answers as if
+the client had connected to it directly: the scheme, host, port and client
+address the CMS sees — and the redirects it sends — are the ones the proxy
+reports. This is turned on by one line in `conf/config.properties`, which the
+image ships with:
+
+```properties
+org.apache.felix.proxy.load.balancer.connection.enable=true
+```
+
+Without it the CMS takes every request for plain HTTP on its own port, and
+redirects lead to the wrong address.
+
+| Header | What the CMS takes from it |
+|---|---|
+| `X-Forwarded-Proto` | The scheme (`https`). |
+| `X-Forwarded-Host` | The host name, in place of `Host`. |
+| `X-Forwarded-Port` | The port. |
+| `X-Forwarded-For` | The client address. |
+| `Forwarded` | All of the above, in the standard form. |
+
+The proxy has to pass `Host` as the client sent it and set `X-Forwarded-Proto`.
+These headers are trusted as they arrive, so the proxy should set or remove
+each of them itself instead of passing on what a client sent, and port 8080
+should be reachable only from the proxy.
+
+#### Client certificates
+
+A proxy that asks the browser for a client certificate can hand the
+certificate to the CMS in a header. The bundled SSL filter
+(`org.apache.felix.http.sslfilter`) then places it in the request attribute
+`javax.servlet.request.X509Certificate`, where a script finds it as it would
+on a direct TLS connection. Nothing in the CMS reads that attribute by itself;
+this is for your own scripts.
+
+The filter does nothing until it is configured. In the OSGi Console, open the
+configuration with the PID `org.apache.felix.http.sslfilter.SslFilter` and set:
+
+| Property | Value |
+|---|---|
+| `ssl-forward.header` | `X-Forwarded-Proto` |
+| `ssl-forward.value` | `https` |
+| `ssl-forward-cert.header` | The header the proxy puts the certificate in. `X-Forwarded-SSL-Certificate` by default. |
+
+Two things to get right at the proxy:
+
+- **The form of the certificate.** The filter reads a PEM certificate written
+  on one line, with a space where each line break was. A URL-encoded
+  certificate is not accepted: the filter logs the failure and the request
+  goes on without a certificate.
+- **The port.** Once the filter is configured, it reports port 443 for every
+  forwarded request unless the proxy sends `X-Forwarded-Port`. Send that
+  header when the CMS is published on another port.
+
 ### Zero-configuration SAML
 
 On first boot the bundles create `etc/saml2.yml`, `etc/idp.yml`, and both

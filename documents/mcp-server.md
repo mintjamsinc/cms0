@@ -797,9 +797,9 @@ on another node within its one minute is stopped by PKCE, not by that record.
 
 The endpoint's address is taken from the request (`Host`, and the scheme the
 servlet sees), and a client compares it with the URL it connected to. Behind a
-TLS-terminating proxy the scheme has to reach the CMS (the Felix SSL filter
-takes it from `X-Forwarded-Proto`), or the metadata names `http://` and the
-client refuses it.
+TLS-terminating proxy the scheme has to reach the CMS (the HTTP service takes
+it from `X-Forwarded-Proto`; see *Behind a reverse proxy* in the README), or
+the metadata names `http://` and the client refuses it.
 
 ### Behind a reverse proxy
 
