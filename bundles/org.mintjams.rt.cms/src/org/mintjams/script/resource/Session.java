@@ -45,6 +45,7 @@ import org.mintjams.jcr.security.UserPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.provisioning.Provisioner;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
+import org.mintjams.rt.cms.internal.script.resource.CheckedInResource;
 import org.mintjams.rt.cms.internal.seed.SeedDeployer;
 import org.mintjams.script.ScriptingContext;
 import org.mintjams.script.resource.security.AccessControlManager;
@@ -326,9 +327,20 @@ public class Session implements Closeable, Adaptable {
 		} else {
 			if (resource.getLastModified().getTime() < Files.getLastModifiedTime(path).toMillis()) {
 				CmsService.getLogger(getClass()).debug("Update content: " + path.toAbsolutePath().toString());
+				// A checked-in file, or one under a checked-in folder, is read-only.
+				// The deployment checks it out for the update and checks it in
+				// again, so the deployed content is recorded as a new version and
+				// the file is left as read-only as it was found.
+				Resource checkedIn = CheckedInResource.of(resource);
+				if (checkedIn != null) {
+					checkedIn.checkout();
+				}
 				resource.write(path);
 				resource.setProperty(Property.JCR_LAST_MODIFIED, new java.util.Date(Files.getLastModifiedTime(path).toMillis()));
 				commit();
+				if (checkedIn != null) {
+					checkedIn.checkin();
+				}
 				progress.updated();
 			} else {
 				progress.unchanged();

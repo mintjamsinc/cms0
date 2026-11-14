@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.script.resource.CheckedInResource;
 import org.mintjams.script.resource.Resource;
 import org.mintjams.script.resource.ResourceException;
 import org.mintjams.script.resource.Session;
@@ -163,8 +164,19 @@ public class SeedDeployer {
 				fSession.commit();
 				created++;
 			} else if (!e.getValue().equals(applied.get(path))) {
+				// A checked-in file, or one under a checked-in folder, is read-only.
+				// The deployment checks it out for the update and checks it in
+				// again, so the seed's content is recorded as a new version and
+				// the file is left as read-only as it was found.
+				Resource checkedIn = CheckedInResource.of(resource);
+				if (checkedIn != null) {
+					checkedIn.checkout();
+				}
 				resource.write(deployPath.resolve(path.substring(1)));
 				fSession.commit();
+				if (checkedIn != null) {
+					checkedIn.checkin();
+				}
 				updated++;
 			} else {
 				unchanged++;
