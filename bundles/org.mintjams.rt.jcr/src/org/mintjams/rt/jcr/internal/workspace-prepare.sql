@@ -31,7 +31,13 @@ CREATE TABLE IF NOT EXISTS jcr_properties (
 	PRIMARY KEY (item_id)
 );
 CREATE INDEX IF NOT EXISTS jcr_properties_index1 ON jcr_properties (parent_item_id, item_name);
-CREATE INDEX IF NOT EXISTS jcr_properties_index2 ON jcr_properties (property_type, property_value);
+-- jcr_properties_index2 used to cover (property_type, property_value). The
+-- whole value array went into the index key, which PostgreSQL rejects once a
+-- row passes its index row size limit (long text, or a property with many
+-- values), and no query ever searched by value. It is dropped on workspaces
+-- created before this change and replaced by an index on the type alone.
+DROP INDEX IF EXISTS jcr_properties_index2;
+CREATE INDEX IF NOT EXISTS jcr_properties_index4 ON jcr_properties (property_type);
 CREATE INDEX IF NOT EXISTS jcr_properties_index3 ON jcr_properties (is_deleted);
 
 -- Normalized index of reference-typed property values. One row per live
