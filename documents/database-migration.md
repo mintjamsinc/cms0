@@ -81,13 +81,45 @@ has no BPM database to move.
    | Process engine | a few | 10 (the engine default) |
 
    `maxSessions` is `org.mintjams.jcr.workspace.maxSessions`: 128 by
-   default, 32 at the least. On a 32-core host the repository alone holds 96 connections from
-   the start. With the default `max_connections` there is then no slot left
-   for the process engine, which fails with "remaining connection slots are
-   reserved". Either raise `max_connections` on the server (it needs a
-   restart), or lower `maxSessions` (for the container image:
+   default, 32 at the least.
+
+   The number of CPU cores sets only how many connections stay open while
+   idle. Under load each pool grows to `maxSessions` on any host, and a
+   connection above the idle number is closed after ten idle minutes:
+
+   | Host | `maxSessions` | Idle from the start | At most |
+   |------|---------------|---------------------|---------|
+   | 6 cores | 128 (default) | 18 | 384 |
+   | 6 cores | 32 | 18 | 96 |
+   | 32 cores | 128 (default) | 96 | 384 |
+   | 32 cores | 32 | 48 | 96 |
+
+   On a 32-core host with the defaults the repository alone holds 96
+   connections from the start. With the default `max_connections` there is
+   then no slot left for the process engine, which fails with "remaining
+   connection slots are reserved". A smaller host starts, and meets the same
+   error later, under load. Either raise `max_connections` on the server (it
+   needs a restart), or lower `maxSessions` (for the container image:
    `CMS_JAVA_OPTS: "-Dorg.mintjams.jcr.workspace.maxSessions=32"`). Leave
    room for every workspace and every node of a cluster.
+
+   Lowering `maxSessions` removes no feature. It is also the number of
+   repository sessions a workspace keeps open at once, and each open session
+   holds one connection. When all are in use, the next request waits for a
+   free one and fails after 10 seconds with "JCR session login timed out."
+   How long a session stays open:
+
+   | Request | Session held |
+   |---------|--------------|
+   | Open subscription stream (SSE) | None, however many are open |
+   | GraphQL query or mutation | While it executes |
+   | Web page (template, script) | Until the request ends |
+   | File download | Until the transfer ends |
+
+   With 32, a few sessions go to the workspace's background work, which
+   leaves somewhat over 20 for requests. That suits ordinary use. Many
+   large downloads at once, or pages that wait long on another service, are
+   what fills it; prefer a higher `max_connections` there.
 
 3. **Back up the repository and the secrets** with the CMS stopped (for the
    container image, see `docker/README.md`, *Backup and restore*).
