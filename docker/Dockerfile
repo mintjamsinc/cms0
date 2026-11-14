@@ -153,7 +153,8 @@ COPY --chown=${FELIX_USER}:${FELIX_USER} docker/THIRD_PARTY_LICENSES.md ${FELIX_
 
 COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chown=root:root docker/cms-encrypt.sh /usr/local/bin/cms-encrypt
-RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/cms-encrypt
+COPY --chown=root:root docker/cms-migrate-db.sh /usr/local/bin/cms-migrate-db
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/cms-encrypt /usr/local/bin/cms-migrate-db
 
 # Volumes for state that must survive container recreation. /data/repository
 # and /data/secrets are shared by every node of a cluster; /data/local is this

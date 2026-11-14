@@ -10,6 +10,9 @@ container with zero manual SAML configuration on first boot.
    `CMS_PUBLIC_BASE_URL` and assembles `JAVA_TOOL_OPTIONS`
 - `cms-encrypt.sh` — installed as `cms-encrypt`; turns a value read from
    standard input into the `ENC[...]` form the configuration files accept
+- `cms-migrate-db.sh` — installed as `cms-migrate-db`; moves the workspace
+   databases from the embedded H2 files to PostgreSQL (see
+   [`documents/database-migration.md`](../documents/database-migration.md))
 - `docker-compose.yml` — example compose file with the named volumes
 - `seed/` — bundled assets and default configuration shipped in the image
   (see [Bundled assets and configuration](#bundled-assets-and-configuration))
