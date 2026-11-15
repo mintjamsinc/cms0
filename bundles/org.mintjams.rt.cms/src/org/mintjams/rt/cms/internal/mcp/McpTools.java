@@ -57,6 +57,7 @@ final class McpTools {
 
 		List<McpTool> tools = new ArrayList<>(read);
 		tools.addAll(WebRenderTools.all());
+		tools.addAll(LogTools.all());
 		tools.addAll(write);
 		tools.addAll(GraphQLTools.all());
 		return tools;

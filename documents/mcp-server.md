@@ -257,6 +257,7 @@ running may have to reconnect before it sees the tools.
 | `version_history` | read | The versions of a versionable node. Each has a `frozenNodePath` that `read_file` accepts, to read the content as it was. |
 | `diff_versions` | read | What changed in a versionable file between two versions, or since one: a unified diff of its text, a document's extracted text included. |
 | `explain_web_render` | read | Why a web path is, or is not, served the way it is. See below. |
+| `search_logs` | read, administrators | The entries of the server log on one day, on every node of a cluster, filtered by a regular expression, level and time of day. See below. |
 | `write_file` | write | Create a file, or replace the content of an existing one. |
 | `edit_file` | write | Replace one exact piece of a text file and leave the rest as it is. |
 | `create_folder` | write | Create a folder; no change when it exists. |
@@ -744,6 +745,69 @@ now answers 404, and nothing is logged.
 The tool reads as the caller. A descriptor the caller may not read is reported
 as it appears to them.
 
+## `search_logs`
+
+Reads the server log: the file the log writer keeps per day,
+`ROOT.yyyy-MM-dd.log` under `org.mintjams.log.rootdir`. No other file can be
+named. It is meant for the questions that used to need someone to copy lines
+off the server — did this error happen again, is this message still being
+written, what was logged around 14:30.
+
+| Argument | |
+| --- | --- |
+| `date` | The day, `YYYY-MM-DD` in the server's time zone. Default: today. |
+| `pattern` | A Java regular expression an entry must contain. It is matched against the whole entry, stack trace included; `(?i)` ignores case. |
+| `level` | The lowest level returned: `SEVERE`, `WARNING`, `INFO`, `FINE`, or `ALL` (the default). |
+| `since`, `until` | A time range within the day, `HH:mm` or `HH:mm:ss`; `since` is inclusive, `until` exclusive. |
+| `node` | One cluster node, by node id or host name. Default: every node. |
+| `limit` | The most recent matching entries returned per node (default 50, at most 200). |
+| `before` | Only entries that start before this line; see paging below. |
+
+An entry is what the log writer wrote for one log call: the line with the time
+and the source, the line starting with the level, and any lines after it (a
+stack trace). Each comes back with its line number, time, level (the
+`java.util.logging` name, whatever language the file is written in) and text,
+cut at 4,000 characters. `matches` counts every matching entry, not only those
+returned, so a search from a given time that finds 0 confirms that a message is
+no longer written. `lastEntryAt` is the time of the newest entry in the file,
+to tell a quiet log from a stopped one. The result also has the server's `now`
+and `timeZone`: times in the log are the server's local time.
+
+### Administrators only
+
+The log is not repository content, so the repository's access control says
+nothing about it, and it holds what no single user may see in full: other
+users' ids, addresses, and the errors of every workspace. Only an
+administrator may read it.
+
+The tool is listed to every client nonetheless. The description says that it
+is for administrators, and a call by anyone else fails with a message naming
+the user and saying that an administrator can read the logs — so the model can
+give the user that answer, instead of concluding that the server has no logs.
+Hiding the tool would leave the model no way to tell the two apart.
+
+### In a cluster
+
+Each node writes its own file. The node that takes the call reads its own and
+asks the other nodes for theirs over the cluster connections (the
+`cms.logs.search` request, on the management network), all at once, and lists
+the nodes in the result in member order with their node id and host name.
+
+A node is never silently left out. One whose heartbeat is stale is listed as
+not running, with the time of its last heartbeat; one that does not answer
+within 20 seconds, or runs a version without the request, is listed with that
+reason.
+
+Each node's answer travels in one cluster frame, so it is kept to about 40 KB
+of entries: a node returns its most recent matching entries up to `limit` or
+that size, whichever comes first. When it has more, its `olderBefore` is a line
+number; the same call with `before` set to it and `node` set to that node
+returns the entries before. `before` without `node` is refused in a cluster,
+because a line number belongs to one node's file.
+
+Logs written to standard output (the Docker log) are not read, and neither is
+the log of a node that is down.
+
 ## Configuration
 
 `<repository>/etc/mcp.yml` is generated with its defaults on first use and
@@ -970,6 +1034,7 @@ await (await fetch('/bin/mcp.cgi/web', {
 | `ContentTools` | The content tools. |
 | `FileTools` | `edit_file`, `diff_versions`, `grep_files`, `find_files`: each one operation of the files schema. |
 | `WebRenderTools` | `explain_web_render`. |
+| `LogTools` | `search_logs`, and the `cms.logs.search` cluster request that answers it on the other nodes. |
 | `GraphQLTools` | `graphql_schema` and `graphql`. The parts the former serves are `GraphQLSchemaDomain`s, recorded by `GraphQLSchemaCompiler` as it merges the schema and kept in the `GraphQLSchemaDeployment`. |
 | `McpToolCompiler`, `McpToolRegistry` | The tools a workspace defines: reading its `tools.yml` files, file by file, into the registry the server consults next to the built-in tools. Rebuilt by `WorkspaceGraphQLEngineProvider` with the application schema. |
 | `GraphQLToolHandler`, `ScriptToolHandler`, `McpScriptGraphQL` | What a workspace-defined tool does when called: the operation, or the script and its `graphql` binding. |

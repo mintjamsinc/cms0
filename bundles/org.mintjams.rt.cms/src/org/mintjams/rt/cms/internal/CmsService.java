@@ -70,6 +70,7 @@ import org.mintjams.rt.cms.internal.job.JobManager;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.mail.MailTransport;
+import org.mintjams.rt.cms.internal.mcp.LogTools;
 import org.mintjams.rt.cms.internal.operations.WorkspaceReconciler;
 import org.mintjams.rt.cms.internal.script.Scripts;
 import org.mintjams.rt.cms.internal.script.WorkspaceClassLoaderProvider;
@@ -282,6 +283,7 @@ public class CmsService {
 						+ " HTTP sessions stay on the node that created them.", ex);
 			}
 			fCloser.add(GraphQLStreamHandler.registerClusterHandler(fClusterTransport));
+			fCloser.add(LogTools.registerClusterHandler(fClusterTransport));
 		}
 
 		fConfig = new CmsConfiguration();
@@ -956,6 +958,11 @@ public class CmsService {
 
 	public static Path getRepositoryPath() {
 		return Path.of(Strings.defaultIfEmpty(getDefault().getBundleContext().getProperty("org.mintjams.jcr.repository.rootdir"), "repository"));
+	}
+
+	/** The directory the log writer keeps its daily files in (the same property, the same default). */
+	public static Path getLogPath() {
+		return Path.of(Strings.defaultIfEmpty(getDefault().getBundleContext().getProperty("org.mintjams.log.rootdir"), "log")).normalize();
 	}
 
 	public static Path getWorkspacePath(String workspaceName) {
