@@ -522,17 +522,7 @@ public class Saml2ServiceProviderConfiguration {
 						return;
 					}
 
-					// Log SAML attributes for verification
 					CmsService.getLogger(getClass()).info("SAML Authentication successful for user: " + auth.getNameId());
-					CmsService.getLogger(getClass()).info("SAML Attributes count: " + auth.getAttributes().size());
-					for (Map.Entry<String, List<String>> entry : auth.getAttributes().entrySet()) {
-						String attributeName = entry.getKey();
-						List<String> attributeValues = entry.getValue();
-						CmsService.getLogger(getClass()).info("  Attribute '" + attributeName + "' has " + attributeValues.size() + " value(s):");
-						for (int i = 0; i < attributeValues.size(); i++) {
-							CmsService.getLogger(getClass()).info("    [" + i + "] = " + attributeValues.get(i));
-						}
-					}
 
 					Saml2Credentials credentials = new Saml2Credentials(auth);
 					request.getSession().setAttribute(Credentials.class.getName(), credentials);
