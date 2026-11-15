@@ -38,13 +38,13 @@ import java.util.Set;
 import javax.jcr.Credentials;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.mcp.McpSealed;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Credentials;
+import org.mintjams.rt.cms.internal.web.CmsServlet;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
@@ -82,7 +82,7 @@ import com.google.gson.JsonObject;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_PATTERN + "=" + ConnectionsServlet.PATH + "/*",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)" })
-public class ConnectionsServlet extends HttpServlet {
+public class ConnectionsServlet extends CmsServlet {
 
 	private static final long serialVersionUID = 1L;
 

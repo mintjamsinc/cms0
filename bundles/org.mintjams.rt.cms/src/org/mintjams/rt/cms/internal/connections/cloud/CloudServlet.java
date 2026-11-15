@@ -37,7 +37,6 @@ import javax.jcr.Session;
 import javax.servlet.Servlet;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -47,6 +46,7 @@ import org.apache.commons.fileupload.servlet.ServletFileUpload;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.connections.ConnectionProviders;
 import org.mintjams.rt.cms.internal.connections.LinkedAccounts;
+import org.mintjams.rt.cms.internal.web.CmsServlet;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.mintjams.script.ConsentRequiredException;
 import org.mintjams.tools.io.IOs;
@@ -84,7 +84,7 @@ import com.google.gson.JsonObject;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
-public class CloudServlet extends HttpServlet {
+public class CloudServlet extends CmsServlet {
 
 	private static final long serialVersionUID = 1L;
 

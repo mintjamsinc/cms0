@@ -26,7 +26,6 @@ import java.io.IOException;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -40,7 +39,7 @@ import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=(" + HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true"
 })
-public class WebServlet extends HttpServlet {
+public class WebServlet extends CmsServlet {
 	private static final long serialVersionUID = 1L;
 
 	@Override
@@ -52,7 +51,13 @@ public class WebServlet extends HttpServlet {
 
 		WorkspaceWebServletProvider provider = CmsService.getWorkspaceServletProvider(workspaceName);
 		if (provider == null) {
-			throw new ServletException("Unknown workspace: " + workspaceName);
+			// Starting, stopped or failed: the workspace exists but is not online.
+			if (CmsService.workspaceExists(workspaceName)) {
+				sendServiceUnavailable(response, "The workspace is not online: " + workspaceName);
+				return;
+			}
+			response.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown workspace: " + workspaceName);
+			return;
 		}
 
 		provider.getServlet().service(request, response);

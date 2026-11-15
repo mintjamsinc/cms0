@@ -196,6 +196,7 @@ public final class GraphQLStreamHandler {
 			throws IOException {
 		WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(fWorkspaceName);
 		if (engine == null || !engine.isAvailable()) {
+			response.setHeader("Retry-After", String.valueOf(CmsServlet.RETRY_AFTER_SECONDS));
 			response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE,
 					"The GraphQL schema is not available for the workspace: " + fWorkspaceName);
 			return;

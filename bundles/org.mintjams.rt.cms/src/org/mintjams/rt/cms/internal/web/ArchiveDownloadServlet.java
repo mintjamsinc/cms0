@@ -30,7 +30,6 @@ import javax.jcr.Node;
 import javax.jcr.Session;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -60,7 +59,7 @@ import org.osgi.service.http.whiteboard.HttpWhiteboardConstants;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
-public class ArchiveDownloadServlet extends HttpServlet {
+public class ArchiveDownloadServlet extends CmsServlet {
 	private static final long serialVersionUID = 1L;
 
 	@Override

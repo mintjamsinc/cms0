@@ -132,6 +132,13 @@ public class CmsService {
 	private EventAdmin fEventAdmin;
 
 	private static CmsService fCmsService;
+	/**
+	 * Whether {@link #open()} finished, so the CMS serves requests. The
+	 * servlet components register as soon as the bundle starts, which is
+	 * before this component activates (it waits for the repository) and
+	 * long before the workspaces are up; until then they answer 503.
+	 */
+	private volatile boolean fOpened;
 	private BundleContext fBundleContext;
 	private String fBootIdentifier;
 	private Properties fProperties;
@@ -224,6 +231,7 @@ public class CmsService {
 
 			fProperties = Properties.create(config);
 			open();
+			fOpened = true;
 		} catch (Throwable ex) {
 			fLoggerFactory.getLogger(getClass()).error("CMS service could not be started.", ex);
 		}
@@ -231,6 +239,7 @@ public class CmsService {
 
 	@Deactivate
 	void deactivate(ComponentContext cc, BundleContext bc) {
+		fOpened = false;
 		// Stop converging first, outside this component's monitor: the
 		// reconciler must not start or stop services while they are torn down,
 		// and it may be waiting on that monitor to finish its current step.
@@ -883,6 +892,30 @@ public class CmsService {
 
 	public static CmsService getDefault() {
 		return fCmsService;
+	}
+
+	/**
+	 * Whether the CMS has started and serves requests: {@code false} before
+	 * this component activates, while it starts the workspaces, after a start
+	 * that failed, and once it is being stopped. Requests that arrive then are
+	 * answered 503.
+	 */
+	public static boolean isAvailable() {
+		CmsService self = fCmsService;
+		return self != null && self.fOpened;
+	}
+
+	/**
+	 * Whether the repository has a workspace of this name, running on this
+	 * node or not. A request for a workspace that exists but is not online
+	 * (starting, stopped or failed) is answered 503; one for a name that does
+	 * not exist is not.
+	 */
+	public static boolean workspaceExists(String workspaceName) {
+		if (workspaceName == null || workspaceName.isEmpty()) {
+			return false;
+		}
+		return java.util.Arrays.asList(getRepositoryWorkspaceNames()).contains(workspaceName);
 	}
 
 	public BundleContext getBundleContext() {

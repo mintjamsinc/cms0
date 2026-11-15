@@ -30,7 +30,6 @@ import java.util.Map;
 import javax.jcr.Credentials;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -67,7 +66,7 @@ import com.google.gson.GsonBuilder;
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_SERVLET_ASYNC_SUPPORTED + "=true" })
-public class GraphQLServlet extends HttpServlet {
+public class GraphQLServlet extends CmsServlet {
 	private static final long serialVersionUID = 1L;
 	// serializeNulls(): preserve explicit nulls so clients can observe nullable
 	// fields transitioning to null (matches the built-in GraphQLServlet).
@@ -137,7 +136,14 @@ public class GraphQLServlet extends HttpServlet {
 
 			WorkspaceGraphQLEngineProvider engine = CmsService.getWorkspaceGraphQLEngineProvider(workspaceName);
 			if (engine == null) {
-				sendError(response, "Unknown or stopped workspace: " + workspaceName);
+				// Starting, stopped or failed: the workspace exists but is not online.
+				if (CmsService.workspaceExists(workspaceName)) {
+					response.setHeader("Retry-After", String.valueOf(RETRY_AFTER_SECONDS));
+					sendError(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+							"The workspace is not online: " + workspaceName);
+					return;
+				}
+				sendError(response, "Unknown workspace: " + workspaceName);
 				return;
 			}
 			if (!engine.isAvailable()) {

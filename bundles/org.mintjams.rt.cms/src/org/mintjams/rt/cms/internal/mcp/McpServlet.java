@@ -31,13 +31,13 @@ import java.nio.charset.StandardCharsets;
 import javax.jcr.Credentials;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.mintjams.rt.cms.internal.CmsConfiguration;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.security.auth.saml2.Saml2Credentials;
+import org.mintjams.rt.cms.internal.web.CmsServlet;
 import org.mintjams.rt.cms.internal.web.Webs;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.FrameworkUtil;
@@ -92,7 +92,7 @@ import com.google.gson.JsonParser;
 				+ McpOAuth.OPENID_CONFIGURATION + "/*",
 		HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_SELECT + "=("
 				+ HttpWhiteboardConstants.HTTP_WHITEBOARD_CONTEXT_NAME + "=org.osgi.service.http)" })
-public class McpServlet extends HttpServlet {
+public class McpServlet extends CmsServlet {
 	private static final long serialVersionUID = 1L;
 
 	/** Largest request body accepted; bounds what a Base64 {@code write_file} can carry. */
@@ -145,8 +145,15 @@ public class McpServlet extends HttpServlet {
 			}
 			String workspaceName = segments[0];
 			if (CmsService.getWorkspaceGraphQLEngineProvider(workspaceName) == null) {
+				// Starting, stopped or failed: the workspace exists but is not online.
+				if (CmsService.workspaceExists(workspaceName)) {
+					response.setHeader("Retry-After", String.valueOf(RETRY_AFTER_SECONDS));
+					sendError(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, McpServer.INVALID_REQUEST,
+							"The workspace is not online.");
+					return;
+				}
 				sendError(response, HttpServletResponse.SC_NOT_FOUND, McpServer.INVALID_REQUEST,
-						"Unknown or stopped workspace.");
+						"Unknown workspace.");
 				return;
 			}
 
