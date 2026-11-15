@@ -13,6 +13,7 @@
 !docker/Dockerfile
 !docker/entrypoint.sh
 !docker/cms-encrypt.sh
+!docker/cms-migrate-db.sh
 !docker/THIRD_PARTY_LICENSES.md
 !docker/seed/
 !docker/seed/**
