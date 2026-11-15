@@ -2573,10 +2573,24 @@ public class WorkspaceQuery implements Adaptable {
 					.put("lock_created", System.currentTimeMillis())
 					.put("lock_token", UUID.randomUUID().toString())
 					.build();
+			// The primary key on jcr_locks.item_id is what makes the lock exclusive:
+			// the getLockRow() check above cannot see a concurrent session's
+			// uncommitted insert, so when two sessions race the loser's insert
+			// violates the key. That is "already locked", not a failure. The
+			// savepoint keeps the transaction usable on databases that abort it on
+			// error, so the path for the message can still be read.
+			boolean useSavepoint = adaptTo(DatabaseDialect.class).isTransactionAbortedOnError();
+			Savepoint savepoint = useSavepoint ? getConnection().setSavepoint() : null;
 			try {
 				locksEntity().create(lockData).execute();
-			} catch (SQLException ignore) {
-				throw new LockException("Node '" + getPath(itemId) + "' is already locked.");
+			} catch (SQLException ex) {
+				if (savepoint != null) {
+					getConnection().rollback(savepoint);
+				}
+				if (adaptTo(DatabaseDialect.class).isUniqueConstraintViolation(ex)) {
+					throw new LockException("Node '" + getPath(itemId) + "' is already locked.");
+				}
+				throw ex;
 			}
 
 			setProperty(itemId, Property.JCR_LOCK_OWNER, PropertyType.STRING,
