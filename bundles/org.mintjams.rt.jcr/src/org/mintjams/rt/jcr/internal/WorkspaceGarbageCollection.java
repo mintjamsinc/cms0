@@ -42,6 +42,18 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 	 */
 	private static final long COMMIT_MARKER_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
+	/**
+	 * How long journal entries are kept before being purged. An entry is
+	 * read when its transaction commits and, in a cluster, while the commit
+	 * marker of its transaction exists; nothing reads it afterwards. The
+	 * extra day covers a transaction whose entries were written before the
+	 * marker retention's cutoff and whose marker was written after it.
+	 */
+	private static final long JOURNAL_RETENTION_MILLIS = COMMIT_MARKER_RETENTION_MILLIS + 24L * 60 * 60 * 1000;
+
+	/** Journal entries removed per transaction. */
+	private static final int JOURNAL_PURGE_BATCH_SIZE = 10000;
+
 	private final JcrWorkspaceProvider fWorkspaceProvider;
 	private Thread fThread;
 	private boolean fCloseRequested;
@@ -150,6 +162,24 @@ public class WorkspaceGarbageCollection implements Closeable, Adaptable {
 							}
 
 							workspaceQuery.commit();
+
+							// One batch per transaction: the first run after an
+							// upgrade meets every entry written since the workspace
+							// was created.
+							long before = System.currentTimeMillis() - JOURNAL_RETENTION_MILLIS;
+							long purged = 0;
+							while (!fCloseRequested) {
+								int removed = workspaceQuery.journal().purge(before, JOURNAL_PURGE_BATCH_SIZE);
+								workspaceQuery.commit();
+								purged += removed;
+								if (removed < JOURNAL_PURGE_BATCH_SIZE) {
+									break;
+								}
+							}
+							if (purged > 0) {
+								Activator.getDefault().getLogger(WorkspaceGarbageCollection.class).info("Purged " + purged
+										+ " journal entries of the workspace '" + fWorkspaceProvider.getWorkspaceName() + "'.");
+							}
 						} catch (Throwable ex) {
 							try {
 								workspaceQuery.rollback();

@@ -504,6 +504,33 @@ public class WorkspaceQuery implements Adaptable {
 					.setVariable("eventType", Event.NODE_REMOVED)
 					.build().setOffset(0).execute();
 		}
+
+		/**
+		 * Removes the oldest journal entries that occurred before the given
+		 * time: about {@code limit} of them (entries sharing the last one's
+		 * timestamp go with it), so that the caller can commit between calls
+		 * and no single transaction grows with the size of the backlog.
+		 * Returns the number of entries removed; fewer than {@code limit}
+		 * means none is left.
+		 */
+		public int purge(long before, int limit) throws SQLException {
+			long until = before - 1;
+			try (Query.Result result = newQueryBuilder(
+					"SELECT event_occurred FROM jcr_journal WHERE event_occurred < {{before}} ORDER BY event_occurred")
+					.setVariable("before", before)
+					.build().setOffset(limit - 1).setLimit(1).execute()) {
+				Iterator<AdaptableMap<String, Object>> i = result.iterator();
+				if (i.hasNext()) {
+					until = i.next().getLong("event_occurred");
+				}
+			} catch (IOException ex) {
+				throw new SQLException("Failed to find the journal entries to purge", ex);
+			}
+
+			return newUpdateBuilder("DELETE FROM jcr_journal WHERE event_occurred <= {{until}}")
+					.setVariable("until", until)
+					.build().execute();
+		}
 	}
 
 	public class FilesQuery {

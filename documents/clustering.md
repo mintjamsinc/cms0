@@ -373,7 +373,12 @@ Delivery semantics and operational notes:
   workspace garbage collection (single node, under lease). A node that
   was offline longer than the retention can no longer catch up by
   replay; it detects this at startup, discards its search index, and
-  rebuilds it from the repository content automatically.
+  rebuilds it from the repository content automatically. The same run
+  removes the `jcr_journal` entries older than 8 days — a day more than
+  the markers, so that no marker outlives the entries of its
+  transaction — in batches of 10,000, each in its own transaction. This
+  applies to a standalone node as well, where an entry is read only when
+  its transaction commits.
 - **Lag.** After a commit that wrote a marker, the committing node sends
   every connected node a **wake-up** (workspace name only, no content),
   and their poller reads the journal at once — but never sooner than the

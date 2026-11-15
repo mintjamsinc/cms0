@@ -116,3 +116,4 @@ CREATE TABLE IF NOT EXISTS jcr_journal (
 );
 CREATE INDEX IF NOT EXISTS jcr_journal_index1 ON jcr_journal (transaction_id, item_id, event_type);
 CREATE INDEX IF NOT EXISTS jcr_journal_index2 ON jcr_journal (transaction_id, item_id, property_name, event_type);
+CREATE INDEX IF NOT EXISTS jcr_journal_index3 ON jcr_journal (event_occurred);
