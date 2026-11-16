@@ -66,7 +66,7 @@ public class EvaluateAction implements Action {
 			ctx.setAttribute("resource", ctx.getResourceResolver().toResource(result.getNode()));
 
 			if (result.isFolder()) {
-				handleFolder(context);
+				handleFolder(context, chain);
 				return;
 			}
 
@@ -174,27 +174,47 @@ public class EvaluateAction implements Action {
 		chain.doAction(context);
 	}
 
-	private void handleFolder(ActionContext context) throws RepositoryException, IOException {
-		String httpMethod = Webs.getRequest(context).getMethod();
-		if (!(httpMethod.equalsIgnoreCase("GET") || httpMethod.equalsIgnoreCase("HEAD"))) {
-			Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
+	/**
+	 * A folder is served by its welcome file, at the folder's own address.
+	 *
+	 * <p>A request whose URL ends with a slash normally arrives here already
+	 * mapped to the welcome file ({@link WelcomeFileAction}). It still reaches a
+	 * folder when a filter pointed the request at one, or when a script included
+	 * or forwarded to one: the welcome file is then evaluated in its place.</p>
+	 *
+	 * <p>A URL without the trailing slash answers a redirect to the same URL with
+	 * it, the query string kept, as web servers do: relative references in the
+	 * welcome file resolve against the folder only from the slash form.</p>
+	 */
+	private void handleFolder(ActionContext context, ActionChain chain) throws ActionException, RepositoryException, IOException {
+		HttpServletRequest request = Webs.getRequest(context);
+		HttpServletResponse response = Webs.getResponse(context);
+		String folderPath = Webs.getResourcePath(context);
+
+		if (Webs.isNormalRequest(context) && !folderPath.endsWith("/") && !request.getRequestURI().endsWith("/")) {
+			String httpMethod = request.getMethod();
+			if (!(httpMethod.equalsIgnoreCase("GET") || httpMethod.equalsIgnoreCase("HEAD"))) {
+				response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+				return;
+			}
+			if (Webs.findWelcomeFile(context, folderPath) == null) {
+				response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+				return;
+			}
+
+			String query = request.getQueryString();
+			response.sendRedirect(request.getRequestURI() + "/" + (Strings.isEmpty(query) ? "" : "?" + query));
 			return;
 		}
 
-		String parentPath = Webs.getResourcePath(context);
-		if (!parentPath.endsWith("/")) {
-			parentPath += "/";
+		String welcomeFile = Webs.findWelcomeFile(context, folderPath);
+		if (welcomeFile == null) {
+			response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+			return;
 		}
 
-		for (String welcomeFile : Webs.getWelcomeFiles(context)) {
-			if (!new WebResourceResolver(context).resolve(parentPath + welcomeFile).isNotFound()) {
-				Webs.getResponse(context).sendRedirect(Webs.encodePath(Webs.getWorkspacePath(context) + parentPath) + "/" + welcomeFile);
-				return;
-			}
-		}
-
-		Webs.getResponse(context).setStatus(HttpServletResponse.SC_NOT_FOUND);
-		return;
+		Scripts.getWorkspaceScriptContext(context).setResourcePath(welcomeFile);
+		doAction(context, chain);
 	}
 
 	public void setNoCacheHeader(HttpServletResponse response) {

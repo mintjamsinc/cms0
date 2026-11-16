@@ -87,7 +87,7 @@ final class WebRenderTools {
 				.description("Diagnose how a web path is served and, when it is not, why. Give the repository path",
 						"that was requested (for a public URL, the path under the site's document root, e.g.",
 						"/content/docs/index.html), even if no node exists there. Reports the outcome (rendered",
-						"through a template, served as a file, redirected to a welcome file, not found, protected,",
+						"through a template, served as a file, a folder served by its welcome file, not found, protected,",
 						"access denied); every source and template the resolver considered; the web.yml and the",
 						".web.yml descriptors that apply, including ones that exist but cannot be parsed and are",
 						"therefore silently ignored when serving, with who last modified them; and whether an",
@@ -388,19 +388,29 @@ final class WebRenderTools {
 		return null;
 	}
 
-	/** A folder is served by redirecting to the first welcome file that resolves. */
+	/**
+	 * A folder is served by the first welcome file that resolves inside it, at
+	 * the folder's own address; without the trailing slash, the address answers a
+	 * redirect to the slash form first.
+	 */
 	private static void resolveWelcomeFile(Session session, String folderPath, List<String> welcomeFiles,
 			List<String> sourceExtensions, String[] scriptExtensions, Map<String, Object> resolution,
 			List<String> findings) throws RepositoryException {
-		String prefix = folderPath.equals("/") ? "/" : folderPath + "/";
+		String prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
 		resolution.put("welcomeFiles", welcomeFiles);
 		for (String welcomeFile : welcomeFiles) {
 			List<String> ignored = new ArrayList<>();
 			Map<String, Object> welcome = resolve(session, prefix + welcomeFile, sourceExtensions, scriptExtensions,
 					ignored);
+			if ("FOLDER".equals(welcome.get("outcome"))) {
+				continue;
+			}
 			if (!"NOT_FOUND".equals(welcome.get("outcome"))) {
-				resolution.put("outcome", "FOLDER_REDIRECT");
-				resolution.put("redirectsTo", prefix + welcomeFile);
+				resolution.put("outcome", "WELCOME_FILE");
+				resolution.put("welcomeFile", prefix + welcomeFile);
+				findings.add(prefix + " is served by its welcome file " + prefix + welcomeFile + " at the folder's"
+						+ " own address, the query string kept. Requested without the trailing slash, the folder"
+						+ " answers a redirect to " + prefix + " first.");
 				resolution.put("welcome", welcome);
 				if (welcome.get("source") != null) {
 					resolution.put("source", welcome.get("source"));

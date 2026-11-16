@@ -195,6 +195,36 @@ public class Webs {
 	}
 
 	/**
+	 * The path of the welcome file that serves the folder at {@code folderPath}:
+	 * the first of {@link #getWelcomeFiles} that resolves inside it, the way a
+	 * request for that path would (a stored file, a script, or a source rendered
+	 * through a template). A welcome file the visitor may not read counts, so
+	 * that it answers 403 rather than being skipped. Returns {@code null} when
+	 * {@code folderPath} is not a readable folder or none of the welcome files
+	 * resolves.
+	 */
+	public static String findWelcomeFile(ActionContext context, String folderPath) throws RepositoryException {
+		WebResourceResolver resolver = new WebResourceResolver(context);
+		WebResourceResolver.ResolveResult folder = resolver.resolve(folderPath);
+		if (!folder.exists() || !folder.isFolder()) {
+			return null;
+		}
+
+		String prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
+		for (String welcomeFile : getWelcomeFiles(context)) {
+			WebResourceResolver.ResolveResult result = resolver.resolve(prefix + welcomeFile);
+			if (result.isNotFound()) {
+				continue;
+			}
+			if (result.exists() && result.isFolder()) {
+				continue;
+			}
+			return prefix + welcomeFile;
+		}
+		return null;
+	}
+
+	/**
 	 * Source extensions that a templated content node may carry in its natural
 	 * file name (e.g. {@code index.md}). When a request for an output
 	 * representation (e.g. {@code index.html}) cannot be matched directly, the

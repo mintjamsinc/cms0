@@ -39,6 +39,25 @@ visitor's session cannot read, fails every web request of the workspace. It
 is never taken for a missing file, because its filters and error pages must
 not be skipped. The MCP tool `explain_web_render` reports which case applies.
 
+## Welcome files
+
+A request for a folder is served by the first of `welcomeFiles` that resolves
+inside it, the way a request for that file by name would resolve (a stored
+file, a script, or a source rendered through a template):
+
+| Request | Answer |
+| --- | --- |
+| `/docs/?lang=en` | The welcome file (`/docs/index.gsp`), at `/docs/?lang=en`: the address and the query string stay as requested. |
+| `/docs?lang=en` | A redirect (302) to `/docs/?lang=en`, so that relative references in the welcome file resolve against the folder. Other methods than GET and HEAD answer 404. |
+| `/docs/` with no welcome file | 404. |
+
+The welcome file is mapped before the rest of the request is handled, so the
+`WEB-INF` and descriptor protection, the filters and the error pages see its
+path (`/content/docs/index.gsp`), as if it had been requested by name. The
+script sees the request as sent: `request.requestURI` ends with `/docs/`.
+When a filter points a request at a folder, or a script includes one, the
+welcome file is served in its place in the same way.
+
 ## Source extensions
 
 `/content/WEB-INF/web.yml`:

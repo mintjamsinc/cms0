@@ -79,6 +79,7 @@ public class WorkspaceWebServlet extends HttpServlet {
 			new SimpleActionChain(AdaptableList.<Action>newBuilder()
 					.add(new HandleErrorAction())
 					.add(new SetDefaultResponseHeaderAction())
+					.add(new WelcomeFileAction())
 					.add(new CheckProtectedAction())
 					.add(new CheckPreviewAction())
 					.add(new FilterAction())

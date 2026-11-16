@@ -687,7 +687,7 @@ cannot drift from what is served.
 
 | Field | Content |
 | --- | --- |
-| `resolution.outcome` | `RENDERED_THROUGH_TEMPLATE`, `SERVED_AS_FILE`, `SERVED_AS_SCRIPT`, `FOLDER_REDIRECT`, `HIDDEN_SOURCE`, `PROTECTED`, `ACCESS_DENIED` or `NOT_FOUND`. |
+| `resolution.outcome` | `RENDERED_THROUGH_TEMPLATE`, `SERVED_AS_FILE`, `SERVED_AS_SCRIPT`, `WELCOME_FILE` (a folder, served by the welcome file named in `resolution.welcomeFile`), `HIDDEN_SOURCE`, `PROTECTED`, `ACCESS_DENIED` or `NOT_FOUND`. |
 | `resolution.source`, `.template`, `.binding` | What is rendered, through which template, and whether the binding came from a `.web.yml` rule or the file's `web.template` property. |
 | `resolution.considered` | Every source that exists and was considered, and why each one was rejected: not bound to a template, output not allowed by the binding, template not found (with the template paths tried). |
 | `resolution.anonymous` | Whether an anonymous visitor can read the source and the template. |
