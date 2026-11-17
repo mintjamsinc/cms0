@@ -48,6 +48,10 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 	private final JcrNode fNode;
 	private final String[] fNameGlobs;
 	private int fOffset;
+	// The name of the last row fetched: the next page starts after it. Null
+	// until the first fetch, and again after a skip, whose target only a row
+	// offset can address.
+	private String fLastName;
 	private long fPosition;
 	private long fTotalHits = -1;
 	private final List<AdaptableMap<String, Object>> fFetchList = new ArrayList<>();
@@ -117,6 +121,7 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 				fFetchItems.clear();
 			}
 			fOffset = (int) Math.min(target, Integer.MAX_VALUE);
+			fLastName = null;
 			fFetchMore = true;
 			fNextNode = null;
 			fPosition = target;
@@ -217,10 +222,18 @@ public class JcrNodeIterator implements NodeIterator, Adaptable {
 		List<String> identifiers = new ArrayList<>();
 		// Deleted rows are filtered in SQL so that fOffset addresses the same
 		// row set countNodes() counts — the invariant skip-by-offset relies on.
-		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listNodes(fNode.getIdentifier(), fNameGlobs, fOffset, true)) {
+		// After the first page the next one starts after the last name read,
+		// not at a row offset: a caller that removes the children it has been
+		// handed (JcrNode#remove() does, page by page) shifts every row behind
+		// them, and an offset would then pass over as many unread children.
+		WorkspaceQuery.ItemsQuery items = adaptTo(WorkspaceQuery.class).items();
+		try (Query.Result result = (fLastName == null) ?
+				items.listNodes(fNode.getIdentifier(), fNameGlobs, fOffset, true) :
+				items.listNodes(fNode.getIdentifier(), fNameGlobs, 0, true, fLastName)) {
 			for (AdaptableMap<String, Object> itemData : result) {
 				fFetchList.add(itemData);
 				identifiers.add(itemData.getString("item_id"));
+				fLastName = itemData.getString("item_name");
 				fOffset++;
 				if (fFetchList.size() >= fFetchSize) {
 					fFetchMore = true;

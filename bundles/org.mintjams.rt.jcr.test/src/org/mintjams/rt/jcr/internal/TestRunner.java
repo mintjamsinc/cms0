@@ -60,6 +60,7 @@ public class TestRunner {
 			JcrConcurrentNodeCreationTest.class,
 			JcrReferenceIndexTest.class,
 			JcrRemoveChildTreesTest.class,
+			JcrNodeIteratorRemovalTest.class,
 			JcrPropertyNullAndEmptyTest.class,
 			JcrStoredBinaryTest.class,
 			JcrCheckedInReadOnlyTest.class

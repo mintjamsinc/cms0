@@ -1296,6 +1296,18 @@ public class WorkspaceQuery implements Adaptable {
 		 * callers (e.g. subtree moves) rely on.
 		 */
 		public Query.Result listNodes(String id, String[] nameGlobs, int offset, boolean excludeDeleted) throws SQLException {
+			return listNodes(id, nameGlobs, offset, excludeDeleted, null);
+		}
+
+		/**
+		 * Lists child rows ordered by name, starting after {@code afterName} when
+		 * it is given (keyset paging). A live child's name is unique among its
+		 * live siblings ({@code jcr_items_active_path}), so the rows after a name
+		 * are exactly the ones not read yet, however many of the rows before it
+		 * were removed or added meanwhile — which an offset cannot tell.
+		 */
+		public Query.Result listNodes(String id, String[] nameGlobs, int offset, boolean excludeDeleted, String afterName)
+				throws SQLException {
 			if (Strings.isEmpty(id)) {
 				throw new IllegalArgumentException("Identifier must not be null or empty.");
 			}
@@ -1340,6 +1352,10 @@ public class WorkspaceQuery implements Adaptable {
 			}
 			if (excludeDeleted) {
 				statement.append(" AND is_deleted = FALSE");
+			}
+			if (afterName != null) {
+				statement.append(" AND item_name > {{afterName}}");
+				variables.put("afterName", afterName);
 			}
 			statement.append(" ORDER BY item_name");
 
@@ -1448,6 +1464,20 @@ public class WorkspaceQuery implements Adaptable {
 		}
 
 		public Query.Result listReferences(String id, String name, boolean weak) throws SQLException {
+			return listReferences(id, name, weak, null, null);
+		}
+
+		/**
+		 * Lists the properties referring to a node, ordered by property name and
+		 * then property identifier, starting after the row
+		 * ({@code afterName}, {@code afterId}) when it is given (keyset paging).
+		 * A property appears once per target ({@code jcr_references} is keyed by
+		 * property and target), so the pair names one row, and the rows after it
+		 * are exactly the ones not read yet, also when references are removed
+		 * meanwhile.
+		 */
+		public Query.Result listReferences(String id, String name, boolean weak, String afterName, String afterId)
+				throws SQLException {
 			if (Strings.isEmpty(id)) {
 				throw new IllegalArgumentException("Identifier must not be null or empty.");
 			}
@@ -1465,7 +1495,13 @@ public class WorkspaceQuery implements Adaptable {
 				statement.append(" AND p.item_name = {{name}}");
 				variables.put("name", name);
 			}
-			statement.append(" ORDER BY p.item_name");
+			if (afterName != null && afterId != null) {
+				statement.append(" AND (p.item_name > {{afterName}}")
+						.append(" OR (p.item_name = {{afterName}} AND p.item_id > {{afterId}}))");
+				variables.put("afterName", afterName);
+				variables.put("afterId", afterId);
+			}
+			statement.append(" ORDER BY p.item_name, p.item_id");
 
 			return newQueryBuilder(statement.toString()).setVariables(variables).build().setOffset(0).execute();
 		}
