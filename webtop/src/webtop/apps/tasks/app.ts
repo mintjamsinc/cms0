@@ -46,11 +46,23 @@ import type {
 	ProcessInstance,
 	ProcessVariable,
 	ProcessVariableInput,
+	ProcessHistoryAccess,
+	ProcessHistoryEdge,
+	ProcessHistoryEntry,
+	ProcessHistoryOperation,
+	ProcessHistoryStep,
 	IdpUser,
 	Node as CmsNode,
 } from "../../graphql/types.js";
 
-type Mode = 'tasks-runtime' | 'start';
+type Mode = 'tasks-runtime' | 'start' | 'history';
+
+// How many history entries the list loads (newest first).
+const HISTORY_PAGE_SIZE = 200;
+
+// A history step as the detail pane renders it: `ops` is the step's operation
+// log condensed to one row per user action.
+type HistoryStepView = ProcessHistoryStep & { ops: ProcessHistoryOperation[] };
 
 interface Favorites {
 	[processDefinitionKey: string]: boolean;
@@ -78,6 +90,11 @@ interface Filters {
 	priorityMin: number;
 	category: string;
 	favoritesOnly: boolean;
+	// History view. `historyScope` is only a request: the server refuses 'ALL'
+	// unless the user is an Admin or a Supervisor.
+	historyKeyword: string;
+	historyScope: 'MINE' | 'ALL';
+	historyState: 'any' | 'active' | 'finished';
 }
 
 interface DialogState {
@@ -269,6 +286,9 @@ export const App = {
 				priorityMin: 0,
 				category: '',
 				favoritesOnly: false,
+				historyKeyword: '',
+				historyScope: 'MINE',
+				historyState: 'any',
 			} as Filters,
 
 			// Tasks
@@ -281,8 +301,16 @@ export const App = {
 			selectedDef: null as ProcessDefinition | null,
 			favorites: {} as Favorites,
 
+			// Process history (the caller's own, unless they may see all)
+			history: [] as ProcessHistoryEntry[],
+			historyTotal: 0,
+			historyAccess: { all: false, operationsRecorded: false } as ProcessHistoryAccess,
+			selectedHistory: null as ProcessHistoryEntry | null,
+			historySteps: [] as HistoryStepView[],
+			historyLoading: false,
+
 			// Filtered list shown in the middle pane
-			filteredItems: [] as Array<Task | ProcessDefinition>,
+			filteredItems: [] as Array<Task | ProcessDefinition | ProcessHistoryEntry>,
 
 			// Form iframe state
 			currentFormKey: '' as string,
@@ -337,6 +365,7 @@ export const App = {
 
 	computed: {
 		hasSelection(): boolean {
+			if (this.mode === 'history') return !!this.selectedHistory;
 			return this.mode === 'start' ? !!this.selectedDef : !!this.selectedTask;
 		},
 
@@ -351,11 +380,13 @@ export const App = {
 
 		emptyListMessage(): string {
 			if (this.mode === 'start') return this.t('app.tasks.empty.noStartableProcesses', undefined, 'No startable processes');
+			if (this.mode === 'history') return this.t('app.tasks.empty.noHistory', undefined, 'No history');
 			return this.t('app.tasks.empty.noTasks', undefined, 'No tasks');
 		},
 
 		emptyFormMessage(): string {
 			if (this.mode === 'start') return this.t('app.tasks.empty.selectProcess', undefined, 'Select a process to start');
+			if (this.mode === 'history') return this.t('app.tasks.empty.selectHistory', undefined, 'Select a process to see who did what, and when');
 			return this.t('app.tasks.empty.selectTask', undefined, 'Select a task to process');
 		},
 
@@ -366,6 +397,7 @@ export const App = {
 
 		contextPlaceholder(): string {
 			if (this.mode === 'start') return this.t('app.tasks.context.processStart', undefined, 'Process start');
+			if (this.mode === 'history') return this.t('app.tasks.context.history', undefined, 'History');
 			return this.t('app.tasks.context.myTasks', undefined, 'My tasks');
 		},
 
@@ -396,6 +428,28 @@ export const App = {
 				{ value: 'week', label: this.t('app.tasks.filter.due.week', undefined, 'Due this week') },
 			];
 		},
+		historyStateItems(): any[] {
+			return [
+				{ value: 'any', label: this.t('app.tasks.history.filter.state.any', undefined, 'Any state') },
+				{ value: 'active', label: this.t('app.tasks.history.filter.state.active', undefined, 'Running') },
+				{ value: 'finished', label: this.t('app.tasks.history.filter.state.finished', undefined, 'Finished') },
+			];
+		},
+
+		// True when at least one step of the open entry has no operation rows:
+		// only then is the explanation of "—" worth showing.
+		historyHasUnrecordedSteps(): boolean {
+			return this.historySteps.some((s: HistoryStepView) => s.ops.length === 0);
+		},
+
+		// Shown under the steps when a step has no operation rows, so "—" is
+		// read as "nothing was recorded", never as "nothing happened".
+		historyOperationsNote(): string {
+			return this.historyAccess.operationsRecorded
+				? this.t('app.tasks.history.operations.partial', undefined, '"—" means no operation was recorded for that step, for example because it ran before detailed recording was turned on.')
+				: this.t('app.tasks.history.operations.notRecorded', undefined, 'This workspace does not record intermediate operations such as claiming or reassigning (history level other than "full"), so they are shown as "—".');
+		},
+
 		categoryItems(): any[] {
 			const cats = Array.from(new Set(this.definitions.map((d: any) => d.category).filter(Boolean) as string[])).sort();
 			return [
@@ -544,6 +598,8 @@ export const App = {
 			this.mode = mode;
 			this.selectedTask = null;
 			this.selectedDef = null;
+			this.selectedHistory = null;
+			this.historySteps = [];
 			this.clearForm();
 			await this.refresh();
 		},
@@ -556,9 +612,190 @@ export const App = {
 			await this.loadDefinitions();
 			if (this.mode === 'start') {
 				this.filterList();
+			} else if (this.mode === 'history') {
+				await this.loadHistory();
 			} else {
 				await this.loadTasks();
 			}
+		},
+
+		// =====================================================================
+		// History
+		// =====================================================================
+
+		// Loads the process history the user may see. The server decides the
+		// range from the session — the instances the user started or held a
+		// task in — and refuses 'ALL' unless they are an Admin or a
+		// Supervisor; the scope sent here is only a request.
+		async loadHistory() {
+			if (!this.bpm) return;
+			try {
+				this.isLoading = true;
+				this.errorMessage = '';
+				this.historyAccess = await this.bpm.getProcessHistoryAccess();
+				if (!this.historyAccess.all) this.filters.historyScope = 'MINE';
+
+				const state = this.filters.historyState;
+				const conn = await this.bpm.listProcessHistory({
+					first: HISTORY_PAGE_SIZE,
+					scope: this.filters.historyScope,
+					finished: state === 'any' ? undefined : state === 'finished',
+				});
+				this.history = conn.edges.map((e: ProcessHistoryEdge) => e.node);
+				this.historyTotal = conn.totalCount;
+				this.filterList();
+
+				// Keep the open entry in step with the list; drop it when it is
+				// no longer part of what the user sees.
+				const selectedId = this.selectedHistory?.id;
+				if (selectedId) {
+					const fresh = this.history.find((h: ProcessHistoryEntry) => h.id === selectedId);
+					if (fresh) {
+						await this.selectHistory(fresh);
+					} else {
+						this.selectedHistory = null;
+						this.historySteps = [];
+					}
+				}
+			} catch (err) {
+				this.errorMessage = this.t('app.tasks.error.loadHistory', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load the history: {detail}');
+			} finally {
+				this.isLoading = false;
+			}
+		},
+
+		async selectHistory(entry: ProcessHistoryEntry) {
+			if (!this.bpm) return;
+			this.selectedHistory = { ...entry };
+			this.historySteps = [];
+			this.historyLoading = true;
+			try {
+				const full = await this.bpm.getProcessHistoryEntry(entry.id);
+				// The user may have picked another entry while this one loaded.
+				if (this.selectedHistory?.id !== entry.id) return;
+				if (!full) {
+					this.selectedHistory = null;
+					return;
+				}
+				this.selectedHistory = { ...entry, ...full };
+				this.historySteps = (full.steps ?? []).map((s: ProcessHistoryStep) => ({
+					...s,
+					ops: this.condenseOperations(s.operations ?? []),
+				}));
+			} catch (err) {
+				if (this.selectedHistory?.id === entry.id) {
+					this.errorMessage = this.t('app.tasks.error.loadHistory', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load the history: {detail}');
+				}
+			} finally {
+				if (!this.selectedHistory || this.selectedHistory.id === entry.id) this.historyLoading = false;
+			}
+		},
+
+		// The engine logs one row per changed property, so a single user action
+		// (a delegation, say) arrives as several rows with the same type, user
+		// and time. Keep one row per action, preferring the one that names the
+		// assignee because that is what the label needs.
+		condenseOperations(operations: ProcessHistoryOperation[]): ProcessHistoryOperation[] {
+			const byAction = new Map<string, ProcessHistoryOperation>();
+			for (const op of operations) {
+				const key = `${op.type}|${op.userId ?? ''}|${op.time ?? ''}`;
+				const kept = byAction.get(key);
+				if (!kept || (op.property === 'assignee' && kept.property !== 'assignee')) byAction.set(key, op);
+			}
+			return Array.from(byAction.values());
+		},
+
+		applyHistoryFilters(entries: ProcessHistoryEntry[]): ProcessHistoryEntry[] {
+			const q = this.filters.historyKeyword.trim().toLowerCase();
+			if (!q) return entries;
+			return entries.filter(h => {
+				const hay = `${this.historyProcessName(h)} ${h.definitionName || ''} ${h.definitionKey || ''} ${h.businessKey || ''} ${h.startUserId || ''}`.toLowerCase();
+				return hay.includes(q);
+			});
+		},
+
+		historyProcessName(entry: ProcessHistoryEntry | null): string {
+			if (!entry) return '';
+			return bpmProcessName(this.localization, this.instance, entry.definitionKey, entry.definitionName ?? undefined);
+		},
+
+		historyStepName(step: ProcessHistoryStep): string {
+			const key = this.selectedHistory?.definitionKey ?? '';
+			return bpmTaskName(this.localization, this.instance, key, step.taskDefinitionKey ?? '', step.name ?? undefined)
+				|| step.taskDefinitionKey || step.id;
+		},
+
+		historyStateLabel(state: string): string {
+			switch (state) {
+				case 'ACTIVE': return this.t('app.tasks.history.state.active', undefined, 'Running');
+				case 'SUSPENDED': return this.t('app.tasks.history.state.suspended', undefined, 'Suspended');
+				case 'COMPLETED': return this.t('app.tasks.history.state.completed', undefined, 'Completed');
+				default: return this.t('app.tasks.history.state.canceled', undefined, 'Canceled');
+			}
+		},
+
+		historyStateClass(state: string): string {
+			switch (state) {
+				case 'ACTIVE': return 'history-state-active';
+				case 'SUSPENDED': return 'history-state-suspended';
+				case 'COMPLETED': return 'history-state-completed';
+				default: return 'history-state-canceled';
+			}
+		},
+
+		historyStateIcon(state: string): string {
+			switch (state) {
+				case 'ACTIVE': return 'bi-play-fill';
+				case 'SUSPENDED': return 'bi-pause-fill';
+				case 'COMPLETED': return 'bi-check-lg';
+				default: return 'bi-x-lg';
+			}
+		},
+
+		// One line of the operation log, in the user's language. Unknown
+		// operation types fall back to the engine's own name rather than being
+		// dropped.
+		operationLabel(op: ProcessHistoryOperation): string {
+			const user = op.userId || '—';
+			const to = op.newValue || '';
+			switch (op.type) {
+				case 'Claim':
+					return to
+						? this.t('app.tasks.history.op.claim', { user }, '{user} claimed it')
+						: this.t('app.tasks.history.op.unclaim', { user }, '{user} released it');
+				case 'Assign':
+					return to
+						? this.t('app.tasks.history.op.assign', { user, to }, '{user} assigned it to {to}')
+						: this.t('app.tasks.history.op.unassign', { user }, '{user} removed the assignee');
+				case 'Delegate':
+					return this.t('app.tasks.history.op.delegate', { user, to }, '{user} delegated it to {to}');
+				case 'Resolve':
+					return this.t('app.tasks.history.op.resolve', { user }, '{user} handed it back');
+				case 'Complete':
+					return this.t('app.tasks.history.op.complete', { user }, '{user} completed it');
+				default:
+					return this.t('app.tasks.history.op.other', { user, type: op.type }, '{user}: {type}');
+			}
+		},
+
+		formatDateTime(value: string | null | undefined): string {
+			if (!value) return '—';
+			return formatDate(this.localization, value, { format: 'datetime' }) || '—';
+		},
+
+		// Elapsed time in the largest two units. Running entries have no
+		// duration yet and show "—".
+		formatDuration(ms: number | null | undefined): string {
+			if (ms == null) return '—';
+			const sec = Math.floor(ms / 1000);
+			const min = Math.floor(sec / 60);
+			const hr = Math.floor(min / 60);
+			const day = Math.floor(hr / 24);
+			const u = (id: string, fallback: string) => this.t(`app.tasks.history.duration.${id}`, undefined, fallback);
+			if (day > 0) return `${day}${u('day', 'd')} ${hr % 24}${u('hour', 'h')}`;
+			if (hr > 0) return `${hr}${u('hour', 'h')} ${min % 60}${u('minute', 'm')}`;
+			if (min > 0) return `${min}${u('minute', 'm')} ${sec % 60}${u('second', 's')}`;
+			return `${sec}${u('second', 's')}`;
 		},
 
 		// =====================================================================
@@ -675,6 +912,8 @@ export const App = {
 		filterList() {
 			if (this.mode === 'start') {
 				this.filteredItems = this.applyDefFilters(this.definitions);
+			} else if (this.mode === 'history') {
+				this.filteredItems = this.applyHistoryFilters(this.history);
 			} else {
 				this.filteredItems = this.applyTaskFilters(this.tasks);
 			}
@@ -1483,7 +1722,15 @@ export const App = {
 
 				async setTaskVariables(variables: unknown, local?: boolean) {
 					vm.requireSelectedTask();
-					await vm.bpm!.setTaskVariables(vm.selectedTask!.id, vm.normalizeVariables(variables), !!local);
+					const taskId = vm.selectedTask!.id;
+					const updated = await vm.bpm!.setTaskVariables(taskId, vm.normalizeVariables(variables), !!local);
+					// Writing task-local variables moves the task's revision on. Keep
+					// ours current, or the form's own save would make its next
+					// claim/complete look like somebody else's change (CONFLICT).
+					if (updated?.revision != null) {
+						vm.patchTaskInList({ id: taskId, revision: updated.revision });
+						vm.applySelectedTaskUpdate(taskId, { revision: updated.revision });
+					}
 					return true;
 				},
 
@@ -1502,7 +1749,8 @@ export const App = {
 				async claimTask() {
 					vm.requireSelectedTask();
 					const taskId = vm.selectedTask!.id;
-					const updated = await vm.bpm!.claimTask(taskId);
+					const revision = vm.selectedTask!.revision;
+					const updated = await vm.guardConflict(taskId, () => vm.bpm!.claimTask(taskId, revision));
 					vm.patchTaskInList(updated);
 					vm.applySelectedTaskUpdate(taskId, updated);
 					return toPlainData(vm.serializeTask(updated));
@@ -1512,7 +1760,8 @@ export const App = {
 					vm.requireSelectedTask();
 					vm.requireOwnership();
 					const taskId = vm.selectedTask!.id;
-					const updated = await vm.bpm!.unclaimTask(taskId);
+					const revision = vm.selectedTask!.revision;
+					const updated = await vm.guardConflict(taskId, () => vm.bpm!.unclaimTask(taskId, revision));
 					vm.patchTaskInList(updated);
 					vm.applySelectedTaskUpdate(taskId, updated);
 					return toPlainData(vm.serializeTask(updated));
@@ -1521,7 +1770,8 @@ export const App = {
 				async setAssignee(assignee: string | null) {
 					vm.requireSelectedTask();
 					const taskId = vm.selectedTask!.id;
-					const updated = await vm.bpm!.setTaskAssignee(taskId, assignee ?? null);
+					const revision = vm.selectedTask!.revision;
+					const updated = await vm.guardConflict(taskId, () => vm.bpm!.setTaskAssignee(taskId, assignee ?? null, revision));
 					vm.patchTaskInList(updated);
 					vm.applySelectedTaskUpdate(taskId, updated);
 					return toPlainData(vm.serializeTask(updated));
@@ -1536,10 +1786,12 @@ export const App = {
 					// drop the newly selected task from the list and leave the
 					// completed one behind.
 					const completedId = vm.selectedTask!.id;
-					await vm.bpm!.completeTask({
+					const revision = vm.selectedTask!.revision;
+					await vm.guardConflict(completedId, () => vm.bpm!.completeTask({
 						taskId: completedId,
 						variables: vm.normalizeVariables(variables),
-					});
+						expectedRevision: revision,
+					}));
 					// Drop the completed task from the runtime list.
 					vm.tasks = vm.tasks.filter(t => t.id !== completedId);
 					vm.filterList();
@@ -1759,6 +2011,28 @@ export const App = {
 			return out;
 		},
 
+		// Runs a task write that carries `expectedRevision`. When the server
+		// refuses it because the task changed since this window last read it
+		// (CONFLICT) — someone claimed, reassigned or completed it meanwhile —
+		// the list and the selection are reloaded before the error is rethrown,
+		// so the user decides again on what is true now.
+		async guardConflict<T>(taskId: string, write: () => Promise<T>): Promise<T> {
+			try {
+				return await write();
+			} catch (err) {
+				if ((err as any)?.code !== 'CONFLICT') throw err;
+				await this.loadTasks();
+				const fresh = this.tasks.find((t: Task) => t.id === taskId);
+				if (fresh) {
+					if (this.applySelectedTaskUpdate(taskId, fresh)) this.notifyFormContext();
+				} else if (this.selectedTask?.id === taskId) {
+					this.selectedTask = null;
+					this.clearForm();
+				}
+				throw new Error(this.t('app.tasks.error.conflict', undefined, 'This task was changed by someone else. The latest state has been loaded; check it and try again.'));
+			}
+		},
+
 		patchTaskInList(updated: Partial<Task>) {
 			const idx = this.tasks.findIndex(t => t.id === updated.id);
 			if (idx >= 0) {
@@ -1786,7 +2060,8 @@ export const App = {
 			if (!this.selectedTask || !this.bpm) return;
 			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.claimTask(taskId);
+				const revision = this.selectedTask.revision;
+				const updated = await this.guardConflict(taskId, () => this.bpm!.claimTask(taskId, revision));
 				this.patchTaskInList(updated);
 				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
@@ -1798,7 +2073,8 @@ export const App = {
 			if (!this.selectedTask || !this.bpm) return;
 			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.unclaimTask(taskId);
+				const revision = this.selectedTask.revision;
+				const updated = await this.guardConflict(taskId, () => this.bpm!.unclaimTask(taskId, revision));
 				this.patchTaskInList(updated);
 				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
 			} catch (err) {
@@ -1829,7 +2105,8 @@ export const App = {
 			if (!this.selectedTask || !this.bpm) return;
 			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.setTaskAssignee(taskId, this.currentUserID);
+				const revision = this.selectedTask.revision;
+				const updated = await this.guardConflict(taskId, () => this.bpm!.setTaskAssignee(taskId, this.currentUserID, revision));
 				this.patchTaskInList(updated);
 				this.closeDialog();
 				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();
@@ -1859,7 +2136,8 @@ export const App = {
 			if (!assignee) return;
 			const taskId = this.selectedTask.id;
 			try {
-				const updated = await this.bpm.setTaskAssignee(taskId, assignee);
+				const revision = this.selectedTask.revision;
+				const updated = await this.guardConflict(taskId, () => this.bpm!.setTaskAssignee(taskId, assignee, revision));
 				this.patchTaskInList(updated);
 				this.closeDialog();
 				if (this.applySelectedTaskUpdate(taskId, updated)) this.notifyFormContext();

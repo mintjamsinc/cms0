@@ -106,6 +106,14 @@ type Task {
   followUp: DateTime
   priority: Int!
   suspended: Boolean!
+  """
+  The engine's optimistic-locking counter: increased by every change to the task
+  itself (claim, assignment, due date, …) and by writes to its task-local
+  variables, not by process-scoped variable writes or comments. Pass it back
+  as `expectedRevision` so that a write based on an outdated view of the task is
+  refused (CONFLICT) instead of overwriting what somebody else did meanwhile.
+  """
+  revision: Int
   processInstanceId: String!
   processDefinitionId: String!
   processDefinitionKey: String
@@ -207,22 +215,38 @@ extend type Mutation {
 }
 
 extend type Mutation {
-  """Claim a task for the current (caller) user."""
-  claimTask(taskId: ID!): Task!
+  """
+  Claim a task for the current (caller) user.
+
+  `expectedRevision` (here and on the other task mutations that take it) is the
+  `Task.revision` the caller last read: when the task has changed since, the
+  call is refused with CONFLICT and nothing is written. Omitted, no such check
+  is made.
+  """
+  claimTask(taskId: ID!, expectedRevision: Int): Task!
 
   """Release a claimed task (clears the assignee)."""
-  unclaimTask(taskId: ID!): Task!
+  unclaimTask(taskId: ID!, expectedRevision: Int): Task!
 
   """Assign a task to a specific user."""
   assignTask(taskId: ID!, assignee: String!): Task!
 
   """Set a task's assignee (null to unassign). Authorized for Admin, Supervisor, or the task's current assignee."""
-  setTaskAssignee(taskId: ID!, assignee: String): Task!
+  setTaskAssignee(taskId: ID!, assignee: String, expectedRevision: Int): Task!
 
   """Delegate a task to another user."""
   delegateTask(taskId: ID!, assignee: String!): Task!
 
-  """Complete a task with optional variables. Returns minimal info (the task is gone after completion)."""
+  """
+  Complete a task with optional variables. Returns minimal info (the task is gone after completion).
+
+  Only the task's assignee may complete it; an unassigned task, or one assigned
+  to somebody else, is refused (FORBIDDEN). An Admin or a Supervisor completing
+  a task that is not theirs is made its assignee first, so the assignee kept in
+  the history is always the user who completed the task. The check and the
+  completion are one transaction; a change to the task landing in between, or
+  an `input.expectedRevision` that is no longer current, fails with CONFLICT.
+  """
   completeTask(input: CompleteTaskInput!): Task
 
   """Set variables on a task (local or process-scoped)."""
@@ -235,6 +259,8 @@ extend type Mutation {
 input CompleteTaskInput {
   taskId: ID!
   variables: [ProcessVariableInput!]
+  """The `Task.revision` the caller last read; a task changed since is not completed (CONFLICT)."""
+  expectedRevision: Int
   """Reserved (handmade parity): mutation-response variables are always empty; clients re-query the task."""
   withVariablesInReturn: Boolean = false
 }
@@ -445,5 +471,106 @@ type ProcessInstanceConnection {
 
 type ProcessInstanceEdge {
   node: ProcessInstance!
+  cursor: String!
+}
+
+# -----------------------------------------------------------------------------
+# Process history, scoped to the caller (the Tasks app's history view)
+# -----------------------------------------------------------------------------
+
+extend type Query {
+  """What the caller may see of the process history."""
+  processHistoryAccess: ProcessHistoryAccess!
+
+  """
+  Process instances, running and finished, newest first.
+
+  The scope is enforced on the server from the caller's session. `MINE` (the
+  default) is limited to the instances the caller started or held a task in;
+  `ALL` is refused (FORBIDDEN) unless the caller is an Admin or a Supervisor.
+  Process variables are deliberately not part of this view: they carry what
+  other participants entered. At most the 1000 newest instances are considered.
+  """
+  processHistory(first: Int = 50, after: String, scope: ProcessHistoryScope = MINE, definitionKey: String, finished: Boolean, startedAfter: DateTime, startedBefore: DateTime): ProcessHistoryConnection!
+
+  """A single history entry; null when it does not exist or the caller was not involved in it."""
+  processHistoryEntry(id: ID!): ProcessHistoryEntry
+}
+
+enum ProcessHistoryScope {
+  """The instances the caller started or held a task in."""
+  MINE
+  """Every instance of the workspace (Admin or Supervisor only)."""
+  ALL
+}
+
+type ProcessHistoryAccess {
+  """Whether the caller may ask for `scope: ALL`."""
+  all: Boolean!
+  """
+  Whether the engine records who claimed, reassigned and completed each task
+  (history level `full`). When false, `ProcessHistoryStep.operations` is always
+  empty; when true it is still empty for what ran before the level was raised.
+  """
+  operationsRecorded: Boolean!
+}
+
+type ProcessHistoryEntry {
+  id: ID!
+  definitionKey: String!
+  definitionName: String
+  definitionVersion: Int
+  businessKey: String
+  """The user who started the instance; null when it was started without one (e.g. by a route)."""
+  startUserId: String
+  startTime: DateTime
+  endTime: DateTime
+  durationInMillis: Long
+  """ACTIVE, SUSPENDED, COMPLETED, EXTERNALLY_TERMINATED or INTERNALLY_TERMINATED."""
+  state: String!
+  """The instance's user tasks, in start order. Resolved on demand: select it for a single entry, not for a list."""
+  steps: [ProcessHistoryStep!]!
+}
+
+"""A user task of a process instance, as the history kept it."""
+type ProcessHistoryStep {
+  id: ID!
+  taskDefinitionKey: String
+  name: String
+  """
+  The task's assignee — for a finished task, the assignee when it ended. Tasks
+  completed through this API were completed by that user; tasks completed by a
+  route or a script, or before that rule existed, carry no such guarantee.
+  """
+  assignee: String
+  startTime: DateTime
+  endTime: DateTime
+  durationInMillis: Long
+  """ACTIVE, COMPLETED, or CANCELED (ended without being completed)."""
+  state: String!
+  """Who did what to the task, oldest first. Empty when nothing was recorded."""
+  operations: [ProcessHistoryOperation!]!
+}
+
+"""An entry of the engine's user operation log for a task."""
+type ProcessHistoryOperation {
+  id: ID!
+  time: DateTime
+  userId: String
+  """The engine's operation type: Claim, Assign, Complete, Delegate, Resolve, SetOwner, SetPriority, …"""
+  type: String!
+  property: String
+  oldValue: String
+  newValue: String
+}
+
+type ProcessHistoryConnection {
+  edges: [ProcessHistoryEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type ProcessHistoryEdge {
+  node: ProcessHistoryEntry!
   cursor: String!
 }

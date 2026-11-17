@@ -585,6 +585,9 @@ export interface Task {
   followUp?: string;
   priority: number;
   suspended: boolean;
+  // The engine's optimistic-locking counter. Sent back as `expectedRevision`
+  // so a write based on an outdated view of the task is refused (CONFLICT).
+  revision?: number | null;
   processInstanceId: string;
   processDefinitionId: string;
   processDefinitionKey: string;
@@ -680,6 +683,75 @@ export interface ProcessVariableInput {
   valueInfo?: unknown;
 }
 
+// ---- Process history (the Tasks app's history view) ----
+
+export type ProcessHistoryScope = 'MINE' | 'ALL';
+
+export interface ProcessHistoryAccess {
+  /** Whether the caller may ask for scope ALL (Admin or Supervisor). */
+  all: boolean;
+  /** Whether the engine records who claimed / reassigned / completed each task. */
+  operationsRecorded: boolean;
+}
+
+export interface ProcessHistoryOperation {
+  id: string;
+  time?: string | null;
+  userId?: string | null;
+  type: string;
+  property?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+}
+
+export interface ProcessHistoryStep {
+  id: string;
+  taskDefinitionKey?: string | null;
+  name?: string | null;
+  assignee?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  durationInMillis?: number | null;
+  /** ACTIVE | COMPLETED | CANCELED */
+  state: string;
+  operations: ProcessHistoryOperation[];
+}
+
+export interface ProcessHistoryEntry {
+  id: string;
+  definitionKey: string;
+  definitionName?: string | null;
+  definitionVersion?: number | null;
+  businessKey?: string | null;
+  startUserId?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  durationInMillis?: number | null;
+  /** ACTIVE | SUSPENDED | COMPLETED | EXTERNALLY_TERMINATED | INTERNALLY_TERMINATED */
+  state: string;
+  /** Selected only for a single entry. */
+  steps?: ProcessHistoryStep[];
+}
+
+export interface ProcessHistoryEdge {
+  node: ProcessHistoryEntry;
+  cursor: string;
+}
+
+export interface ProcessHistoryConnection {
+  edges: ProcessHistoryEdge[];
+  pageInfo: Pick<PageInfo, 'hasNextPage' | 'endCursor'>;
+  totalCount: number;
+}
+
+export interface ListProcessHistoryOptions {
+  first?: number;
+  after?: string;
+  scope?: ProcessHistoryScope;
+  definitionKey?: string;
+  finished?: boolean;
+}
+
 export interface ActivityInstance {
   id: string;
   activityId: string;
@@ -718,6 +790,8 @@ export interface StartProcessInput {
 export interface CompleteTaskInput {
   taskId: string;
   variables?: ProcessVariableInput[];
+  // The `Task.revision` last read; a task changed since is not completed.
+  expectedRevision?: number | null;
   withVariablesInReturn?: boolean;
 }
 

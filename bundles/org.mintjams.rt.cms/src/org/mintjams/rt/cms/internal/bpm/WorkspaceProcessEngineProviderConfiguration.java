@@ -234,6 +234,22 @@ public class WorkspaceProcessEngineProviderConfiguration {
 		}
 		config.setJobExecutorAcquireByPriority(true);
 		config.setHistory(getHistory());
+		// History cleanup is opt-in: without a time to live nothing is ever due for
+		// removal, and without a batch window the cleanup job is never scheduled.
+		String historyTimeToLive = getOptionalString("historyTimeToLive");
+		if (historyTimeToLive != null) {
+			config.setHistoryTimeToLive(historyTimeToLive);
+		}
+		String cleanupStart = getOptionalString("historyCleanupBatchWindowStartTime");
+		String cleanupEnd = getOptionalString("historyCleanupBatchWindowEndTime");
+		if ((cleanupStart == null) != (cleanupEnd == null)) {
+			throw new ProcessEngineException("bpm.yml: historyCleanupBatchWindowStartTime and"
+					+ " historyCleanupBatchWindowEndTime must be set together.");
+		}
+		if (cleanupStart != null) {
+			config.setHistoryCleanupBatchWindowStartTime(cleanupStart);
+			config.setHistoryCleanupBatchWindowEndTime(cleanupEnd);
+		}
 		config.setScriptFactory(new WorkspaceScriptFactory());
 		config.setIdentityProviderSessionFactory(new CmsIdentityProviderFactory());
 		List<ProcessEnginePlugin> plugins = config.getProcessEnginePlugins();

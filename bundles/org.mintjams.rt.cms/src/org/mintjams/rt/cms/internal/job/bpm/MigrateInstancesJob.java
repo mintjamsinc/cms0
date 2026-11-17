@@ -193,7 +193,17 @@ public class MigrateInstancesJob implements Job {
 
 		Batch batch;
 		try {
-			batch = seedBatch(engine);
+			// Attribute the migration to the user who requested it (batch creator,
+			// user operation log). This runs on a job worker thread, so the
+			// authentication is cleared rather than restored.
+			if (fUserId != null && !fUserId.isEmpty()) {
+				engine.getIdentityService().setAuthenticatedUserId(fUserId);
+			}
+			try {
+				batch = seedBatch(engine);
+			} finally {
+				engine.getIdentityService().clearAuthentication();
+			}
 		} catch (Throwable ex) {
 			context.getLogger().error("MigrateInstancesJob " + fJobId + " could not seed Camunda batch", ex);
 			finaliseWithError(progressContent, progressSession, ex);

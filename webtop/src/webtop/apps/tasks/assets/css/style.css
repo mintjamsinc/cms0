@@ -532,3 +532,187 @@
 	border: none;
 	display: block;
 }
+
+/* ----------------------------------------------------------------------------
+ * History view — who started a process and who handled each step, when
+ * -------------------------------------------------------------------------- */
+
+.history-body {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.history-detail {
+	padding: 1rem 1.25rem 1.5rem;
+	user-select: text;
+}
+
+.history-list-more {
+	padding: 0.5rem 0.625rem;
+}
+
+/* State colors, shared by the list badge, the pill and the timeline dot. */
+.history-state-active {
+	background-color: rgb(from var(--primary-color) r g b / 0.15);
+	color: var(--primary-color);
+}
+
+.history-state-completed {
+	background-color: rgb(from var(--emerald-color) r g b / 0.15);
+	color: var(--emerald-color);
+}
+
+.history-state-suspended {
+	background-color: rgb(from var(--warning-color) r g b / 0.15);
+	color: var(--warning-color);
+}
+
+.history-state-canceled {
+	background-color: rgb(from var(--neutral-color) r g b / 0.15);
+	color: var(--neutral-color);
+}
+
+.history-state {
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	padding: 0.0625rem 0.5rem;
+	border-radius: 9999px;
+	font-size: 11px;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.history-label {
+	color: var(--text-muted-color);
+	font-size: 11px;
+	white-space: nowrap;
+}
+
+.history-value {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+/* Facts about the whole instance */
+.history-summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+	gap: 0.75rem 1.5rem;
+	padding-bottom: 1rem;
+	margin-bottom: 1rem;
+	border-bottom: 1px solid var(--island-border-color);
+}
+
+.history-fact {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+	min-width: 0;
+}
+
+.history-fact .history-value {
+	font-weight: 700;
+}
+
+.history-note {
+	display: flex;
+	align-items: center;
+	color: var(--text-muted-color);
+	font-size: 11px;
+}
+
+.history-note-foot {
+	margin-top: 0.25rem;
+	padding-left: 2.25rem;
+}
+
+/* Timeline of the steps */
+.history-steps {
+	display: flex;
+	flex-direction: column;
+}
+
+.history-step {
+	position: relative;
+	display: flex;
+	gap: 0.75rem;
+	padding-bottom: 1.25rem;
+}
+
+/* The line joining one step to the next */
+.history-step::before {
+	content: '';
+	position: absolute;
+	left: 0.75rem;
+	top: 1.5rem;
+	bottom: 0;
+	width: 1px;
+	background-color: var(--island-border-color);
+}
+
+.history-step:not(:has(+ .history-step))::before {
+	display: none;
+}
+
+.history-step-dot {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 9999px;
+	font-size: 12px;
+}
+
+.history-step-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.375rem;
+}
+
+.history-step-head {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 1.5rem;
+	min-width: 0;
+}
+
+.history-step-name {
+	font-weight: 700;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.history-step-grid {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: 0.25rem 1rem;
+	align-items: baseline;
+}
+
+.history-ops {
+	display: flex;
+	flex-direction: column;
+	gap: 0.125rem;
+}
+
+.history-op {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 0.5rem;
+}
+
+.history-op-time {
+	color: var(--text-muted-color);
+	font-variant-numeric: tabular-nums;
+}

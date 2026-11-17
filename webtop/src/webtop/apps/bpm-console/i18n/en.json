@@ -145,7 +145,7 @@
 	"app.bpm-console.dialog.addVariable": "Add Variable",
 	"app.bpm-console.dialog.start": "Start",
 	"app.bpm-console.dialog.completeTaskTitle": "Complete Task: {name}",
-	"app.bpm-console.dialog.completeTaskHelp": "Complete this task and update variables. Any pending work will be finalized.",
+	"app.bpm-console.dialog.completeTaskHelp": "Complete this task and update variables. Any pending work will be finalized. If you are not the assignee, the task is reassigned to you first.",
 	"app.bpm-console.dialog.editVariablesTitle": "Edit Variables",
 	"app.bpm-console.dialog.deployTitle": "Deploy BPMN Process",
 	"app.bpm-console.dialog.deployDropHint": "Drag a BPMN file from Content Browser",

@@ -265,6 +265,7 @@ caller may not see. `extensions.code` classifies it:
 | access denied, login failure | `FORBIDDEN` |
 | path or item not found | `NOT_FOUND` |
 | `LockException` | `LOCKED` |
+| `ConflictException` (the target changed since the caller read it, e.g. a stale `expectedRevision` on a task mutation) | `CONFLICT` |
 | `IllegalStateException` | `UNAVAILABLE` |
 | `ConsentRequiredException` (linked accounts) | `CONSENT_REQUIRED` |
 | the cloud provider is throttling the caller | `RATE_LIMITED` |

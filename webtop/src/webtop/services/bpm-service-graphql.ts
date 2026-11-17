@@ -20,6 +20,10 @@ import type {
   ProcessVariable,
   ProcessVariableInput,
   ActivityInstance,
+  ProcessHistoryAccess,
+  ProcessHistoryConnection,
+  ProcessHistoryEntry,
+  ListProcessHistoryOptions,
   Deployment,
   TaskComment,
   StartProcessInput,
@@ -277,6 +281,50 @@ export class BpmServiceGraphQL {
   }
 
   /**
+   * What the caller may see of the process history
+   */
+  async getProcessHistoryAccess(): Promise<ProcessHistoryAccess> {
+    const data = await this.#client.query<{ processHistoryAccess: ProcessHistoryAccess }>(
+      BPM_QUERIES.GET_PROCESS_HISTORY_ACCESS,
+      {}
+    );
+    return data.processHistoryAccess;
+  }
+
+  /**
+   * List the process history. The server limits it to what the caller may see:
+   * scope MINE is the instances they started or held a task in; scope ALL is
+   * refused unless they are an Admin or a Supervisor.
+   */
+  async listProcessHistory(
+    options: ListProcessHistoryOptions = {}
+  ): Promise<ProcessHistoryConnection> {
+    const data = await this.#client.query<{ processHistory: ProcessHistoryConnection }>(
+      BPM_QUERIES.LIST_PROCESS_HISTORY,
+      {
+        first: options.first ?? 50,
+        after: options.after,
+        scope: options.scope ?? 'MINE',
+        definitionKey: options.definitionKey,
+        finished: options.finished,
+      }
+    );
+    return data.processHistory;
+  }
+
+  /**
+   * Get one process history entry with its steps (null when it does not exist
+   * or the caller was not involved in it)
+   */
+  async getProcessHistoryEntry(id: string): Promise<ProcessHistoryEntry | null> {
+    const data = await this.#client.query<{ processHistoryEntry: ProcessHistoryEntry | null }>(
+      BPM_QUERIES.GET_PROCESS_HISTORY_ENTRY,
+      { id }
+    );
+    return data.processHistoryEntry;
+  }
+
+  /**
    * Get activity history for a process instance
    */
   async getActivityHistory(processInstanceId: string): Promise<ActivityInstance[]> {
@@ -408,10 +456,10 @@ export class BpmServiceGraphQL {
   /**
    * Claim a task for the current user
    */
-  async claimTask(taskId: string): Promise<Task> {
+  async claimTask(taskId: string, expectedRevision?: number | null): Promise<Task> {
     const data = await this.#client.mutation<{ claimTask: Task }>(
       BPM_MUTATIONS.CLAIM_TASK,
-      { taskId }
+      { taskId, expectedRevision: expectedRevision ?? null }
     );
     return data.claimTask;
   }
@@ -419,10 +467,10 @@ export class BpmServiceGraphQL {
   /**
    * Release a claimed task
    */
-  async unclaimTask(taskId: string): Promise<Task> {
+  async unclaimTask(taskId: string, expectedRevision?: number | null): Promise<Task> {
     const data = await this.#client.mutation<{ unclaimTask: Task }>(
       BPM_MUTATIONS.UNCLAIM_TASK,
-      { taskId }
+      { taskId, expectedRevision: expectedRevision ?? null }
     );
     return data.unclaimTask;
   }
@@ -441,10 +489,10 @@ export class BpmServiceGraphQL {
   /**
    * Set task assignee (can be null to unassign)
    */
-  async setTaskAssignee(taskId: string, assignee: string | null): Promise<Task> {
+  async setTaskAssignee(taskId: string, assignee: string | null, expectedRevision?: number | null): Promise<Task> {
     const data = await this.#client.mutation<{ setTaskAssignee: Task }>(
       BPM_MUTATIONS.SET_TASK_ASSIGNEE,
-      { taskId, assignee }
+      { taskId, assignee, expectedRevision: expectedRevision ?? null }
     );
     return data.setTaskAssignee;
   }

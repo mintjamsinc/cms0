@@ -172,6 +172,11 @@ final class GraphQLExceptionHandler implements DataFetcherExceptionHandler {
 		if (exception instanceof LockException) {
 			return "LOCKED";
 		}
+		// A write refused because its target changed since the caller read it:
+		// the caller reloads and decides again.
+		if (exception instanceof org.mintjams.rt.cms.internal.graphql.ConflictException) {
+			return "CONFLICT";
+		}
 		if (exception instanceof IllegalStateException) {
 			return "UNAVAILABLE";
 		}

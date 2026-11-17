@@ -1718,6 +1718,9 @@ export const App = {
 				type: 'completeTask',
 				data: {
 					taskId: task.id,
+					// The revision the dialog was opened on: completing takes the
+					// task over, so a task someone else changed meanwhile is refused.
+					revision: task.revision ?? null,
 					taskName: task.name || task.taskDefinitionKey,
 					variables: vars,
 				},
@@ -1727,13 +1730,14 @@ export const App = {
 		async executeCompleteTask() {
 			if (!this.bpm) return;
 			const taskId = this.dialog.data.taskId as string;
+			const expectedRevision = (this.dialog.data.revision ?? null) as number | null;
 			const vars = ((this.dialog.data.variables || []) as DialogVariable[])
 				.filter((v: DialogVariable) => v.name.trim() !== '')
 				.map((v: DialogVariable) => ({ name: v.name, value: this.formatVarValue(v), type: v.type }));
 			this.closeDialog();
 			try {
 				this.errorMessage = '';
-				await this.bpm.completeTask({ taskId, variables: vars });
+				await this.bpm.completeTask({ taskId, variables: vars, expectedRevision });
 				if (this.selectedTask?.id === taskId) {
 					this.selectedTask = null;
 					this.selectedInstance = null;
@@ -1743,6 +1747,10 @@ export const App = {
 				}
 				await this.reloadInstances();
 			} catch (err) {
+				// Refused because the task changed meanwhile: show what is true now.
+				if ((err as any)?.code === 'CONFLICT') {
+					await this.reloadInstances();
+				}
 				this.errorMessage = this.t('app.bpm-console.error.completeTask', { error: err instanceof Error ? err.message : String(err) }, 'Failed to complete task: {error}');
 			}
 		},

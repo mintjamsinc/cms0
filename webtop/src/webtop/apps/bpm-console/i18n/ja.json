@@ -145,7 +145,7 @@
 	"app.bpm-console.dialog.addVariable": "変数を追加",
 	"app.bpm-console.dialog.start": "開始",
 	"app.bpm-console.dialog.completeTaskTitle": "タスクを完了：{name}",
-	"app.bpm-console.dialog.completeTaskHelp": "このタスクを完了し、変数を更新します。保留中の作業はすべて確定されます。",
+	"app.bpm-console.dialog.completeTaskHelp": "このタスクを完了し、変数を更新します。保留中の作業はすべて確定されます。担当者があなたでない場合は、あなたに割り当て直してから完了します。",
 	"app.bpm-console.dialog.editVariablesTitle": "変数を編集",
 	"app.bpm-console.dialog.deployTitle": "BPMNプロセスをデプロイ",
 	"app.bpm-console.dialog.deployDropHint": "コンテンツブラウザーからBPMNファイルをドラッグしてください",

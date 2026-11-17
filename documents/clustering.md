@@ -334,6 +334,11 @@ The same variables, `NAME_FILE` files and `ENC[...]` values as in
 Camunda handles distributed job execution and locking by itself once all
 nodes share the database (see `documents/bpm-configuration.md`).
 
+Changing the history level (`history`) needs the workspace stopped on every
+node at once — a rolling restart would leave nodes recording at different
+levels into the same database. Follow the migration procedure in
+`documents/bpm-configuration.md`.
+
 ### Cluster journal (Phase 2)
 
 Every transaction already records its events in the workspace's

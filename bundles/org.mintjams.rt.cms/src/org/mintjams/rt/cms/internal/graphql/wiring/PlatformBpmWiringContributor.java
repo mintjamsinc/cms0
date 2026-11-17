@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,10 +41,18 @@ import java.util.Set;
 import javax.jcr.Node;
 
 import org.camunda.bpm.engine.AuthorizationException;
+import org.camunda.bpm.engine.OptimisticLockingException;
+import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.camunda.bpm.engine.impl.persistence.entity.TaskEntity;
+import org.mintjams.rt.cms.internal.graphql.ConflictException;
+import org.camunda.bpm.engine.EntityTypes;
 import org.camunda.bpm.engine.ProcessEngine;
+import org.camunda.bpm.engine.ProcessEngineConfiguration;
 import org.camunda.bpm.engine.history.HistoricActivityInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstanceQuery;
+import org.camunda.bpm.engine.history.HistoricTaskInstance;
+import org.camunda.bpm.engine.history.UserOperationLogEntry;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
 import org.camunda.bpm.engine.migration.MigrationInstruction;
 import org.camunda.bpm.engine.migration.MigrationInstructionsBuilder;
@@ -127,6 +136,14 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processInstances)
 				.dataFetcher("Query", "activityHistory",
 						(DataFetcher<Object>) PlatformBpmWiringContributor::activityHistory)
+				.dataFetcher("Query", "processHistoryAccess",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistoryAccess)
+				.dataFetcher("Query", "processHistory",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistory)
+				.dataFetcher("Query", "processHistoryEntry",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistoryEntry)
+				.dataFetcher("ProcessHistoryEntry", "steps",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistorySteps)
 				.dataFetcher("Query", "task", (DataFetcher<Object>) PlatformBpmWiringContributor::task)
 				.dataFetcher("Query", "tasks", (DataFetcher<Object>) PlatformBpmWiringContributor::tasks)
 				.dataFetcher("Query", "taskCounts", (DataFetcher<Object>) PlatformBpmWiringContributor::taskCounts)
@@ -345,6 +362,254 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			items.add(m);
 		}
 		return items;
+	}
+
+	// ---- queries: process history, scoped to the caller ---------------------
+
+	/** Upper bound on the instances a history listing considers, newest first. */
+	private static final int HISTORY_SCAN_LIMIT = 1000;
+
+	/** What the caller may see of the process history, for the client to shape its view. */
+	private static Object processHistoryAccess(DataFetchingEnvironment environment) throws Exception {
+		ProcessEngine engine = engine(environment);
+		Map<String, Object> m = new HashMap<>();
+		m.put("all", isAdminOrSupervisor(callerSession(environment)));
+		m.put("operationsRecorded", operationsRecorded(engine));
+		return m;
+	}
+
+	/**
+	 * Whether the engine records the user operation log — who claimed, reassigned
+	 * or completed a task, step by step. Only at history level {@code full}.
+	 */
+	private static boolean operationsRecorded(ProcessEngine engine) {
+		try {
+			return ProcessEngineConfiguration.HISTORY_FULL.equals(
+					((ProcessEngineConfigurationImpl) engine.getProcessEngineConfiguration()).getHistoryLevel().getName());
+		} catch (Exception ex) {
+			return false;
+		}
+	}
+
+	/**
+	 * Process instances, running and finished, newest first — the history the
+	 * Tasks app shows.
+	 *
+	 * <p>The scope is decided here, from the caller's session, never from what the
+	 * client sends about who it is: {@code MINE} (the default) is limited to the
+	 * instances the caller started or held a task in; {@code ALL} is refused
+	 * unless the caller is an Admin or a Supervisor. Process variables are not
+	 * part of the result on purpose: they carry what other participants entered.
+	 */
+	private static Object processHistory(DataFetchingEnvironment environment) throws Exception {
+		ProcessEngine engine = engine(environment);
+		javax.jcr.Session session = callerSession(environment);
+		String userId = session.getUserID();
+		int first = firstArg(environment, 50);
+		String after = environment.getArgument("after");
+		boolean all = "ALL".equals(String.valueOf((Object) environment.getArgument("scope")));
+		if (all && !isAdminOrSupervisor(session)) {
+			throw new javax.jcr.AccessDeniedException(
+					"Only an administrator or a supervisor can view the history of every process.");
+		}
+
+		Map<String, HistoricProcessInstance> found = new LinkedHashMap<>();
+		if (all) {
+			for (HistoricProcessInstance inst : historyQuery(engine, environment)
+					.orderByProcessInstanceStartTime().desc().listPage(0, HISTORY_SCAN_LIMIT)) {
+				found.put(inst.getId(), inst);
+			}
+		} else {
+			for (HistoricProcessInstance inst : historyQuery(engine, environment).startedBy(userId)
+					.orderByProcessInstanceStartTime().desc().listPage(0, HISTORY_SCAN_LIMIT)) {
+				found.put(inst.getId(), inst);
+			}
+			Set<String> ids = heldTaskInstanceIds(engine, userId);
+			ids.removeAll(found.keySet());
+			if (!ids.isEmpty()) {
+				for (HistoricProcessInstance inst : historyQuery(engine, environment).processInstanceIds(ids)
+						.orderByProcessInstanceStartTime().desc().listPage(0, HISTORY_SCAN_LIMIT)) {
+					found.put(inst.getId(), inst);
+				}
+			}
+		}
+
+		List<HistoricProcessInstance> sorted = new ArrayList<>(found.values());
+		sorted.sort((a, b) -> {
+			Date x = a.getStartTime();
+			Date y = b.getStartTime();
+			if (x == null || y == null) {
+				return (x == null) ? ((y == null) ? 0 : 1) : -1;
+			}
+			return y.compareTo(x);
+		});
+		List<Map<String, Object>> items = new ArrayList<>();
+		for (HistoricProcessInstance inst : sorted) {
+			items.add(mapHistoryEntry(inst));
+		}
+		return connection(items, first, after);
+	}
+
+	/** A single history entry, or {@code null} when it does not exist or the caller was not involved in it. */
+	private static Object processHistoryEntry(DataFetchingEnvironment environment) throws Exception {
+		String id = environment.getArgument("id");
+		if (id == null || id.isEmpty()) {
+			return null;
+		}
+		ProcessEngine engine = engine(environment);
+		javax.jcr.Session session = callerSession(environment);
+		String userId = session.getUserID();
+		HistoricProcessInstance inst = engine.getHistoryService().createHistoricProcessInstanceQuery()
+				.processInstanceId(id).singleResult();
+		if (inst == null) {
+			return null;
+		}
+		if (!isAdminOrSupervisor(session) && !userId.equals(inst.getStartUserId())) {
+			boolean held = engine.getHistoryService().createHistoricTaskInstanceQuery()
+					.processInstanceId(id).taskAssignee(userId).count() > 0;
+			if (!held) {
+				try {
+					held = engine.getHistoryService().createHistoricTaskInstanceQuery()
+							.processInstanceId(id).taskInvolvedUser(userId).count() > 0;
+				} catch (Exception ignore) {
+					// identity link history is only kept at history level full
+				}
+			}
+			if (!held) {
+				// Not theirs: indistinguishable from an instance that does not exist.
+				return null;
+			}
+		}
+		return mapHistoryEntry(inst);
+	}
+
+	/** The filters of {@code processHistory}, applied to a fresh query. */
+	private static HistoricProcessInstanceQuery historyQuery(ProcessEngine engine, DataFetchingEnvironment environment) {
+		HistoricProcessInstanceQuery q = engine.getHistoryService().createHistoricProcessInstanceQuery();
+		String definitionKey = environment.getArgument("definitionKey");
+		if (definitionKey != null && !definitionKey.isEmpty()) {
+			q.processDefinitionKey(definitionKey);
+		}
+		Boolean finished = environment.getArgument("finished");
+		if (Boolean.TRUE.equals(finished)) {
+			q.finished();
+		} else if (Boolean.FALSE.equals(finished)) {
+			q.unfinished();
+		}
+		String startedAfter = environment.getArgument("startedAfter");
+		if (startedAfter != null && !startedAfter.isEmpty()) {
+			q.startedAfter(parseDate(startedAfter));
+		}
+		String startedBefore = environment.getArgument("startedBefore");
+		if (startedBefore != null && !startedBefore.isEmpty()) {
+			q.startedBefore(parseDate(startedBefore));
+		}
+		return q;
+	}
+
+	/**
+	 * The process instances the user held a task in. At history level
+	 * {@code audit} a task only remembers its last assignee, so a user who passed
+	 * a task on is found only at {@code full}, where the identity links are kept.
+	 */
+	private static Set<String> heldTaskInstanceIds(ProcessEngine engine, String userId) {
+		Set<String> ids = new HashSet<>();
+		for (HistoricTaskInstance task : engine.getHistoryService().createHistoricTaskInstanceQuery()
+				.taskAssignee(userId).orderByHistoricActivityInstanceStartTime().desc()
+				.listPage(0, HISTORY_SCAN_LIMIT)) {
+			if (task.getProcessInstanceId() != null) {
+				ids.add(task.getProcessInstanceId());
+			}
+		}
+		try {
+			for (HistoricTaskInstance task : engine.getHistoryService().createHistoricTaskInstanceQuery()
+					.taskInvolvedUser(userId).orderByHistoricActivityInstanceStartTime().desc()
+					.listPage(0, HISTORY_SCAN_LIMIT)) {
+				if (task.getProcessInstanceId() != null) {
+					ids.add(task.getProcessInstanceId());
+				}
+			}
+		} catch (Exception ignore) {
+			// identity link history is only kept at history level full
+		}
+		return ids;
+	}
+
+	private static Map<String, Object> mapHistoryEntry(HistoricProcessInstance inst) {
+		Map<String, Object> m = new HashMap<>();
+		m.put("id", inst.getId());
+		m.put("definitionKey", inst.getProcessDefinitionKey());
+		m.put("definitionName", inst.getProcessDefinitionName());
+		m.put("definitionVersion", inst.getProcessDefinitionVersion());
+		m.put("businessKey", inst.getBusinessKey());
+		m.put("startUserId", inst.getStartUserId());
+		m.put("startTime", formatDate(inst.getStartTime()));
+		m.put("endTime", formatDate(inst.getEndTime()));
+		m.put("durationInMillis", inst.getDurationInMillis());
+		String state = inst.getState();
+		if (state == null) {
+			state = (inst.getEndTime() != null) ? "COMPLETED" : "ACTIVE";
+		}
+		m.put("state", state);
+		return m;
+	}
+
+	/**
+	 * The user tasks of a history entry, in start order, each with the operations
+	 * recorded on it. Resolved lazily for {@code ProcessHistoryEntry.steps}; the
+	 * entry itself was produced by a resolver that already checked the caller.
+	 */
+	@SuppressWarnings("unchecked")
+	private static Object processHistorySteps(DataFetchingEnvironment environment) {
+		Object source = environment.getSource();
+		if (!(source instanceof Map)) {
+			return new ArrayList<>();
+		}
+		String instanceId = (String) ((Map<String, Object>) source).get("id");
+		ProcessEngine engine = engine(environment);
+
+		// Empty unless the engine runs at history level full; entries recorded
+		// before the level was raised simply have none.
+		Map<String, List<Map<String, Object>>> operations = new HashMap<>();
+		try {
+			for (UserOperationLogEntry entry : engine.getHistoryService().createUserOperationLogQuery()
+					.processInstanceId(instanceId).entityType(EntityTypes.TASK).orderByTimestamp().asc().list()) {
+				if (entry.getTaskId() == null) {
+					continue;
+				}
+				Map<String, Object> op = new HashMap<>();
+				op.put("id", entry.getId());
+				op.put("time", formatDate(entry.getTimestamp()));
+				op.put("userId", entry.getUserId());
+				op.put("type", entry.getOperationType());
+				op.put("property", entry.getProperty());
+				op.put("oldValue", entry.getOrgValue());
+				op.put("newValue", entry.getNewValue());
+				operations.computeIfAbsent(entry.getTaskId(), k -> new ArrayList<>()).add(op);
+			}
+		} catch (Exception ignore) {
+			// no operation log: steps are still reported, without operations
+		}
+
+		List<Map<String, Object>> steps = new ArrayList<>();
+		for (HistoricTaskInstance task : engine.getHistoryService().createHistoricTaskInstanceQuery()
+				.processInstanceId(instanceId).orderByHistoricActivityInstanceStartTime().asc().list()) {
+			Map<String, Object> m = new HashMap<>();
+			m.put("id", task.getId());
+			m.put("taskDefinitionKey", task.getTaskDefinitionKey());
+			m.put("name", task.getName());
+			m.put("assignee", task.getAssignee());
+			m.put("startTime", formatDate(task.getStartTime()));
+			m.put("endTime", formatDate(task.getEndTime()));
+			m.put("durationInMillis", task.getDurationInMillis());
+			boolean ended = task.getEndTime() != null;
+			boolean completed = ended && "completed".equals(task.getDeleteReason());
+			m.put("state", !ended ? "ACTIVE" : (completed ? "COMPLETED" : "CANCELED"));
+			List<Map<String, Object>> ops = operations.get(task.getId());
+			m.put("operations", (ops != null) ? ops : new ArrayList<>());
+			steps.add(m);
+		}
+		return steps;
 	}
 
 	private static Object task(DataFetchingEnvironment environment) {
@@ -840,19 +1105,84 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 
 	private static Object claimTask(DataFetchingEnvironment environment) throws Exception {
 		String taskId = requireTaskId(environment.getArgument("taskId"));
+		Integer expectedRevision = environment.getArgument("expectedRevision");
 		String userId = callerSession(environment).getUserID();
 		return asCaller(environment, engine -> {
-			engine.getTaskService().claim(taskId, userId);
+			onTask(engine, taskId, expectedRevision, task -> {
+				engine.getTaskService().claim(taskId, userId);
+				return null;
+			});
 			return getTaskMap(engine, taskId);
 		});
 	}
 
 	private static Object unclaimTask(DataFetchingEnvironment environment) throws Exception {
 		String taskId = requireTaskId(environment.getArgument("taskId"));
+		Integer expectedRevision = environment.getArgument("expectedRevision");
 		return asCaller(environment, engine -> {
-			engine.getTaskService().claim(taskId, null);
+			onTask(engine, taskId, expectedRevision, task -> {
+				engine.getTaskService().claim(taskId, null);
+				return null;
+			});
 			return getTaskMap(engine, taskId);
 		});
+	}
+
+	private interface TaskAction {
+		Object run(TaskEntity task) throws Exception;
+	}
+
+	/** Carries a checked exception of a {@link TaskAction} out of the engine command. */
+	private static final class TaskActionFailure extends RuntimeException {
+		private static final long serialVersionUID = 1L;
+
+		private TaskActionFailure(Exception cause) {
+			super(cause);
+		}
+	}
+
+	/**
+	 * Runs {@code action} on a task inside a single engine command (one
+	 * transaction), so what the action decides on — the task's assignee, its
+	 * revision — cannot change between the check and the write: the engine's own
+	 * optimistic locking fails the command when another transaction touched the
+	 * task in the meantime, and nothing of the action is kept.
+	 *
+	 * <p>When {@code expectedRevision} is given, the task must still be at that
+	 * revision — the one the caller last read ({@code Task.revision}). A stale
+	 * revision means the caller is looking at an outdated task (somebody claimed,
+	 * reassigned or changed it since), and the action is refused with a
+	 * {@link ConflictException} before it runs. Without it only changes that land
+	 * while the action runs are caught.
+	 */
+	private static Object onTask(ProcessEngine engine, String taskId, Integer expectedRevision, TaskAction action)
+			throws Exception {
+		ProcessEngineConfigurationImpl config = (ProcessEngineConfigurationImpl) engine.getProcessEngineConfiguration();
+		try {
+			return config.getCommandExecutorTxRequired().execute(commandContext -> {
+				TaskEntity task = commandContext.getTaskManager().findTaskById(taskId);
+				if (task == null) {
+					if (expectedRevision != null) {
+						throw new ConflictException("This task no longer exists. It may have been completed by someone else.");
+					}
+					throw new IllegalArgumentException("Task not found: " + taskId);
+				}
+				if (expectedRevision != null && expectedRevision.intValue() != task.getRevision()) {
+					throw new ConflictException("This task has been changed by someone else. Reload it and try again.");
+				}
+				try {
+					return action.run(task);
+				} catch (RuntimeException ex) {
+					throw ex;
+				} catch (Exception ex) {
+					throw new TaskActionFailure(ex);
+				}
+			});
+		} catch (OptimisticLockingException ex) {
+			throw new ConflictException("This task was changed by someone else at the same time. Reload it and try again.", ex);
+		} catch (TaskActionFailure ex) {
+			throw (Exception) ex.getCause();
+		}
 	}
 
 	private static Object assignTask(DataFetchingEnvironment environment) throws Exception {
@@ -874,29 +1204,18 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	private static Object setTaskAssignee(DataFetchingEnvironment environment) throws Exception {
 		String taskId = requireTaskId(environment.getArgument("taskId"));
 		String assignee = environment.getArgument("assignee"); // may be null to unassign
+		Integer expectedRevision = environment.getArgument("expectedRevision");
 		javax.jcr.Session session = callerSession(environment);
 		return asCaller(environment, engine -> {
-			boolean authorized = false;
-			if (org.mintjams.jcr.Session.class.cast(session).isAdmin()) {
-				// Admin can assign to anyone.
-				authorized = true;
-			} else if (org.mintjams.jcr.Workspace.class.cast(session.getWorkspace())
-					.getIdentityProvider()
-					.getUser(session.getUserID())
-					.hasRole("supervisor")) {
-				// Supervisor can assign to anyone.
-				authorized = true;
-			} else {
-				Task task = engine.getTaskService().createTaskQuery().taskId(taskId).singleResult();
-				if (task != null && session.getUserID().equals(task.getAssignee())) {
-					// A user can reassign their own task.
-					authorized = true;
+			onTask(engine, taskId, expectedRevision, task -> {
+				// An Admin or a Supervisor can assign to anyone; a user can
+				// reassign their own task.
+				if (!isAdminOrSupervisor(session) && !session.getUserID().equals(task.getAssignee())) {
+					throw new AuthorizationException("User does not have permission to assign this task");
 				}
-			}
-			if (!authorized) {
-				throw new AuthorizationException("User does not have permission to assign this task");
-			}
-			engine.getTaskService().setAssignee(taskId, assignee);
+				engine.getTaskService().setAssignee(taskId, assignee);
+				return null;
+			});
 			return getTaskMap(engine, taskId);
 		});
 	}
@@ -913,6 +1232,18 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		});
 	}
 
+	/**
+	 * Completes a task. Only the task's assignee may complete it, so the assignee
+	 * the history keeps for a completed task is always the user who completed it:
+	 * an unassigned task, or one assigned to somebody else, is refused. An Admin or
+	 * a Supervisor completing a task that is not theirs takes it over first — the
+	 * task is reassigned to them and then completed — so the guarantee holds for
+	 * them too. The check, the takeover and the completion run in one transaction
+	 * (see {@link #onTask}): a failed completion leaves the assignee untouched, and
+	 * a claim or reassignment landing in between fails the call instead of being
+	 * overwritten. {@code input.expectedRevision} additionally refuses a caller
+	 * whose view of the task is stale.
+	 */
 	@SuppressWarnings("unchecked")
 	private static Object completeTask(DataFetchingEnvironment environment) throws Exception {
 		Map<String, Object> raw = environment.getArgument("input");
@@ -922,8 +1253,24 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			throw new IllegalArgumentException("taskId is required");
 		}
 		Map<String, Object> vars = toVariableMap((List<Map<String, Object>>) input.get("variables"));
+		javax.jcr.Session session = callerSession(environment);
+		String userId = session.getUserID();
+		Integer expectedRevision = (input.get("expectedRevision") instanceof Number)
+				? Integer.valueOf(((Number) input.get("expectedRevision")).intValue()) : null;
 		return asCaller(environment, engine -> {
-			engine.getTaskService().complete(taskId, vars);
+			onTask(engine, taskId, expectedRevision, task -> {
+				String assignee = task.getAssignee();
+				if (!userId.equals(assignee)) {
+					if (!isAdminOrSupervisor(session)) {
+						throw new javax.jcr.AccessDeniedException((assignee == null)
+								? "This task is not assigned to anyone. Claim it before completing it."
+								: "Only the assignee can complete this task.");
+					}
+					engine.getTaskService().setAssignee(taskId, userId);
+				}
+				engine.getTaskService().complete(taskId, vars);
+				return null;
+			});
 			// The task is gone after completion — return minimal info (mirrors handmade).
 			Map<String, Object> m = new HashMap<>();
 			m.put("id", taskId);
@@ -1301,6 +1648,28 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		return jobId;
 	}
 
+	/**
+	 * The task's revision — the engine's optimistic-locking counter, increased by
+	 * every change to the task itself (claim, assignment, due date, …) and by
+	 * writes to its task-local variables, but not by process-scoped variable
+	 * writes or comments — or {@code null} when the engine does not expose it for
+	 * this task.
+	 */
+	private static Integer revisionOf(Task task) {
+		return (task instanceof TaskEntity) ? Integer.valueOf(((TaskEntity) task).getRevision()) : null;
+	}
+
+	/** Whether the caller is an Admin or holds the {@code supervisor} role. */
+	private static boolean isAdminOrSupervisor(javax.jcr.Session session) throws Exception {
+		if (org.mintjams.jcr.Session.class.cast(session).isAdmin()) {
+			return true;
+		}
+		return org.mintjams.jcr.Workspace.class.cast(session.getWorkspace())
+				.getIdentityProvider()
+				.getUser(session.getUserID())
+				.hasRole("supervisor");
+	}
+
 	private static String requireTaskId(String taskId) {
 		if (taskId == null || taskId.isEmpty()) {
 			throw new IllegalArgumentException("taskId is required");
@@ -1340,6 +1709,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		m.put("followUp", formatDate(task.getFollowUpDate()));
 		m.put("priority", task.getPriority());
 		m.put("suspended", task.isSuspended());
+		m.put("revision", revisionOf(task));
 		m.put("processInstanceId", task.getProcessInstanceId());
 		m.put("processDefinitionId", task.getProcessDefinitionId());
 		m.put("executionId", task.getExecutionId());
@@ -1446,6 +1816,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		m.put("followUp", formatDate(task.getFollowUpDate()));
 		m.put("priority", task.getPriority());
 		m.put("suspended", task.isSuspended());
+		m.put("revision", revisionOf(task));
 		m.put("processInstanceId", task.getProcessInstanceId());
 		m.put("processDefinitionId", task.getProcessDefinitionId());
 		m.put("executionId", task.getExecutionId());

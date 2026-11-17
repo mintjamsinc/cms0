@@ -43,6 +43,12 @@
 				:title="t('app.tasks.mode.start', undefined, 'Start a process')">
 				<i class="bi bi-play-fill"></i>
 			</button>
+			<button class="btn-icon"
+				:class="{active: mode === 'history'}"
+				@click="switchMode('history')"
+				:title="t('app.tasks.mode.history', undefined, 'History')">
+				<i class="bi bi-clock-history"></i>
+			</button>
 		</div>
 
 		<!-- Left: refresh -->
@@ -178,6 +184,41 @@
 							:label="t('app.tasks.filter.favoritesOnly', undefined, 'Favorites only')"></wt-checkbox>
 					</div>
 				</div>
+
+				<!-- History filters -->
+				<div v-if="mode === 'history'">
+					<div class="filter-group">
+						<wt-field :label="t('app.tasks.filter.keyword', undefined, 'Keyword')">
+							<wt-search-box v-model="filters.historyKeyword" @change="filterList"
+								:placeholder="t('app.tasks.history.filter.keywordPlaceholder', undefined, 'Process, business key, started by…')"></wt-search-box>
+						</wt-field>
+					</div>
+
+					<!-- Only those who may see everything get the choice; the
+					     server enforces it either way. -->
+					<div v-if="historyAccess.all" class="filter-group">
+						<label class="filter-label">{{ t('app.tasks.filter.scope', undefined, 'Scope') }}</label>
+						<label class="filter-check">
+							<input type="radio" class="wt" name="history-scope" value="MINE"
+								v-model="filters.historyScope" @change="loadHistory">
+							<span>{{ t('app.tasks.history.filter.scope.mine', undefined, 'Involving me') }}</span>
+						</label>
+						<label class="filter-check">
+							<input type="radio" class="wt" name="history-scope" value="ALL"
+								v-model="filters.historyScope" @change="loadHistory">
+							<span>{{ t('app.tasks.history.filter.scope.all', undefined, 'Everyone') }}</span>
+						</label>
+					</div>
+					<div v-else class="filter-group">
+						<div class="filter-hint mt-0">{{ t('app.tasks.history.filter.scope.mineOnly', undefined, 'Shows the processes you started or handled a task in.') }}</div>
+					</div>
+
+					<div class="filter-group">
+						<wt-field :label="t('app.tasks.history.filter.state', undefined, 'State')">
+							<wt-select v-model="filters.historyState" :items="historyStateItems" @change="loadHistory"></wt-select>
+						</wt-field>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -201,8 +242,36 @@
 				<span>{{ emptyListMessage }}</span>
 			</div>
 
+			<!-- History list -->
+			<div v-if="mode === 'history'" class="pane-scroll">
+				<div v-for="entry in filteredItems" :key="entry.id"
+					class="task-item"
+					:class="{selected: selectedHistory && selectedHistory.id === entry.id}"
+					@click="selectHistory(entry)">
+					<div class="task-item-row1">
+						<span class="task-badge" :class="historyStateClass(entry.state)" :title="historyStateLabel(entry.state)">
+							<i class="bi" :class="historyStateIcon(entry.state)"></i>
+						</span>
+						<span class="task-item-name">{{ historyProcessName(entry) }}</span>
+					</div>
+					<div class="task-item-row2">
+						<span class="task-process-name">{{ historyStateLabel(entry.state) }}</span>
+						<span v-if="entry.businessKey" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: entry.businessKey }, 'Business key: {key}')">
+							#{{ entry.businessKey }}
+						</span>
+					</div>
+					<div class="task-item-row3">
+						<span class="task-meta">{{ t('app.tasks.history.list.startedAt', { when: formatRelativeDate(entry.startTime) }, 'started {when}') }}</span>
+						<span v-if="entry.startUserId" class="task-meta">· {{ entry.startUserId }}</span>
+					</div>
+				</div>
+				<div v-if="history.length < historyTotal" class="filter-hint history-list-more">
+					{{ t('app.tasks.history.list.truncated', { count: history.length, total: historyTotal }, 'Showing the {count} most recent of {total}.') }}
+				</div>
+			</div>
+
 			<!-- Tasks list -->
-			<div v-if="mode !== 'start'" class="pane-scroll">
+			<div v-else-if="mode !== 'start'" class="pane-scroll">
 				<div v-for="task in filteredItems" :key="task.id"
 					class="task-item"
 					:class="{selected: selectedTask && selectedTask.id === task.id}"
@@ -285,7 +354,13 @@
 						<strong>{{ processName(selectedDef) }}</strong>
 						<span class="form-context-sub">{{ t('app.tasks.def.version', { version: selectedDef.version }, 'v{version}') }}</span>
 					</span>
-					<span v-else-if="mode !== 'start' && selectedTask" class="form-context-title">
+					<span v-else-if="mode === 'history' && selectedHistory" class="form-context-title">
+						<i class="bi bi-clock-history"></i>
+						<strong>{{ historyProcessName(selectedHistory) }}</strong>
+						<span v-if="selectedHistory.businessKey" class="form-context-sub">#{{ selectedHistory.businessKey }}</span>
+						<span class="history-state" :class="historyStateClass(selectedHistory.state)">{{ historyStateLabel(selectedHistory.state) }}</span>
+					</span>
+					<span v-else-if="mode === 'tasks-runtime' && selectedTask" class="form-context-title">
 						<i class="bi bi-card-checklist"></i>
 						<strong>{{ taskName(selectedTask) }}</strong>
 						<span v-if="selectedTask.assignee" class="form-context-sub">
@@ -299,7 +374,7 @@
 				</div>
 				<div class="form-context-actions">
 					<!-- Task assignment actions -->
-					<template v-if="mode !== 'start' && selectedTask">
+					<template v-if="mode === 'tasks-runtime' && selectedTask">
 						<button v-if="!selectedTask.assignee"
 							class="wt wt-slim wt-primary"
 							@click="claimSelectedTask"
@@ -327,8 +402,74 @@
 				</div>
 			</div>
 
+			<!-- History detail: who started it, and who handled each step, when -->
+			<div v-if="mode === 'history'" class="history-body">
+				<div v-if="!selectedHistory" class="form-empty">
+					<i class="bi bi-clock-history"></i>
+					<span>{{ emptyFormMessage }}</span>
+				</div>
+				<div v-if="selectedHistory" class="pane-scroll history-detail">
+					<div class="history-summary">
+						<div class="history-fact">
+							<span class="history-label">{{ t('app.tasks.history.startedBy', undefined, 'Started by') }}</span>
+							<span class="history-value">{{ selectedHistory.startUserId || '—' }}</span>
+						</div>
+						<div class="history-fact">
+							<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
+							<span class="history-value">{{ formatDateTime(selectedHistory.startTime) }}</span>
+						</div>
+						<div class="history-fact">
+							<span class="history-label">{{ t('app.tasks.history.ended', undefined, 'Ended') }}</span>
+							<span class="history-value">{{ formatDateTime(selectedHistory.endTime) }}</span>
+						</div>
+						<div class="history-fact">
+							<span class="history-label">{{ t('app.tasks.history.duration', undefined, 'Duration') }}</span>
+							<span class="history-value">{{ formatDuration(selectedHistory.durationInMillis) }}</span>
+						</div>
+					</div>
+
+					<div v-if="historyLoading" class="history-note">
+						<wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.tasks.list.loading', undefined, 'Loading…') }}
+					</div>
+					<div v-if="!historyLoading && historySteps.length === 0" class="history-note">
+						{{ t('app.tasks.history.noSteps', undefined, 'No task in this process was handled by a person.') }}
+					</div>
+
+					<div v-if="!historyLoading && historySteps.length > 0" class="history-steps">
+						<div v-for="step in historySteps" :key="step.id" class="history-step">
+							<span class="history-step-dot" :class="historyStateClass(step.state)">
+								<i class="bi" :class="historyStateIcon(step.state)"></i>
+							</span>
+							<div class="history-step-main">
+								<div class="history-step-head">
+									<span class="history-step-name">{{ historyStepName(step) }}</span>
+									<span class="history-state" :class="historyStateClass(step.state)">{{ historyStateLabel(step.state) }}</span>
+								</div>
+								<div class="history-step-grid">
+									<span class="history-label">{{ t('app.tasks.history.assignee', undefined, 'Assignee') }}</span>
+									<span class="history-value">{{ step.assignee || '—' }}</span>
+									<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
+									<span class="history-value">{{ formatDateTime(step.startTime) }}</span>
+									<span class="history-label">{{ t('app.tasks.history.ended', undefined, 'Ended') }}</span>
+									<span class="history-value">{{ formatDateTime(step.endTime) }}</span>
+									<span class="history-label">{{ t('app.tasks.history.operations', undefined, 'Operations') }}</span>
+									<span v-if="step.ops.length === 0" class="history-value" :title="historyOperationsNote">—</span>
+									<span v-if="step.ops.length > 0" class="history-value history-ops">
+										<span v-for="op in step.ops" :key="op.id" class="history-op">
+											<span class="history-op-time">{{ formatDateTime(op.time) }}</span>
+											<span>{{ operationLabel(op) }}</span>
+										</span>
+									</span>
+								</div>
+							</div>
+						</div>
+						<div v-if="historyHasUnrecordedSteps" class="history-note history-note-foot">{{ historyOperationsNote }}</div>
+					</div>
+				</div>
+			</div>
+
 			<!-- Form body -->
-			<div class="form-body">
+			<div v-if="mode !== 'history'" class="form-body">
 				<!-- Empty state -->
 				<div v-if="!hasSelection" class="form-empty">
 					<i class="bi bi-card-text"></i>
@@ -405,7 +546,7 @@
 		<div class="status-group">
 			<span class="status-item"><i class="bi bi-person me-1"></i>{{ currentUserDisplay }}</span>
 			<span class="status-divider"></span>
-			<span class="status-item">{{ mode === 'start' ? t('app.tasks.status.processCount', { count: filteredItems.length }, '{count} process(es)') : t('app.tasks.status.taskCount', { count: filteredItems.length }, '{count} task(s)') }}</span>
+			<span class="status-item">{{ mode === 'start' ? t('app.tasks.status.processCount', { count: filteredItems.length }, '{count} process(es)') : (mode === 'history' ? t('app.tasks.status.historyCount', { count: filteredItems.length }, '{count} record(s)') : t('app.tasks.status.taskCount', { count: filteredItems.length }, '{count} task(s)')) }}</span>
 		</div>
 		<span class="nav-spacer"></span>
 		<div class="status-group">

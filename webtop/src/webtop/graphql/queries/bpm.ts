@@ -25,6 +25,7 @@ export const TASK_BASIC_FIELDS = `
   due
   priority
   suspended
+  revision
   processInstanceId
   processDefinitionKey
   taskDefinitionKey
@@ -42,6 +43,7 @@ export const TASK_FULL_FIELDS = `
   followUp
   priority
   suspended
+  revision
   processInstanceId
   processDefinitionId
   processDefinitionKey
@@ -111,6 +113,7 @@ export const BPM_QUERIES = {
         followUp
         priority
         suspended
+        revision
         processInstanceId
         processDefinitionId
         processDefinitionKey
@@ -196,6 +199,7 @@ export const BPM_QUERIES = {
             due
             priority
             suspended
+            revision
             processInstanceId
             processDefinitionKey
             taskDefinitionKey
@@ -269,6 +273,93 @@ export const BPM_QUERIES = {
   `,
 
   /** Get activity history for a process instance */
+  /** What the caller may see of the process history */
+  GET_PROCESS_HISTORY_ACCESS: `
+    query GetProcessHistoryAccess {
+      processHistoryAccess {
+        all
+        operationsRecorded
+      }
+    }
+  `,
+
+  /** Process history (running and finished instances), scoped on the server */
+  LIST_PROCESS_HISTORY: `
+    query ListProcessHistory(
+      $first: Int
+      $after: String
+      $scope: ProcessHistoryScope
+      $definitionKey: String
+      $finished: Boolean
+    ) {
+      processHistory(
+        first: $first
+        after: $after
+        scope: $scope
+        definitionKey: $definitionKey
+        finished: $finished
+      ) {
+        edges {
+          node {
+            id
+            definitionKey
+            definitionName
+            definitionVersion
+            businessKey
+            startUserId
+            startTime
+            endTime
+            durationInMillis
+            state
+          }
+          cursor
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        totalCount
+      }
+    }
+  `,
+
+  /** A single process history entry with its steps */
+  GET_PROCESS_HISTORY_ENTRY: `
+    query GetProcessHistoryEntry($id: ID!) {
+      processHistoryEntry(id: $id) {
+        id
+        definitionKey
+        definitionName
+        definitionVersion
+        businessKey
+        startUserId
+        startTime
+        endTime
+        durationInMillis
+        state
+        steps {
+          id
+          taskDefinitionKey
+          name
+          assignee
+          startTime
+          endTime
+          durationInMillis
+          state
+          operations {
+            id
+            time
+            userId
+            type
+            property
+            oldValue
+            newValue
+          }
+        }
+      }
+    }
+  `,
+
   GET_ACTIVITY_HISTORY: `
     query GetActivityHistory($processInstanceId: ID!) {
       activityHistory(processInstanceId: $processInstanceId) {
@@ -514,20 +605,22 @@ export const BPM_MUTATIONS = {
 
   /** Claim a task for the current user */
   CLAIM_TASK: `
-    mutation ClaimTask($taskId: ID!) {
-      claimTask(taskId: $taskId) {
+    mutation ClaimTask($taskId: ID!, $expectedRevision: Int) {
+      claimTask(taskId: $taskId, expectedRevision: $expectedRevision) {
         id
         assignee
+        revision
       }
     }
   `,
 
   /** Release a claimed task */
   UNCLAIM_TASK: `
-    mutation UnclaimTask($taskId: ID!) {
-      unclaimTask(taskId: $taskId) {
+    mutation UnclaimTask($taskId: ID!, $expectedRevision: Int) {
+      unclaimTask(taskId: $taskId, expectedRevision: $expectedRevision) {
         id
         assignee
+        revision
       }
     }
   `,
@@ -538,16 +631,18 @@ export const BPM_MUTATIONS = {
       assignTask(taskId: $taskId, assignee: $assignee) {
         id
         assignee
+        revision
       }
     }
   `,
 
   /** Set task assignee (can be null to unassign) */
   SET_TASK_ASSIGNEE: `
-    mutation SetTaskAssignee($taskId: ID!, $assignee: String) {
-      setTaskAssignee(taskId: $taskId, assignee: $assignee) {
+    mutation SetTaskAssignee($taskId: ID!, $assignee: String, $expectedRevision: Int) {
+      setTaskAssignee(taskId: $taskId, assignee: $assignee, expectedRevision: $expectedRevision) {
         id
         assignee
+        revision
       }
     }
   `,
@@ -559,6 +654,7 @@ export const BPM_MUTATIONS = {
         id
         assignee
         owner
+        revision
       }
     }
   `,
@@ -578,6 +674,7 @@ export const BPM_MUTATIONS = {
     mutation SetTaskVariables($taskId: ID!, $variables: [ProcessVariableInput!]!, $local: Boolean) {
       setTaskVariables(taskId: $taskId, variables: $variables, local: $local) {
         id
+        revision
         variables {
           name
           type
