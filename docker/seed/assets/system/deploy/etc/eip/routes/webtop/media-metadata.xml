@@ -18,6 +18,10 @@
         the route does not answer itself. Every other change to the file's
         properties (color, tags, ...) is dropped the same way.
 
+        Every cluster node receives the event and runs the route. The first
+        to get there writes; the others find mi:thumbnailVersion equal to the
+        file's jcr:lastModified and return without reading the file.
+
         The file is read and written as the user who made the change, so the
         route never touches what that user could not. A change without a user
         (a deployment, a system job) runs as the system.

@@ -15,6 +15,10 @@
         A move or a rename is not a removal: the identifier stays, and the
         conversation with it.
 
+        Every cluster node receives the event and runs the route, so two
+        nodes may remove the same conversation at once; the one that finds
+        part of it gone steps back without a warning.
+
         The queue is kept short and what does not fit is dropped, so removing
         a large tree never holds the repository up. A conversation left behind
         that way belongs to no file anybody can open; it is found by the

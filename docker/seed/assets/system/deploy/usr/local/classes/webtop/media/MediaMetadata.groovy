@@ -164,6 +164,13 @@ class MediaMetadata {
 			return false;
 		}
 
+		if (hasCurrentThumbnail(file)) {
+			// This content has been read already: every cluster node answers
+			// the same event, and the first to get there wrote the thumbnail
+			// together with the size, in one commit.
+			return false;
+		}
+
 		boolean changed = false;
 		if (isAudioType(mimeType)) {
 			changed |= clear(file, ORIENTATION_PROPERTIES);
@@ -220,6 +227,18 @@ class MediaMetadata {
 		file.setProperty(THUMBNAIL, thumbnail);
 		file.setProperty(THUMBNAIL_VERSION, file.getLastModified().getTime() as long);
 		return true;
+	}
+
+	/**
+	 * Whether the file has a thumbnail made from its present content: its
+	 * mi:thumbnailVersion is the file's jcr:lastModified, which a change of
+	 * the content moves on and a change of the file's properties leaves.
+	 */
+	private static boolean hasCurrentThumbnail(file) {
+		if (!file.hasProperty(THUMBNAIL) || !file.hasProperty(THUMBNAIL_VERSION)) {
+			return false;
+		}
+		return file.getProperty(THUMBNAIL_VERSION).getLong() == file.getLastModified().getTime();
 	}
 
 	/** Removes the named properties the file has; returns whether any was there. */

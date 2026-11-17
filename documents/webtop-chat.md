@@ -488,6 +488,11 @@ one per node, also when a whole folder goes — carrying its identifier. The
 route `webtop-chat-file-removed` removes the conversation kept by that
 identifier, with its signals.
 
+In a cluster every node receives the event and removes the conversation, so
+two nodes often remove the same folders at the same moment. A node that finds
+part of them gone halfway is meeting the other removal: it steps back without
+a warning (`ChatStore.removeFileConversation`), and the other node finishes.
+
 The route's queue is short and what does not fit is dropped, so removing a
 large tree never holds the repository up. A conversation left behind that way
 belongs to a file nobody can open any more. What a user's home still holds for

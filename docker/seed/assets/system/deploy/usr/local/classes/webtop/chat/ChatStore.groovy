@@ -134,20 +134,47 @@ class ChatStore {
 	/**
 	 * Removes the conversation of a file that no longer exists, with its
 	 * signals. Returns whether there was one.
+	 *
+	 * Every cluster node answers the removal of a file (etc/eip/routes/webtop/
+	 * chat.xml), so another node may be removing the same folders at the same
+	 * moment. Finding part of them gone halfway is that other removal, not a
+	 * failure: this one steps back and leaves the folders to it.
 	 */
 	static boolean removeFileConversation(session, String fileId) {
 		boolean removed = false;
-		[fileRoot(fileId), signalRoot(fileId)].each { String path ->
-			def folder = session.getResource(path);
-			if (folder.exists()) {
-				folder.remove();
-				removed = true;
+		try {
+			[fileRoot(fileId), signalRoot(fileId)].each { String path ->
+				def folder = session.getResource(path);
+				if (folder.exists()) {
+					folder.remove();
+					removed = true;
+				}
+			};
+			if (removed) {
+				session.commit();
 			}
-		};
-		if (removed) {
-			session.commit();
+		} catch (Exception ex) {
+			if (!isGoneMeanwhile(ex)) {
+				throw ex;
+			}
+			try {
+				session.rollback();
+			} catch (Throwable ignore) {}
+			return false;
 		}
 		return removed;
+	}
+
+	/** Whether the failure, or one of its causes, is an item another session removed meanwhile. */
+	static boolean isGoneMeanwhile(Throwable ex) {
+		for (Throwable t = ex; t != null; t = (t.cause == t) ? null : t.cause) {
+			if (t instanceof javax.jcr.PathNotFoundException ||
+					t instanceof javax.jcr.ItemNotFoundException ||
+					t instanceof javax.jcr.InvalidItemStateException) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

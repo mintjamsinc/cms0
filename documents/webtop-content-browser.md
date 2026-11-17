@@ -206,6 +206,15 @@ audio file the orientation, a video the thumbnail. The thumbnail is remade on
 every content change, and removed when the new content yields none, so the
 picture never outlives the content it was made from.
 
+In a cluster every node receives the same event (the journal replays a
+commit as local events on the other nodes), so the route runs on each. The
+first node to get there writes the size and the thumbnail in one commit; a
+node that then finds `mi:thumbnailVersion` equal to the file's
+`jcr:lastModified` returns without reading the file
+(`MediaMetadata.hasCurrentThumbnail`). Two nodes that read the file before
+either has committed both write, with the same values. A video has no
+thumbnail, so each node reads its size and writes only what differs.
+
 The file is read and written **as the user who made the change**
 (`ScriptAPI.createServiceUserContext(user_id)`), so the route never touches
 what that user could not; a change without a repository user (a deployment, a
