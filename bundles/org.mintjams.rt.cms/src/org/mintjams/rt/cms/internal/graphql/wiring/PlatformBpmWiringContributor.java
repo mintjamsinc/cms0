@@ -75,6 +75,7 @@ import org.camunda.bpm.engine.variable.Variables;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
+import org.mintjams.rt.cms.internal.graphql.type.PrincipalDisplayNameResolver;
 import org.mintjams.rt.cms.internal.job.bpm.MigrateInstancesJob;
 import org.mintjams.rt.cms.internal.util.ISO8601;
 
@@ -144,6 +145,8 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistoryEntry)
 				.dataFetcher("ProcessHistoryEntry", "steps",
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistorySteps)
+				.dataFetcher("Task", "assigneeDisplayName",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::taskAssigneeDisplayName)
 				.dataFetcher("Query", "task", (DataFetcher<Object>) PlatformBpmWiringContributor::task)
 				.dataFetcher("Query", "tasks", (DataFetcher<Object>) PlatformBpmWiringContributor::tasks)
 				.dataFetcher("Query", "taskCounts", (DataFetcher<Object>) PlatformBpmWiringContributor::taskCounts)
@@ -443,9 +446,10 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			}
 			return y.compareTo(x);
 		});
+		PrincipalDisplayNameResolver resolver = displayNames(environment);
 		List<Map<String, Object>> items = new ArrayList<>();
 		for (HistoricProcessInstance inst : sorted) {
-			items.add(mapHistoryEntry(inst));
+			items.add(mapHistoryEntry(inst, resolver));
 		}
 		return connection(items, first, after);
 	}
@@ -480,7 +484,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 				return null;
 			}
 		}
-		return mapHistoryEntry(inst);
+		return mapHistoryEntry(inst, displayNames(environment));
 	}
 
 	/** The filters of {@code processHistory}, applied to a fresh query. */
@@ -535,7 +539,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		return ids;
 	}
 
-	private static Map<String, Object> mapHistoryEntry(HistoricProcessInstance inst) {
+	private static Map<String, Object> mapHistoryEntry(HistoricProcessInstance inst, PrincipalDisplayNameResolver resolver) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", inst.getId());
 		m.put("definitionKey", inst.getProcessDefinitionKey());
@@ -543,6 +547,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		m.put("definitionVersion", inst.getProcessDefinitionVersion());
 		m.put("businessKey", inst.getBusinessKey());
 		m.put("startUserId", inst.getStartUserId());
+		m.put("startUserDisplayName", resolver.getUserDisplayName(inst.getStartUserId()));
 		m.put("startTime", formatDate(inst.getStartTime()));
 		m.put("endTime", formatDate(inst.getEndTime()));
 		m.put("durationInMillis", inst.getDurationInMillis());
@@ -553,6 +558,9 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		m.put("state", state);
 		return m;
 	}
+
+	/** Task properties whose operation-log values are user ids, so they get a display name too. */
+	private static final Set<String> USER_VALUED_TASK_PROPERTIES = Set.of("assignee", "owner");
 
 	/**
 	 * The user tasks of a history entry, in start order, each with the operations
@@ -567,6 +575,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		}
 		String instanceId = (String) ((Map<String, Object>) source).get("id");
 		ProcessEngine engine = engine(environment);
+		PrincipalDisplayNameResolver resolver = displayNames(environment);
 
 		// Empty unless the engine runs at history level full; entries recorded
 		// before the level was raised simply have none.
@@ -581,10 +590,15 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 				op.put("id", entry.getId());
 				op.put("time", formatDate(entry.getTimestamp()));
 				op.put("userId", entry.getUserId());
+				op.put("userDisplayName", resolver.getUserDisplayName(entry.getUserId()));
 				op.put("type", entry.getOperationType());
 				op.put("property", entry.getProperty());
 				op.put("oldValue", entry.getOrgValue());
 				op.put("newValue", entry.getNewValue());
+				if (USER_VALUED_TASK_PROPERTIES.contains(entry.getProperty())) {
+					op.put("oldValueDisplayName", resolver.getUserDisplayName(entry.getOrgValue()));
+					op.put("newValueDisplayName", resolver.getUserDisplayName(entry.getNewValue()));
+				}
 				operations.computeIfAbsent(entry.getTaskId(), k -> new ArrayList<>()).add(op);
 			}
 		} catch (Exception ignore) {
@@ -599,6 +613,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			m.put("taskDefinitionKey", task.getTaskDefinitionKey());
 			m.put("name", task.getName());
 			m.put("assignee", task.getAssignee());
+			m.put("assigneeDisplayName", resolver.getUserDisplayName(task.getAssignee()));
 			m.put("startTime", formatDate(task.getStartTime()));
 			m.put("endTime", formatDate(task.getEndTime()));
 			m.put("durationInMillis", task.getDurationInMillis());
@@ -1679,6 +1694,28 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 
 	private static javax.jcr.Session callerSession(DataFetchingEnvironment environment) {
 		return GraphQLExecutionContext.from(environment).getCallerSession();
+	}
+
+	private static final String CTX_DISPLAY_NAMES = PlatformBpmWiringContributor.class.getName() + ".displayNames";
+
+	/**
+	 * The display-name resolver of this request, shared by every field that maps
+	 * a user id, so a list naming the same user many times looks it up once.
+	 */
+	private static PrincipalDisplayNameResolver displayNames(DataFetchingEnvironment environment) {
+		return environment.getGraphQlContext().computeIfAbsent(CTX_DISPLAY_NAMES,
+				k -> new PrincipalDisplayNameResolver(callerSession(environment)));
+	}
+
+	/** {@code Task.assigneeDisplayName}, for every query and mutation that returns a task. */
+	@SuppressWarnings("unchecked")
+	private static Object taskAssigneeDisplayName(DataFetchingEnvironment environment) {
+		Object source = environment.getSource();
+		if (!(source instanceof Map)) {
+			return null;
+		}
+		Object assignee = ((Map<String, Object>) source).get("assignee");
+		return (assignee instanceof String) ? displayNames(environment).getUserDisplayName((String) assignee) : null;
 	}
 
 	/**

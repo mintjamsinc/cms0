@@ -262,7 +262,7 @@
 					</div>
 					<div class="task-item-row3">
 						<span class="task-meta">{{ t('app.tasks.history.list.startedAt', { when: formatRelativeDate(entry.startTime) }, 'started {when}') }}</span>
-						<span v-if="entry.startUserId" class="task-meta">· {{ entry.startUserId }}</span>
+						<span v-if="entry.startUserId" class="task-meta">· {{ entry.startUserDisplayName || entry.startUserId }}</span>
 					</div>
 				</div>
 				<div v-if="history.length < historyTotal" class="filter-hint history-list-more">
@@ -283,7 +283,7 @@
 						<span v-else-if="task.assignee === currentUserID" class="task-badge task-badge-mine" :title="t('app.tasks.badge.assignedToMe', undefined, 'Assigned to me')">
 							<i class="bi bi-person-check-fill"></i>
 						</span>
-						<span v-else class="task-badge task-badge-other" :title="t('app.tasks.badge.assignedTo', { assignee: task.assignee }, 'Assigned to {assignee}')">
+						<span v-else class="task-badge task-badge-other" :title="t('app.tasks.badge.assignedTo', { assignee: task.assigneeDisplayName || task.assignee }, 'Assigned to {assignee}')">
 							<i class="bi bi-person-fill"></i>
 						</span>
 						<span class="task-item-name">{{ taskName(task) }}</span>
@@ -304,7 +304,7 @@
 						</span>
 						<span v-else class="task-meta">{{ t('app.tasks.list.createdAt', { when: formatRelativeDate(task.created) }, 'created {when}') }}</span>
 						<span v-if="task.assignee && task.assignee !== currentUserID" class="task-meta">
-							· {{ task.assignee }}
+							· {{ task.assigneeDisplayName || task.assignee }}
 						</span>
 					</div>
 				</div>
@@ -364,7 +364,7 @@
 						<i class="bi bi-card-checklist"></i>
 						<strong>{{ taskName(selectedTask) }}</strong>
 						<span v-if="selectedTask.assignee" class="form-context-sub">
-							· {{ selectedTask.assignee === currentUserID ? t('app.tasks.context.me', undefined, 'me') : selectedTask.assignee }}
+							· {{ selectedTask.assignee === currentUserID ? t('app.tasks.context.me', undefined, 'me') : (selectedTask.assigneeDisplayName || selectedTask.assignee) }}
 						</span>
 						<span v-else class="form-context-sub form-context-warn">· {{ t('app.tasks.context.unassigned', undefined, 'unassigned') }}</span>
 					</span>
@@ -412,7 +412,7 @@
 					<div class="history-summary">
 						<div class="history-fact">
 							<span class="history-label">{{ t('app.tasks.history.startedBy', undefined, 'Started by') }}</span>
-							<span class="history-value">{{ selectedHistory.startUserId || '—' }}</span>
+							<span class="history-value">{{ selectedHistory.startUserDisplayName || selectedHistory.startUserId || '—' }}</span>
 						</div>
 						<div class="history-fact">
 							<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
@@ -447,7 +447,7 @@
 								</div>
 								<div class="history-step-grid">
 									<span class="history-label">{{ t('app.tasks.history.assignee', undefined, 'Assignee') }}</span>
-									<span class="history-value">{{ step.assignee || '—' }}</span>
+									<span class="history-value">{{ step.assigneeDisplayName || step.assignee || '—' }}</span>
 									<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
 									<span class="history-value">{{ formatDateTime(step.startTime) }}</span>
 									<span class="history-label">{{ t('app.tasks.history.ended', undefined, 'Ended') }}</span>

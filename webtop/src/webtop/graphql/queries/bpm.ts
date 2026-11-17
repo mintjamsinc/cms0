@@ -21,6 +21,7 @@ export const TASK_BASIC_FIELDS = `
   name
   description
   assignee
+  assigneeDisplayName
   created
   due
   priority
@@ -37,6 +38,7 @@ export const TASK_FULL_FIELDS = `
   name
   description
   assignee
+  assigneeDisplayName
   owner
   created
   due
@@ -107,6 +109,7 @@ export const BPM_QUERIES = {
         name
         description
         assignee
+        assigneeDisplayName
         owner
         created
         due
@@ -195,6 +198,7 @@ export const BPM_QUERIES = {
             name
             description
             assignee
+            assigneeDisplayName
             created
             due
             priority
@@ -307,6 +311,7 @@ export const BPM_QUERIES = {
             definitionVersion
             businessKey
             startUserId
+            startUserDisplayName
             startTime
             endTime
             durationInMillis
@@ -333,6 +338,7 @@ export const BPM_QUERIES = {
         definitionVersion
         businessKey
         startUserId
+        startUserDisplayName
         startTime
         endTime
         durationInMillis
@@ -342,6 +348,7 @@ export const BPM_QUERIES = {
           taskDefinitionKey
           name
           assignee
+          assigneeDisplayName
           startTime
           endTime
           durationInMillis
@@ -350,10 +357,13 @@ export const BPM_QUERIES = {
             id
             time
             userId
+            userDisplayName
             type
             property
             oldValue
             newValue
+            oldValueDisplayName
+            newValueDisplayName
           }
         }
       }
@@ -609,6 +619,7 @@ export const BPM_MUTATIONS = {
       claimTask(taskId: $taskId, expectedRevision: $expectedRevision) {
         id
         assignee
+        assigneeDisplayName
         revision
       }
     }
@@ -620,6 +631,7 @@ export const BPM_MUTATIONS = {
       unclaimTask(taskId: $taskId, expectedRevision: $expectedRevision) {
         id
         assignee
+        assigneeDisplayName
         revision
       }
     }
@@ -631,6 +643,7 @@ export const BPM_MUTATIONS = {
       assignTask(taskId: $taskId, assignee: $assignee) {
         id
         assignee
+        assigneeDisplayName
         revision
       }
     }
@@ -642,6 +655,7 @@ export const BPM_MUTATIONS = {
       setTaskAssignee(taskId: $taskId, assignee: $assignee, expectedRevision: $expectedRevision) {
         id
         assignee
+        assigneeDisplayName
         revision
       }
     }
@@ -653,6 +667,7 @@ export const BPM_MUTATIONS = {
       delegateTask(taskId: $taskId, assignee: $assignee) {
         id
         assignee
+        assigneeDisplayName
         owner
         revision
       }

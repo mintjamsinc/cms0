@@ -100,6 +100,8 @@ type Task {
   name: String
   description: String
   assignee: String
+  """The display name of assignee; null when the user has none or no longer exists."""
+  assigneeDisplayName: String
   owner: String
   created: DateTime
   due: DateTime
@@ -523,6 +525,8 @@ type ProcessHistoryEntry {
   businessKey: String
   """The user who started the instance; null when it was started without one (e.g. by a route)."""
   startUserId: String
+  """The display name of startUserId; null when the user has none or no longer exists."""
+  startUserDisplayName: String
   startTime: DateTime
   endTime: DateTime
   durationInMillis: Long
@@ -543,6 +547,8 @@ type ProcessHistoryStep {
   route or a script, or before that rule existed, carry no such guarantee.
   """
   assignee: String
+  """The display name of assignee; null when the user has none or no longer exists."""
+  assigneeDisplayName: String
   startTime: DateTime
   endTime: DateTime
   durationInMillis: Long
@@ -557,11 +563,17 @@ type ProcessHistoryOperation {
   id: ID!
   time: DateTime
   userId: String
+  """The display name of userId; null when the user has none or no longer exists."""
+  userDisplayName: String
   """The engine's operation type: Claim, Assign, Complete, Delegate, Resolve, SetOwner, SetPriority, …"""
   type: String!
   property: String
   oldValue: String
   newValue: String
+  """The display name of oldValue when property names a user (assignee, owner); null otherwise."""
+  oldValueDisplayName: String
+  """The display name of newValue when property names a user (assignee, owner); null otherwise."""
+  newValueDisplayName: String
 }
 
 type ProcessHistoryConnection {

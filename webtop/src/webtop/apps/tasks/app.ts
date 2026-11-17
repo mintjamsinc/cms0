@@ -709,7 +709,7 @@ export const App = {
 			const q = this.filters.historyKeyword.trim().toLowerCase();
 			if (!q) return entries;
 			return entries.filter(h => {
-				const hay = `${this.historyProcessName(h)} ${h.definitionName || ''} ${h.definitionKey || ''} ${h.businessKey || ''} ${h.startUserId || ''}`.toLowerCase();
+				const hay = `${this.historyProcessName(h)} ${h.definitionName || ''} ${h.definitionKey || ''} ${h.businessKey || ''} ${h.startUserId || ''} ${h.startUserDisplayName || ''}`.toLowerCase();
 				return hay.includes(q);
 			});
 		},
@@ -756,8 +756,8 @@ export const App = {
 		// operation types fall back to the engine's own name rather than being
 		// dropped.
 		operationLabel(op: ProcessHistoryOperation): string {
-			const user = op.userId || '—';
-			const to = op.newValue || '';
+			const user = op.userDisplayName || op.userId || '—';
+			const to = op.newValue ? (op.newValueDisplayName || op.newValue) : '';
 			switch (op.type) {
 				case 'Claim':
 					return to
@@ -2096,7 +2096,7 @@ export const App = {
 				data: {
 					taskId: t.id,
 					taskName: this.taskName(t),
-					currentAssignee: t.assignee || '',
+					currentAssignee: t.assigneeDisplayName || t.assignee || '',
 				},
 			};
 		},

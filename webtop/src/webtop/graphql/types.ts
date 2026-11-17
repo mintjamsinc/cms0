@@ -579,6 +579,7 @@ export interface Task {
   name: string;
   description?: string;
   assignee?: string;
+  assigneeDisplayName?: string | null;
   owner?: string;
   created: string;
   due?: string;
@@ -698,10 +699,15 @@ export interface ProcessHistoryOperation {
   id: string;
   time?: string | null;
   userId?: string | null;
+  userDisplayName?: string | null;
   type: string;
   property?: string | null;
   oldValue?: string | null;
   newValue?: string | null;
+  /** Set only when `property` names a user (assignee, owner). */
+  oldValueDisplayName?: string | null;
+  /** Set only when `property` names a user (assignee, owner). */
+  newValueDisplayName?: string | null;
 }
 
 export interface ProcessHistoryStep {
@@ -709,6 +715,7 @@ export interface ProcessHistoryStep {
   taskDefinitionKey?: string | null;
   name?: string | null;
   assignee?: string | null;
+  assigneeDisplayName?: string | null;
   startTime?: string | null;
   endTime?: string | null;
   durationInMillis?: number | null;
@@ -724,6 +731,7 @@ export interface ProcessHistoryEntry {
   definitionVersion?: number | null;
   businessKey?: string | null;
   startUserId?: string | null;
+  startUserDisplayName?: string | null;
   startTime?: string | null;
   endTime?: string | null;
   durationInMillis?: number | null;
