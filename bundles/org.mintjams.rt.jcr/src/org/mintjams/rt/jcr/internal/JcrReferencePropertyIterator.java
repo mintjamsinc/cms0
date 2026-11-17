@@ -50,6 +50,10 @@ public class JcrReferencePropertyIterator implements PropertyIterator, Adaptable
 	private final String fName;
 	private final boolean fWeak;
 	private int fOffset;
+	// The last row fetched (property name and identifier): the next page
+	// starts after it. Null until the first fetch.
+	private String fLastName;
+	private String fLastId;
 	private long fPosition;
 	private long fTotalHits = -1;
 	private final List<AdaptableMap<String, Object>> fFetchList = new ArrayList<>();
@@ -145,9 +149,15 @@ public class JcrReferencePropertyIterator implements PropertyIterator, Adaptable
 				throw Cause.create(ex).wrap(IllegalStateException.class);
 			}
 		}
-		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listReferences(fNode.getIdentifier(), fName, fWeak)) {
+		// Each page starts after the last row read. The query used to start from
+		// the first row every time, so a node with more references than one
+		// page returned its first page over and over and never ended.
+		try (Query.Result result = adaptTo(WorkspaceQuery.class).items().listReferences(fNode.getIdentifier(), fName, fWeak,
+				fLastName, fLastId)) {
 			for (AdaptableMap<String, Object> itemData : result) {
 				fFetchList.add(itemData);
+				fLastName = itemData.getString("item_name");
+				fLastId = itemData.getString("item_id");
 				fOffset++;
 				if (fFetchList.size() >= fFetchSize) {
 					fFetchMore = true;

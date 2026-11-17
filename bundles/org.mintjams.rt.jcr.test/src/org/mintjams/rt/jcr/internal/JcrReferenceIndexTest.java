@@ -6,6 +6,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.UUID;
 
 import javax.jcr.Node;
@@ -234,6 +237,77 @@ public class JcrReferenceIndexTest {
 		session.save();
 		assertEquals(0, target.getReferences().getSize());
 
+		target.remove();
+		session.save();
+		assertFalse(session.nodeExists(testRootPath + "/target"));
+	}
+
+	/** More references than the iterator reads in one page (10). */
+	private static final int MANY = 25;
+
+	/**
+	 * Reads every property the iterator returns, stopping at a bound so that
+	 * an iterator that never ends fails the test instead of hanging the run.
+	 */
+	private static List<String> paths(PropertyIterator i) throws RepositoryException {
+		List<String> paths = new ArrayList<>();
+		while (i.hasNext()) {
+			paths.add(i.nextProperty().getPath());
+			if (paths.size() > MANY * 4) {
+				fail("The iterator did not end after " + paths.size() + " properties: " + paths);
+			}
+		}
+		return paths;
+	}
+
+	private Node addSources(Node target, int type) throws RepositoryException {
+		Node sources = addFolder(type == PropertyType.WEAKREFERENCE ? "weakSources" : "sources");
+		for (int i = 0; i < MANY; i++) {
+			// One property name for all of them: the order within it is the
+			// property identifier, which a page must carry on from.
+			setReference(sources.addNode("source-" + i, FOLDER), target, type);
+		}
+		return sources;
+	}
+
+	@Test
+	public void manyReferencesAreEachListedOnce() throws RepositoryException {
+		requireWritable();
+
+		Node target = addFolder("target");
+		addSources(target, PropertyType.REFERENCE);
+		addSources(target, PropertyType.WEAKREFERENCE);
+		session.save();
+
+		for (PropertyIterator i : new PropertyIterator[] { target.getReferences(), target.getWeakReferences() }) {
+			long size = i.getSize();
+			List<String> paths = paths(i);
+			assertEquals(MANY, size);
+			assertEquals(MANY, paths.size());
+			assertEquals(MANY, new HashSet<>(paths).size());
+		}
+	}
+
+	@Test
+	public void removingReferencesWhileIteratingVisitsEach() throws RepositoryException {
+		requireWritable();
+
+		Node target = addFolder("target");
+		addSources(target, PropertyType.REFERENCE);
+		session.save();
+
+		int visited = 0;
+		for (PropertyIterator i = target.getReferences(); i.hasNext();) {
+			i.nextProperty().remove();
+			visited++;
+			if (visited > MANY * 4) {
+				fail("The iterator did not end after " + visited + " properties.");
+			}
+		}
+		assertEquals(MANY, visited);
+		session.save();
+
+		assertEquals(0, target.getReferences().getSize());
 		target.remove();
 		session.save();
 		assertFalse(session.nodeExists(testRootPath + "/target"));
