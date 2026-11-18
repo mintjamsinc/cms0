@@ -3,13 +3,15 @@
 
     <!--
         Keeps a notice for the user a task is assigned to, and takes it back
-        when the task is done.
+        when the task is no longer theirs.
 
         The process engine posts its task lifecycle on EventAdmin
         (org/camunda/bpm/engine/task/Task/<ACTION>, bpm-eventadmin.md), after
-        the transaction committed. An ASSIGNED event with an assignee leaves
-        that user a notice in the notification center, opening the Tasks app
-        at the task; COMPLETED and DELETED take the notice back
+        the transaction committed, on the node that committed it only, so a
+        cluster runs this once per event. An assignment leaves the assignee a
+        notice in the notification center, opening the Tasks app at the task,
+        unless they made it themselves; the notice is taken back when the task
+        is given to someone else, given back, completed or deleted
         (webtop.notices.TaskNotices). The record is written as the notice
         service user, so the user finds it on every desktop they open.
 

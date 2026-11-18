@@ -21,6 +21,13 @@
 # Nothing is provisioned for the records themselves: the home exists, or is
 # made sure of, when the folder is created (ScriptAPI.createUserContext).
 #
+#   /var/lib/notices              closed to everyone; the service group owns it
+#   /var/lib/notices/tasks        who holds the notice of a task, one record
+#                                 per task that has one (notice:user), so
+#                                 that the notice can be taken back when the
+#                                 task goes to someone else
+#                                 (webtop.notices.TaskNotices).
+#
 # The notice: namespace names the properties of a record.
 
 namespaces:
@@ -35,3 +42,16 @@ users:
     service: true
     displayName: Webtop Notice Service
     memberOf: [webtop-notice-service-group]
+
+nodes:
+  - path: /var/lib/notices
+    primaryType: nt:folder
+    acl:
+      - principal: everyone
+        privileges: jcr:read
+        effect: deny
+      - group: webtop-notice-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lib/notices/tasks
+    primaryType: nt:folder

@@ -113,11 +113,28 @@ options — no more than that user could do by sending a message. A notice
 kept on the server comes from a script only.
 
 **From the server, for a task**: the route
-`etc/eip/routes/webtop/notices.xml` keeps a notice for the assignee of
-every user task the process engine assigns
-([`bpm-eventadmin.md`](bpm-eventadmin.md)) — *New task: "…" was assigned
-to you*, opening the Tasks app at the task — and takes it back when the
-task is completed or deleted (`webtop.notices.TaskNotices`).
+`etc/eip/routes/webtop/notices.xml` keeps a notice for the user a task is
+assigned to ([`bpm-eventadmin.md`](bpm-eventadmin.md)) — *New task: "…"
+was assigned to you*, opening the Tasks app at the task — for as long as
+the task is theirs (`webtop.notices.TaskNotices`):
+
+| What happens to the task | The notice |
+|---|---|
+| assigned to a user by someone else | written for that user |
+| claimed, or assigned to oneself | none: nobody is told of what they did themselves |
+| assigned to another user | taken back from the one, written for the other |
+| given back (no assignee) | taken back |
+| completed or deleted | taken back |
+
+The candidates of a task are not told; what a user may claim is on the
+Dashboard ([`webtop-dashboard.md`](webtop-dashboard.md)). An event tells
+what the task is now, not what it was, so who holds the notice of a task
+is kept beside the notices (`/var/lib/notices/tasks`, closed to everyone
+but the notice service): every event of a task brings the notice in line
+with the task, and a change missed once is put right by the next. The
+route listens to the engine topics, which a cluster posts on the
+committing node only, so it runs once per event however many nodes there
+are.
 
 ## What the shell does
 
