@@ -16,14 +16,15 @@ minimumHeight: 420
 customWindowControls: true
 # One list per desktop: a second launch focuses the running one.
 singleton: true
-widgets:
-  note:
-    title: Sticky Note
-    entry: widget.html
-    width: 240
-    height: 220
-    resizable: true
-    minWidth: 160
-    minHeight: 120
-    multiple: true
-    layer: desktop
+extensions:
+  widgets:
+    note:
+      title: Sticky Note
+      entry: widget.html
+      width: 240
+      height: 220
+      resizable: true
+      minWidth: 160
+      minHeight: 120
+      multiple: true
+      layer: desktop

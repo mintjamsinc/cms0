@@ -1,9 +1,10 @@
 import { WebtopContext } from '../global.js';
 
-// A desktop widget declared in app.yml (`widgets:`): a page of the app the
-// shell places on the desktop outside any window. See WidgetInstance.
-// An extension declared in app.yml (`extensions:`): a module of the app that
-// another app loads where a folder's .extensions.yml names it.
+// A desktop widget declared in app.yml (`extensions.widgets`): a page of the
+// app the shell places on the desktop outside any window. See WidgetInstance.
+// An extension declared in app.yml (`extensions.content-browser`, say): a
+// module of the app that another app loads where a folder's .extensions.yml
+// names it.
 export interface AppExtension {
 	/** What is extended, e.g. `content-browser`. */
 	kind: string;
@@ -71,7 +72,8 @@ export class Application {
 	// launch options, besides a repository path.
 	get fileHandles(): boolean { return !!this.#data.fileHandles; }
 	get widgets(): AppWidget[] { return this.#data.widgets || []; }
-	// What the app adds to other apps (`extensions:` in app.yml), e.g. to the
+	// The modules the app adds to other apps (`extensions` in app.yml, except
+	// `dashboard` and `widgets`, which have getters of their own), e.g. to the
 	// Content Browser. A folder's .extensions.yml turns one on by
 	// `<relPath>/<identifier>`; the extended app loads `module` from this
 	// app's directory.

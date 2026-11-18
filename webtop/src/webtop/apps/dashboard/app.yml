@@ -14,184 +14,185 @@ singleton: true
 # on the server by its provider (/usr/local/classes/webtop/dashboard) and
 # pushed to the Dashboards that are open; other apps add their own sections
 # and cards the same way (documents/webtop-dashboard.md).
-dashboard:
-  sections:
-    today:
-      title: Today's Work
-      icon: bi-sun
-      order: 100
-    operations:
-      title: Operations
-      icon: bi-activity
-      order: 900
-  cards:
-    my-day:
-      section: today
-      summary: true
-      title: My day
-      icon: bi-person-workspace
-      order: 10
-      scope: user
-      provider: webtop.dashboard.MyDay
-      refresh:
-        topics: [org/mintjams/rt/cms/bpm/Task/*]
-        users: [assignee, previousAssignee, candidateUsers]
-        groups: [candidateGroups]
-        interval: 300
-      open:
-        app: tasks
-        options: { scope: assigned }
-    my-tasks:
-      section: today
-      title: My tasks
-      icon: bi-person-check
-      order: 20
-      scope: user
-      provider: webtop.dashboard.MyTasks
-      refresh:
-        topics: [org/mintjams/rt/cms/bpm/Task/*]
-        users: [assignee, previousAssignee]
-        interval: 300
-      open:
-        app: tasks
-        options: { scope: assigned }
-    team-queue:
-      section: today
-      title: Team queue
-      icon: bi-people
-      order: 30
-      provider: webtop.dashboard.TeamQueue
-      refresh:
-        topics: [org/mintjams/rt/cms/bpm/Task/*]
-        interval: 300
-      open:
-        app: tasks
-        options: { scope: candidate }
-    bottlenecks:
-      section: today
-      title: Where work piles up
-      icon: bi-cone-striped
-      order: 40
-      provider: webtop.dashboard.Bottlenecks
-      refresh:
-        topics: [org/mintjams/rt/cms/bpm/Task/*]
-        interval: 300
-      open:
-        app: tasks
-        options: { scope: all }
-    health:
-      section: operations
-      summary: true
-      title: Are operations healthy?
-      icon: bi-heart-pulse
-      order: 10
-      roles: []
-      provider: webtop.dashboard.Health
-      refresh:
-        cards:
-          - dashboard/running
-          - dashboard/incidents
-          - dashboard/routes
-          - dashboard/throughput
-          - dashboard/connections
-          - dashboard/workspaces
-          - dashboard/cluster
-    definitions:
-      section: operations
-      title: Process definitions
-      icon: bi-diagram-3
-      order: 20
-      roles: []
-      provider: webtop.dashboard.Definitions
-      refresh:
-        interval: 60
-      open:
-        app: bpm-console
-    running:
-      section: operations
-      title: Running processes
-      icon: bi-arrow-repeat
-      order: 30
-      roles: []
-      provider: webtop.dashboard.Running
-      refresh:
-        topics:
-          - org/mintjams/rt/cms/bpm/ProcessInstance/*
-          - org/mintjams/rt/cms/bpm/Incident/*
-        interval: 60
-      open:
-        app: bpm-console
-        options: { view: instances }
-    incidents:
-      section: operations
-      title: Incidents
-      icon: bi-exclamation-octagon
-      order: 40
-      roles: []
-      provider: webtop.dashboard.Incidents
-      refresh:
-        topics: [org/mintjams/rt/cms/bpm/Incident/*]
-        interval: 60
-      open:
-        app: bpm-console
-        options: { view: incidents }
-    routes:
-      section: operations
-      title: Integration routes
-      icon: bi-signpost-split
-      order: 50
-      roles: []
-      collect: node
-      detail: true
-      provider: webtop.dashboard.Routes
-      refresh:
-        interval: 30
-      open:
-        app: eip-console
-    throughput:
-      section: operations
-      title: Throughput & errors
-      icon: bi-graph-up-arrow
-      order: 60
-      roles: []
-      collect: node
-      detail: true
-      provider: webtop.dashboard.Throughput
-      refresh:
-        interval: 30
-      open:
-        app: eip-console
-        options: { status: failed }
-    connections:
-      section: operations
-      title: External connections
-      icon: bi-plug
-      order: 70
-      roles: []
-      collect: node
-      detail: true
-      provider: webtop.dashboard.Connections
-      refresh:
-        interval: 30
-      open:
-        app: eip-console
-    workspaces:
-      section: operations
-      title: Workspaces
-      icon: bi-collection
-      order: 80
-      roles: []
-      provider: webtop.dashboard.Workspaces
-      refresh:
-        interval: 20
-      open:
-        app: workspace-manager
-    cluster:
-      section: operations
-      title: Cluster
-      icon: bi-hdd-rack
-      order: 90
-      roles: []
-      provider: webtop.dashboard.Cluster
-      refresh:
-        interval: 15
+extensions:
+  dashboard:
+    sections:
+      today:
+        title: Today's Work
+        icon: bi-sun
+        order: 100
+      operations:
+        title: Operations
+        icon: bi-activity
+        order: 900
+    cards:
+      my-day:
+        section: today
+        summary: true
+        title: My day
+        icon: bi-person-workspace
+        order: 10
+        scope: user
+        provider: webtop.dashboard.MyDay
+        refresh:
+          topics: [org/mintjams/rt/cms/bpm/Task/*]
+          users: [assignee, previousAssignee, candidateUsers]
+          groups: [candidateGroups]
+          interval: 300
+        open:
+          app: tasks
+          options: { scope: assigned }
+      my-tasks:
+        section: today
+        title: My tasks
+        icon: bi-person-check
+        order: 20
+        scope: user
+        provider: webtop.dashboard.MyTasks
+        refresh:
+          topics: [org/mintjams/rt/cms/bpm/Task/*]
+          users: [assignee, previousAssignee]
+          interval: 300
+        open:
+          app: tasks
+          options: { scope: assigned }
+      team-queue:
+        section: today
+        title: Team queue
+        icon: bi-people
+        order: 30
+        provider: webtop.dashboard.TeamQueue
+        refresh:
+          topics: [org/mintjams/rt/cms/bpm/Task/*]
+          interval: 300
+        open:
+          app: tasks
+          options: { scope: candidate }
+      bottlenecks:
+        section: today
+        title: Where work piles up
+        icon: bi-cone-striped
+        order: 40
+        provider: webtop.dashboard.Bottlenecks
+        refresh:
+          topics: [org/mintjams/rt/cms/bpm/Task/*]
+          interval: 300
+        open:
+          app: tasks
+          options: { scope: all }
+      health:
+        section: operations
+        summary: true
+        title: Are operations healthy?
+        icon: bi-heart-pulse
+        order: 10
+        roles: []
+        provider: webtop.dashboard.Health
+        refresh:
+          cards:
+            - dashboard/running
+            - dashboard/incidents
+            - dashboard/routes
+            - dashboard/throughput
+            - dashboard/connections
+            - dashboard/workspaces
+            - dashboard/cluster
+      definitions:
+        section: operations
+        title: Process definitions
+        icon: bi-diagram-3
+        order: 20
+        roles: []
+        provider: webtop.dashboard.Definitions
+        refresh:
+          interval: 60
+        open:
+          app: bpm-console
+      running:
+        section: operations
+        title: Running processes
+        icon: bi-arrow-repeat
+        order: 30
+        roles: []
+        provider: webtop.dashboard.Running
+        refresh:
+          topics:
+            - org/mintjams/rt/cms/bpm/ProcessInstance/*
+            - org/mintjams/rt/cms/bpm/Incident/*
+          interval: 60
+        open:
+          app: bpm-console
+          options: { view: instances }
+      incidents:
+        section: operations
+        title: Incidents
+        icon: bi-exclamation-octagon
+        order: 40
+        roles: []
+        provider: webtop.dashboard.Incidents
+        refresh:
+          topics: [org/mintjams/rt/cms/bpm/Incident/*]
+          interval: 60
+        open:
+          app: bpm-console
+          options: { view: incidents }
+      routes:
+        section: operations
+        title: Integration routes
+        icon: bi-signpost-split
+        order: 50
+        roles: []
+        collect: node
+        detail: true
+        provider: webtop.dashboard.Routes
+        refresh:
+          interval: 30
+        open:
+          app: eip-console
+      throughput:
+        section: operations
+        title: Throughput & errors
+        icon: bi-graph-up-arrow
+        order: 60
+        roles: []
+        collect: node
+        detail: true
+        provider: webtop.dashboard.Throughput
+        refresh:
+          interval: 30
+        open:
+          app: eip-console
+          options: { status: failed }
+      connections:
+        section: operations
+        title: External connections
+        icon: bi-plug
+        order: 70
+        roles: []
+        collect: node
+        detail: true
+        provider: webtop.dashboard.Connections
+        refresh:
+          interval: 30
+        open:
+          app: eip-console
+      workspaces:
+        section: operations
+        title: Workspaces
+        icon: bi-collection
+        order: 80
+        roles: []
+        provider: webtop.dashboard.Workspaces
+        refresh:
+          interval: 20
+        open:
+          app: workspace-manager
+      cluster:
+        section: operations
+        title: Cluster
+        icon: bi-hdd-rack
+        order: 90
+        roles: []
+        provider: webtop.dashboard.Cluster
+        refresh:
+          interval: 15

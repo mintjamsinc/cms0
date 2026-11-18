@@ -28,11 +28,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import javax.jcr.Node;
 import javax.jcr.Session;
 
+import org.mintjams.rt.cms.internal.dashboard.DashboardCards;
+import org.mintjams.rt.cms.internal.graphql.AppWidgets;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
 
@@ -66,6 +69,11 @@ import org.snakeyaml.engine.v2.api.LoadSettings;
  * <p>The top-level key is the kind (what is extended), an item is
  * {@code <app relPath>/<name>}. The file can only name what an installed app
  * declares; it never says which code runs.</p>
+ *
+ * <p>{@code extensions} in {@code app.yml} also holds what an app adds to the
+ * Dashboard ({@code dashboard}) and the desktop ({@code widgets}). Those are
+ * not modules and are always on; their own readers take them
+ * ({@link #declared}), and a folder's file cannot turn them on or off.</p>
  */
 public final class FolderExtensions {
 
@@ -85,9 +93,30 @@ public final class FolderExtensions {
 	// =========================================================================
 
 	/**
+	 * The kinds under {@code extensions} that are not modules: each is read by
+	 * its own reader into a field of its own ({@code App.dashboard},
+	 * {@code App.widgets}), not into {@code App.extensions}.
+	 */
+	private static final Set<String> DECLARATION_KINDS = Set.of(DashboardCards.KIND, AppWidgets.KIND);
+
+	/**
+	 * What an {@code app.yml} declares for one kind under {@code extensions}
+	 * ({@code extensions.<kind>}), or {@code null}.
+	 */
+	@SuppressWarnings("unchecked")
+	public static Object declared(Map<String, Object> descriptor, String kind) {
+		if (descriptor == null || !(descriptor.get("extensions") instanceof Map)) {
+			return null;
+		}
+		return ((Map<String, Object>) descriptor.get("extensions")).get(kind);
+	}
+
+	/**
 	 * Reads the {@code extensions} map of an {@code app.yml} into the
-	 * {@code AppExtension} list of the {@code App} type. An entry without a
-	 * usable name or module is dropped.
+	 * {@code AppExtension} list of the {@code App} type: the extensions that
+	 * are modules of the app, such as those of the Content Browser. An entry
+	 * without a usable name or module is dropped, and so are the kinds read
+	 * elsewhere ({@code dashboard}, {@code widgets}).
 	 */
 	@SuppressWarnings("unchecked")
 	public static List<Map<String, Object>> fromDescriptor(Object extensionsObj) {
@@ -97,6 +126,7 @@ public final class FolderExtensions {
 		}
 		for (Map.Entry<String, Object> kind : ((Map<String, Object>) extensionsObj).entrySet()) {
 			if (kind.getKey() == null || !NAME_PATTERN.matcher(kind.getKey()).matches()
+					|| DECLARATION_KINDS.contains(kind.getKey())
 					|| !(kind.getValue() instanceof Map)) {
 				continue;
 			}

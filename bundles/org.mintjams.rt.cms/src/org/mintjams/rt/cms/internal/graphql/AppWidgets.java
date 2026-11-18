@@ -29,22 +29,23 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Reads the {@code widgets} map of a Webtop {@code app.yml} into the
- * {@code AppWidget} list of the {@code App} type. Shared by
+ * Reads the {@code extensions.widgets} map of a Webtop {@code app.yml} into
+ * the {@code AppWidget} list of the {@code App} type. Shared by
  * {@link QueryExecutor} and the platform wiring, which both build App nodes.
  *
  * <pre>
- * widgets:
- *   note:
- *     title: Sticky Note
- *     entry: widget.html
- *     width: 240
- *     height: 220
- *     resizable: true
- *     minWidth: 160
- *     minHeight: 120
- *     multiple: true
- *     layer: desktop
+ * extensions:
+ *   widgets:
+ *     note:
+ *       title: Sticky Note
+ *       entry: widget.html
+ *       width: 240
+ *       height: 220
+ *       resizable: true
+ *       minWidth: 160
+ *       minHeight: 120
+ *       multiple: true
+ *       layer: desktop
  * </pre>
  *
  * An entry without a usable {@code entry} page or size is dropped, so a
@@ -52,12 +53,20 @@ import java.util.regex.Pattern;
  */
 public final class AppWidgets {
 
+	/** The key under {@code extensions} in {@code app.yml}. */
+	public static final String KIND = "widgets";
+
 	/** A page inside the app directory: relative segments only, ending in .html. */
 	private static final Pattern ENTRY_PATTERN = Pattern.compile("([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.html");
 	private static final Pattern IDENTIFIER_PATTERN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]*");
 	private static final int MAX_SIZE = 1200;
 
 	private AppWidgets() {}
+
+	/** The widgets of an {@code app.yml}, read from its {@code extensions.widgets}. */
+	public static List<Map<String, Object>> forApp(Map<String, Object> descriptor) {
+		return fromDescriptor(org.mintjams.rt.cms.internal.extensions.FolderExtensions.declared(descriptor, KIND));
+	}
 
 	@SuppressWarnings("unchecked")
 	public static List<Map<String, Object>> fromDescriptor(Object widgetsObj) {

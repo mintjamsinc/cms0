@@ -459,11 +459,11 @@ public final class DashboardWorker implements Closeable {
 							continue;
 						}
 						Map<String, Object> data = parse(descriptor);
-						if (data == null || !(data.get("dashboard") instanceof Map)) {
+						if (data == null) {
 							continue;
 						}
 						DashboardCards.Declaration declaration = DashboardCards.fromDescriptor(
-								home.substring(root.length() + 1), data.get("dashboard"), data.get("roles"));
+								home.substring(root.length() + 1), data);
 						for (DashboardCards.Card card : declaration.cards) {
 							cards.putIfAbsent(card.id, new CardEntry(card, root));
 						}

@@ -1319,7 +1319,7 @@ public class QueryExecutor {
 		}
 		app.put("actions", actions);
 
-		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
+		app.put("widgets", AppWidgets.forApp(data));
 		app.put("extensions", org.mintjams.rt.cms.internal.extensions.FolderExtensions.fromDescriptor(data.get("extensions")));
 		app.put("dashboard", org.mintjams.rt.cms.internal.dashboard.DashboardCards.forApp(appYmlNode.getSession(), relPath, data));
 

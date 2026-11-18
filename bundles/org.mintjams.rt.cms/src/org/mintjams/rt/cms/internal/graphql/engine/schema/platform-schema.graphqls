@@ -368,7 +368,7 @@ type Subscription {
   topicMessage(topic: String!): TopicMessage!
 
   """
-  What the Dashboard cards show, made on the server. `path` is the apps folder whose apps declare the cards (the `dashboard` map of app.yml).
+  What the Dashboard cards show, made on the server. `path` is the apps folder whose apps declare the cards (`extensions.dashboard` of app.yml).
   The current snapshot of every card the subscriber may see comes first, then each snapshot as it changes; nothing is queried by the client.
   `timeZone` (IANA) is the subscriber's, for cards that count by the calendar day.
   """
@@ -1243,11 +1243,11 @@ type App {
   minimumWidth: Int
   minimumHeight: Int
   actions: [AppAction!]!
-  """Desktop widgets the app offers (the `widgets` map of app.yml)."""
+  """Desktop widgets the app offers (`extensions.widgets` of app.yml)."""
   widgets: [AppWidget!]!
-  """What the app extends in other apps (the `extensions` map of app.yml). A folder's .extensions.yml turns them on by name."""
+  """The modules the app adds to other apps (`extensions` of app.yml, e.g. `extensions.content-browser`; not `dashboard` and `widgets`, which have fields of their own). A folder's .extensions.yml turns them on by name."""
   extensions: [AppExtension!]!
-  """What the app adds to the Dashboard (the `dashboard` map of app.yml): its sections, and the cards the caller may see."""
+  """What the app adds to the Dashboard (`extensions.dashboard` of app.yml): its sections, and the cards the caller may see."""
   dashboard: AppDashboard!
 }
 

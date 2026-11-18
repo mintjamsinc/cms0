@@ -26,31 +26,32 @@ the present, kept nowhere.
 
 ## Declaring sections and cards
 
-In `app.yml`, under `dashboard`:
+In `app.yml`, under `extensions.dashboard`:
 
 ```yaml
-dashboard:
-  sections:
-    jp.example.office:
-      title: Office
-      icon: bi-building
-      order: 400
-  cards:
-    rooms:
-      section: jp.example.office
-      title: Meeting rooms
-      icon: bi-door-open
-      order: 10
-      size: 1
-      scope: shared
-      roles: [office-staff]
-      provider: office.dashboard.Rooms
-      refresh:
-        topics: [jp/example/office/reservation/*]
-        paths: [/var/lib/office/reservations]
-        interval: 300
-      open:
-        options: { view: rooms }
+extensions:
+  dashboard:
+    sections:
+      jp.example.office:
+        title: Office
+        icon: bi-building
+        order: 400
+    cards:
+      rooms:
+        section: jp.example.office
+        title: Meeting rooms
+        icon: bi-door-open
+        order: 10
+        size: 1
+        scope: shared
+        roles: [office-staff]
+        provider: office.dashboard.Rooms
+        refresh:
+          topics: [jp/example/office/reservation/*]
+          paths: [/var/lib/office/reservations]
+          interval: 300
+        open:
+          options: { view: rooms }
 ```
 
 A section:
@@ -89,8 +90,10 @@ Scope and roles are **per card**: one section holds shared and user cards,
 cards for everyone and cards for administrators. A section is shown to
 whoever sees at least one of its cards.
 
-Unlike a Content Browser extension, nothing turns a card on: it is there
-when the app is installed and the reader may see it. An open Dashboard
+The declaration sits under `extensions` beside those of the Content
+Browser, but unlike a Content Browser extension, nothing turns a card on
+(a folder's `.extensions.yml` has no say): it is there when the app is
+installed and the reader may see it. An open Dashboard
 follows the app.yml files under its apps folder and shows a card added or
 removed some five seconds after the change; a change of the reader's roles
 shows when the Dashboard is opened again.

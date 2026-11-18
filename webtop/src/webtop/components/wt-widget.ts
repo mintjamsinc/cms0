@@ -1,9 +1,9 @@
 // wt-widget custom element
 //
 // One desktop widget placement: a frameless iframe showing the widget page of
-// an app (app.yml `widgets:`), placed on the desktop outside any window. The
-// shell owns the placements (services/widget-store.ts) and passes each one
-// in; this component renders it, lets the user move / resize it, and runs the
+// an app (app.yml `extensions.widgets`), placed on the desktop outside any
+// window. The shell owns the placements (services/widget-store.ts) and passes
+// each one in; this component renders it, lets the user move / resize it, and runs the
 // widget page's `window.widgetLaunch(widget)`.
 //
 // Layers are z-index bands, not containers: an iframe moved to another parent

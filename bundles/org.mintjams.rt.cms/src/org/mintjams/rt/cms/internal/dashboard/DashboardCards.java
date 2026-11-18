@@ -31,39 +31,40 @@ import java.util.regex.Pattern;
 
 /**
  * The sections and cards an app adds to the Dashboard, as its {@code app.yml}
- * declares them:
+ * declares them under {@code extensions.dashboard}:
  *
  * <pre>
- * dashboard:
- *   sections:
- *     commerce:
- *       title: Commerce
- *       icon: bi-bag
- *       order: 300
- *   cards:
- *     orders:
- *       section: commerce
- *       title: Orders
- *       icon: bi-receipt
- *       order: 10
- *       size: 1                 # 1, 2 (twice as wide) or full
- *       scope: shared           # shared (one snapshot for everyone) | user
- *       roles: [commerce-staff] # who sees it; without it, whoever is offered the app
- *       summary: false          # true: the summary of its section
- *       detail: false           # true: the card can be maximized
- *       collect: node           # each node contributes a part
- *       provider: commerce.dashboard.Orders
- *       runAs: commerce-service-user
- *       options: { ... }        # handed to the provider as it is
- *       refresh:
- *         topics: [jp/example/commerce/order/*]
- *         paths: [/var/lib/commerce/orders]
- *         cards: [commerce/stock]
- *         interval: 300
- *         users: [assignee]     # user cards: the event properties naming who is concerned
- *         groups: [candidateGroups]
- *       open:
- *         options: { view: orders }
+ * extensions:
+ *   dashboard:
+ *     sections:
+ *       commerce:
+ *         title: Commerce
+ *         icon: bi-bag
+ *         order: 300
+ *     cards:
+ *       orders:
+ *         section: commerce
+ *         title: Orders
+ *         icon: bi-receipt
+ *         order: 10
+ *         size: 1                 # 1, 2 (twice as wide) or full
+ *         scope: shared           # shared (one snapshot for everyone) | user
+ *         roles: [commerce-staff] # who sees it; without it, whoever is offered the app
+ *         summary: false          # true: the summary of its section
+ *         detail: false           # true: the card can be maximized
+ *         collect: node           # each node contributes a part
+ *         provider: commerce.dashboard.Orders
+ *         runAs: commerce-service-user
+ *         options: { ... }        # handed to the provider as it is
+ *         refresh:
+ *           topics: [jp/example/commerce/order/*]
+ *           paths: [/var/lib/commerce/orders]
+ *           cards: [commerce/stock]
+ *           interval: 300
+ *           users: [assignee]     # user cards: the event properties naming who is concerned
+ *           groups: [candidateGroups]
+ *         open:
+ *           options: { view: orders }
  * </pre>
  *
  * A card is named {@code <app relPath>/<name>}. What a card shows is made on
@@ -71,6 +72,9 @@ import java.util.regex.Pattern;
  * ({@link DashboardWorker}); nothing here runs code.
  */
 public final class DashboardCards {
+
+	/** The key under {@code extensions} in {@code app.yml}. */
+	public static final String KIND = "dashboard";
 
 	public static final String SCOPE_SHARED = "shared";
 	public static final String SCOPE_USER = "user";
@@ -217,9 +221,24 @@ public final class DashboardCards {
 	}
 
 	/**
-	 * Reads the {@code dashboard} map of an {@code app.yml}. A section or a
-	 * card that is not well-formed is dropped; a card needs a section and a
-	 * provider.
+	 * Reads what an {@code app.yml} adds to the Dashboard, from its
+	 * {@code extensions.dashboard}.
+	 *
+	 * @param app the app's folder relative to the apps root
+	 */
+	public static Declaration fromDescriptor(String app, Map<String, Object> descriptor) {
+		if (descriptor == null) {
+			return Declaration.EMPTY;
+		}
+		return fromDescriptor(app,
+				org.mintjams.rt.cms.internal.extensions.FolderExtensions.declared(descriptor, KIND),
+				descriptor.get("roles"));
+	}
+
+	/**
+	 * Reads the {@code extensions.dashboard} map of an {@code app.yml}. A
+	 * section or a card that is not well-formed is dropped; a card needs a
+	 * section and a provider.
 	 *
 	 * @param app      the app's folder relative to the apps root
 	 * @param appRoles the {@code roles} of the app, which a card without its
@@ -269,7 +288,7 @@ public final class DashboardCards {
 	 * cards the user may see.
 	 */
 	public static Map<String, Object> forApp(javax.jcr.Session session, String app, Map<String, Object> descriptor) {
-		Declaration declaration = fromDescriptor(app, descriptor.get("dashboard"), descriptor.get("roles"));
+		Declaration declaration = fromDescriptor(app, descriptor);
 		List<Map<String, Object>> sections = new ArrayList<>();
 		for (Section section : declaration.sections) {
 			sections.add(section.toMap());

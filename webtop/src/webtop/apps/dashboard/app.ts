@@ -1,8 +1,8 @@
 // Dashboard — what needs attention, gathered in one place.
 //
 // The Dashboard owns no data. Apps declare sections and cards in their
-// app.yml (`dashboard:`), and what a card shows — its snapshot — is made on
-// the server by the card's provider and pushed here (Subscription
+// app.yml (`extensions.dashboard`), and what a card shows — its snapshot — is
+// made on the server by the card's provider and pushed here (Subscription
 // dashboardCards): the current snapshot of every card the user may see first,
 // then each one as it changes. This app queries nothing but the declarations
 // and draws what arrives, so every Dashboard shows the same numbers and none

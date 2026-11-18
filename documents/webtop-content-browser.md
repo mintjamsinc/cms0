@@ -349,11 +349,18 @@ extensions:
       module: browser/public.js
 ```
 
-The key under `extensions` is what is extended (`content-browser` is the
-only kind there is); the names under it are the app's own. The server hands
-them to the shell with the app (`App.extensions`: `kind`, `identifier`,
-`title`, `module`). A module path that leaves the app directory, or is not a
-`.js` / `.mjs` file, is dropped.
+The key under `extensions` is what is extended; the names under it are the
+app's own. The server hands them to the shell with the app
+(`App.extensions`: `kind`, `identifier`, `title`, `module`). A module path
+that leaves the app directory, or is not a `.js` / `.mjs` file, is dropped.
+
+The Content Browser reads `extensions.content-browser` only, and ignores
+every other key under `extensions` — in `app.yml` as in `.extensions.yml`.
+The same `extensions` holds what an app adds to the Dashboard
+(`extensions.dashboard`, [webtop-dashboard.md](webtop-dashboard.md)) and
+the desktop widgets (`extensions.widgets`); those are not modules, are not
+turned on by folders, and are not listed in `App.extensions` but in
+`App.dashboard` and `App.widgets`.
 
 ### What a folder turns on
 
