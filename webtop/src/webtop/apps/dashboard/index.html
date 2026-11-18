@@ -72,483 +72,123 @@
 		<!-- Ready -->
 		<div v-else class="dash-body">
 
-			<!-- =================================================================
-			     TODAY'S WORK — business perspective, shown to every user.
-			     "What should I do next?"
-			     ============================================================== -->
-			<section class="dash-section">
+			<wt-empty-state v-if="layout.length === 0" icon="bi-grid">
+				{{ t('app.dashboard.state.empty', undefined, 'There is nothing on your dashboard yet.') }}
+			</wt-empty-state>
+
+			<!-- A section per declared section that has a card the user may see.
+			     What a card shows is the snapshot its provider made on the server
+			     (see app.ts); the markup below draws the blocks of a snapshot and
+			     knows nothing of any particular card. While a card is maximized
+			     the layout holds that card alone. -->
+			<section class="dash-section" v-for="section in layout" :key="section.key">
 				<div class="dash-section-head">
-					<i class="bi bi-sun"></i>{{ t('app.dashboard.work.title', undefined, "Today's Work") }}
-					<span class="dash-section-sub">{{ t('app.dashboard.work.subtitle', undefined, 'What needs your attention') }}</span>
+					<i class="bi" :class="section.icon"></i>{{ section.title }}
+					<span class="nav-spacer"></span>
+					<button class="dash-section-toggle" v-if="section.canToggle" @click="toggleSection(section.id)"
+						:title="section.summaryOnly ? t('app.dashboard.section.showAll.hint', undefined, 'Show every card of this section') : t('app.dashboard.section.showSummary.hint', undefined, 'Show the summary only')">
+						<i class="bi" :class="section.summaryOnly ? 'bi-grid-3x2-gap' : 'bi-dash-square'"></i>
+						{{ section.summaryOnly ? t('app.dashboard.section.showAll', undefined, 'All cards') : t('app.dashboard.section.showSummary', undefined, 'Summary only') }}
+					</button>
 				</div>
 
-				<div class="dash-grid">
-
-					<!-- HERO: Today's Work -->
-					<div class="island dash-card dash-card-wide">
+				<div class="dash-grid" :class="{ 'is-maximized': section.maximized }">
+					<div class="island dash-card" v-for="card in section.cards" :key="card.key" :class="card.sizeClass">
 						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-person-workspace"></i>{{ t('app.dashboard.myDay.title', undefined, 'My day') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openMyTasks', undefined, 'Open my tasks')"
-								@click="openTasks({ scope: 'assigned' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
+							<span class="head-title"><i class="bi" :class="card.icon"></i>{{ card.title }}</span>
+							<span class="dash-card-actions">
+								<button class="dash-card-link" v-if="card.canMaximize" @click="toggleMaximize(card.id)"
+									:title="card.maximized ? t('app.dashboard.action.restore', undefined, 'Back to the dashboard') : t('app.dashboard.action.maximize', undefined, 'Show the details')">
+									<i class="bi" :class="card.maximized ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen'"></i>
+								</button>
+								<button class="dash-card-link" v-if="card.link" @click="open(card.link)"
+									:title="t('app.dashboard.action.open', undefined, 'Open')">
+									<i class="bi bi-box-arrow-up-right"></i>
+								</button>
+							</span>
 						</div>
-						<div class="dash-wide-body">
-							<div>
-								<div class="dash-kpis">
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.myOpen.hint', undefined, 'Tasks assigned to me')">
-										<span class="dash-kpi-value">{{ work.myOpen }}</span>
-										<span class="dash-kpi-label">{{ t('app.dashboard.myDay.myOpen', undefined, 'My open tasks') }}</span>
+
+						<div class="dash-list-empty" v-if="!card.loaded">
+							<wt-spinner size="sm"></wt-spinner>
+						</div>
+
+						<div class="dash-columns" :class="{ 'is-split': card.columns.length > 1 }">
+							<div class="dash-column" v-for="(column, ci) in card.columns" :key="ci">
+								<div class="dash-block" v-for="(block, bi) in column" :key="bi">
+
+									<div class="dash-card-head" v-if="block.title">{{ block.title }}</div>
+
+									<!-- kpis: a strip of numbers -->
+									<div class="dash-kpis" v-if="block.type === 'kpis'">
+										<div class="dash-kpi" v-for="(item, ii) in block.items" :key="ii" :class="{ 'is-link': item.link }"
+											@click="open(item.link)" :title="item.hint">
+											<span class="dash-kpi-value" v-if="item.badge"><wt-badge :variant="item.tone">{{ item.value }}</wt-badge></span>
+											<span class="dash-kpi-value" v-else :class="item.valueClass">{{ item.value }}<span class="dash-denom" v-if="item.denom">/{{ item.denom }}</span></span>
+											<span class="dash-kpi-label">{{ item.label }}</span>
+										</div>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.dueToday.hint', undefined, 'Assigned to me, due today')">
-										<span class="dash-kpi-value" :class="{ 'dash-value-warn': work.dueToday > 0 }">{{ work.dueToday }}</span>
-										<span class="dash-kpi-label">{{ t('app.dashboard.metric.dueToday', undefined, 'Due today') }}</span>
+
+									<!-- metric: the one number the card is about -->
+									<div class="dash-metric" v-else-if="block.type === 'metric'">
+										<span class="dash-metric-value" :class="block.valueClass">{{ block.value }}<span class="dash-denom" v-if="block.denom">/{{ block.denom }}</span></span>
+										<span class="dash-metric-unit">{{ block.unit }}</span>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'assigned' })" :title="t('app.dashboard.myDay.overdue.hint', undefined, 'Assigned to me, past due')">
-										<span class="dash-kpi-value" :class="{ 'dash-value-danger': work.overdue > 0 }">{{ work.overdue }}</span>
-										<span class="dash-kpi-label">{{ t('app.dashboard.metric.overdue', undefined, 'Overdue') }}</span>
+
+									<!-- rows: label and value -->
+									<div class="dash-rows" v-else-if="block.type === 'rows'">
+										<div class="dash-row" v-for="(row, ri) in block.items" :key="ri" :title="row.hint">
+											<span class="dash-row-label"><i class="bi" v-if="row.icon" :class="row.icon"></i>{{ row.label }}</span>
+											<wt-badge v-if="row.badge" :variant="row.tone">{{ row.value }}</wt-badge>
+											<span class="dash-row-value" v-else :class="row.valueClass">{{ row.value }}</span>
+										</div>
 									</div>
-									<div class="dash-kpi is-link" @click="openTasks({ scope: 'candidate' })" :title="t('app.dashboard.myDay.toClaim.hint', undefined, 'Tasks I can claim from the team queue')">
-										<span class="dash-kpi-value">{{ work.claimable }}</span>
-										<span class="dash-kpi-label">{{ t('app.dashboard.metric.toClaim', undefined, 'To claim') }}</span>
+
+									<!-- list: ranked or plain rows that lead somewhere -->
+									<div class="dash-list" v-else-if="block.type === 'list'">
+										<button class="dash-list-row" v-for="(row, ri) in block.items" :key="ri" :class="{ 'is-static': !row.link }"
+											@click="open(row.link)" :title="row.hint">
+											<span class="dash-list-rank"><i class="bi" v-if="row.icon" :class="row.icon"></i><span v-else>{{ row.rank }}</span></span>
+											<span class="dash-list-main">
+												<span class="dash-list-title">{{ row.title }}<wt-badge class="ms-1" variant="neutral" v-for="(tag, ti) in row.tags" :key="ti">{{ tag }}</wt-badge></span>
+												<span class="dash-list-sub" v-if="row.sub">{{ row.sub }}</span>
+											</span>
+											<wt-badge v-for="(badge, gi) in row.badges" :key="gi" :variant="badge.tone" :title="badge.hint">{{ badge.text }}</wt-badge>
+											<span class="dash-list-value" v-if="row.value" :class="row.valueClass">{{ row.value }}</span>
+										</button>
+										<div class="dash-list-empty" v-if="block.items.length === 0 && block.empty">{{ block.empty }}</div>
 									</div>
-								</div>
-							</div>
-							<div>
-								<div class="dash-card-head" style="margin-bottom: 0.5rem;">{{ t('app.dashboard.myDay.nextUp', undefined, 'Next up') }}</div>
-								<div class="dash-list">
-									<button class="dash-list-row" v-for="(task, i) in work.next" :key="task.id"
-										@click="openTasks({ scope: 'assigned', taskId: task.id })" :title="task.title">
-										<span class="dash-list-rank">{{ i + 1 }}</span>
-										<span class="dash-list-main">
-											<span class="dash-list-title">{{ task.title }}</span>
-											<span class="dash-list-sub">{{ task.sub }}</span>
-										</span>
-										<wt-badge v-if="task.pill" :variant="task.pillClass">{{ task.pill }}</wt-badge>
-									</button>
-									<div class="dash-list-empty" v-if="work.next.length === 0">
-										{{ t('app.dashboard.myDay.empty', undefined, 'Nothing assigned to you right now. Nice and clear.') }}
+
+									<!-- matrix: a state for every pair -->
+									<div class="dash-matrix-wrap" v-else-if="block.type === 'matrix'">
+										<table class="dash-matrix">
+											<caption>{{ block.caption }}</caption>
+											<thead>
+												<tr>
+													<th></th>
+													<th v-for="name in block.columns" :key="name" scope="col">{{ name }}</th>
+												</tr>
+											</thead>
+											<tbody>
+												<tr v-for="row in block.rows" :key="row.label">
+													<th scope="row">{{ row.label }}</th>
+													<td v-for="(cell, xi) in row.cells" :key="xi" :class="'is-' + cell">
+														<i class="bi bi-check-circle-fill" v-if="cell === 'ok'"></i>
+														<i class="bi bi-hourglass-split" v-else-if="cell === 'warn'"></i>
+														<i class="bi bi-x-circle-fill" v-else-if="cell === 'down'"></i>
+														<span v-else>—</span>
+													</td>
+												</tr>
+											</tbody>
+										</table>
 									</div>
-								</div>
-							</div>
-						</div>
-					</div>
 
-					<!-- My Tasks -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-person-check"></i>{{ t('app.dashboard.myTasks.title', undefined, 'My tasks') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openMyTasks', undefined, 'Open my tasks')"
-								@click="openTasks({ scope: 'assigned' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value">{{ myTasks.total }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.myTasks.assignedToMe', undefined, 'assigned to me') }}</span>
-						</div>
-						<div class="dash-rows">
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-alarm"></i>{{ t('app.dashboard.metric.overdue', undefined, 'Overdue') }}</span>
-								<wt-badge :variant="myTasks.overdue > 0 ? 'danger' : 'success'">{{ myTasks.overdue }}</wt-badge>
-							</div>
-							<div class="dash-row">
-								<span class="dash-row-label">{{ t('app.dashboard.metric.dueToday', undefined, 'Due today') }}</span>
-								<span class="dash-row-value" :class="{ 'dash-value-warn': myTasks.dueToday > 0 }">{{ myTasks.dueToday }}</span>
-							</div>
-							<div class="dash-row">
-								<span class="dash-row-label">{{ t('app.dashboard.metric.dueThisWeek', undefined, 'Due this week') }}</span>
-								<span class="dash-row-value">{{ myTasks.dueThisWeek }}</span>
-							</div>
-						</div>
-					</div>
+									<!-- note: a sentence -->
+									<div class="dash-list-empty" v-else-if="block.type === 'note'">{{ block.text }}</div>
 
-					<!-- Team Queue -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-people"></i>{{ t('app.dashboard.queue.title', undefined, 'Team queue') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openTeamQueue', undefined, 'Open the team queue')"
-								@click="openTasks({ scope: 'candidate' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value" :class="{ 'dash-value-warn': queue.unassigned > 0 }">{{ queue.unassigned }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.queue.unassigned', undefined, 'unassigned') }}</span>
-						</div>
-						<div class="dash-rows">
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-hand-index"></i>{{ t('app.dashboard.queue.iCanClaim', undefined, 'I can claim') }}</span>
-								<span class="dash-row-value">{{ queue.claimable }}</span>
-							</div>
-							<div class="dash-row">
-								<span class="dash-row-label">{{ t('app.dashboard.queue.openAcrossTeam', undefined, 'Open across the team') }}</span>
-								<span class="dash-row-value">{{ queue.teamTotal }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Task Bottlenecks -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-cone-striped"></i>{{ t('app.dashboard.bottlenecks.title', undefined, 'Where work piles up') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openAllTasks', undefined, 'Open all tasks')"
-								@click="openTasks({ scope: 'all' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-list">
-							<button class="dash-list-row" v-for="(b, i) in bottlenecks" :key="b.key"
-								@click="openTasks({ scope: 'all', processDefinitionKey: b.processKey, taskDefinitionKey: b.taskKey })"
-								:title="b.processName + ' — ' + b.taskName">
-								<span class="dash-list-rank">{{ i + 1 }}</span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ b.taskName }}</span>
-									<span class="dash-list-sub">{{ t('app.dashboard.bottlenecks.subtitle', { process: b.processName, age: b.oldestAge }, b.processName + ' · oldest ' + b.oldestAge) }}</span>
-								</span>
-								<span class="dash-list-value">{{ b.count }}</span>
-							</button>
-							<div class="dash-list-empty" v-if="bottlenecks.length === 0">
-								{{ t('app.dashboard.bottlenecks.empty', undefined, 'No tasks are waiting anywhere. The flow is clear.') }}
-							</div>
-						</div>
-					</div>
-
-				</div>
-			</section>
-
-			<!-- =================================================================
-			     OPERATIONS — system perspective, shown to administrators only.
-			     "Is the business running? What's broken?"
-			     ============================================================== -->
-			<section class="dash-section" v-if="isAdmin">
-				<div class="dash-section-head">
-					<i class="bi bi-activity"></i>{{ t('app.dashboard.ops.title', undefined, 'Operations') }}
-					<span class="dash-section-sub">{{ t('app.dashboard.ops.subtitle', undefined, 'BPM & EIP — is everything running?') }}</span>
-				</div>
-
-				<div class="dash-grid">
-
-					<!-- ADMIN HERO: business operations health -->
-					<div class="island dash-card dash-card-wide">
-						<div class="dash-card-head"><i class="bi bi-heart-pulse"></i>{{ t('app.dashboard.ops.healthy.title', undefined, 'Are operations healthy?') }}</div>
-						<div class="dash-kpis">
-							<div class="dash-kpi is-link" @click="openBpm({ view: 'instances' })" :title="t('app.dashboard.ops.runningProcesses.hint', undefined, 'Running process instances')">
-								<span class="dash-kpi-value">{{ ops.runningProcesses }}</span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.runningProcesses', undefined, 'Running processes') }}</span>
-							</div>
-							<div class="dash-kpi is-link" @click="openEip()" :title="t('app.dashboard.ops.activeRoutes.hint', undefined, 'Started routes / deployed routes')">
-								<span class="dash-kpi-value">{{ ops.activeRoutes }}<span class="dash-denom">/{{ ops.totalRoutes }}</span></span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.activeRoutes', undefined, 'Active routes') }}</span>
-							</div>
-							<div class="dash-kpi is-link" @click="openBpm({ view: 'incidents' })" :title="t('app.dashboard.ops.openIncidents.hint', undefined, 'Open process incidents')">
-								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.openIncidents > 0 }">{{ ops.openIncidents }}</span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.openIncidents', undefined, 'Open incidents') }}</span>
-							</div>
-							<div class="dash-kpi is-link" @click="openEip({ status: 'failed' })" :title="t('app.dashboard.ops.failedExchanges.hint', undefined, 'Failed exchanges since context start')">
-								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.failedExchanges > 0 }">{{ ops.failedExchangesLabel }}</span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.failedExchanges', undefined, 'Failed exchanges') }}</span>
-							</div>
-							<div class="dash-kpi is-link" @click="openEip()" :title="t('app.dashboard.ops.connectionIssues.hint', undefined, 'External endpoints not reachable')">
-								<span class="dash-kpi-value" :class="{ 'dash-value-danger': ops.extIssues > 0 }">{{ ops.extIssues }}</span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.connectionIssues', undefined, 'Connection issues') }}</span>
-							</div>
-							<div class="dash-kpi" :class="{ 'is-link': workspaceManagerAvailable }" @click="openWorkspaceManager()" :title="t('app.dashboard.ops.workspaces.hint', undefined, 'Workspaces online / total')">
-								<span class="dash-kpi-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.failed > 0 || workspaces.engineIssues > 0 }">{{ workspaces.online }}<span class="dash-denom">/{{ workspaces.total }}</span></span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.workspaces.title', undefined, 'Workspaces') }}</span>
-							</div>
-							<div class="dash-kpi" :title="cluster.enabled ? t('app.dashboard.cluster.hint', undefined, 'Nodes with a fresh heartbeat / registered nodes') : t('app.dashboard.cluster.singleHint', undefined, 'Running as a single node without clustering')">
-								<span class="dash-kpi-value" v-if="cluster.enabled" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span class="dash-denom">/{{ cluster.total }}</span></span>
-								<span class="dash-kpi-value" v-else><wt-badge variant="neutral">{{ t('app.dashboard.cluster.single', undefined, 'Single') }}</wt-badge></span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.cluster.title', undefined, 'Cluster') }}</span>
-							</div>
-							<div class="dash-kpi text-center">
-								<span class="dash-kpi-value"><wt-badge :variant="ops.overall.cls">{{ ops.overall.label }}</wt-badge></span>
-								<span class="dash-kpi-label">{{ t('app.dashboard.ops.overall', undefined, 'Overall') }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Process Definitions -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-diagram-3"></i>{{ t('app.dashboard.defs.title', undefined, 'Process definitions') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openBpmConsole', undefined, 'Open BPM Console')" @click="openBpm()">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value">{{ defs.deployed }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.defs.deployed', undefined, 'deployed') }}</span>
-						</div>
-						<div class="dash-rows">
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-play-circle"></i>{{ t('app.dashboard.status.active', undefined, 'Active') }}</span>
-								<span class="dash-row-value">{{ defs.active }}</span>
-							</div>
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<wt-badge :variant="defs.suspended > 0 ? 'warning' : 'success'">{{ defs.suspended }}</wt-badge>
-							</div>
-						</div>
-					</div>
-
-					<!-- Running Processes -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-arrow-repeat"></i>{{ t('app.dashboard.running.title', undefined, 'Running processes') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openBpmConsole', undefined, 'Open BPM Console')" @click="openBpm({ view: 'instances' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value">{{ running.active }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.running.activeInstances', undefined, 'active instances') }}</span>
-						</div>
-						<div class="dash-list">
-							<button class="dash-list-row" v-for="(p, i) in running.top" :key="p.key"
-								@click="openBpm({ view: 'instances', processDefinitionKey: p.key })" :title="p.name">
-								<span class="dash-list-rank">{{ i + 1 }}</span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ p.name }}</span>
-								</span>
-								<span class="dash-list-value">{{ p.count }}</span>
-							</button>
-							<div class="dash-list-empty" v-if="running.top.length === 0">{{ t('app.dashboard.running.empty', undefined, 'No processes are running.') }}</div>
-						</div>
-						<div class="dash-rows" v-if="running.suspended > 0 || running.withIncidents > 0">
-							<div class="dash-row" v-if="running.suspended > 0">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<wt-badge variant="warning">{{ running.suspended }}</wt-badge>
-							</div>
-							<div class="dash-row" v-if="running.withIncidents > 0">
-								<span class="dash-row-label"><i class="bi bi-exclamation-octagon"></i>{{ t('app.dashboard.running.withIncidents', undefined, 'With incidents') }}</span>
-								<wt-badge variant="danger">{{ running.withIncidents }}</wt-badge>
-							</div>
-						</div>
-					</div>
-
-					<!-- Incidents -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-exclamation-octagon"></i>{{ t('app.dashboard.incidents.title', undefined, 'Incidents') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openIncidents', undefined, 'Open incidents in BPM Console')"
-								@click="openBpm({ view: 'incidents' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value" :class="{ 'dash-value-danger': incidents.total > 0 }">{{ incidents.total }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.incidents.open', undefined, 'open') }}</span>
-						</div>
-						<div class="dash-list">
-							<button class="dash-list-row" v-for="(p, i) in incidents.topProcesses" :key="p.key"
-								@click="openBpm({ view: 'incidents', processDefinitionKey: p.key })" :title="p.name">
-								<span class="dash-list-rank">{{ i + 1 }}</span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ p.name }}</span>
-									<span class="dash-list-sub">{{ p.sample }}</span>
-								</span>
-								<span class="dash-list-value dash-value-danger">{{ p.count }}</span>
-							</button>
-							<div class="dash-list-empty" v-if="incidents.total === 0">{{ t('app.dashboard.incidents.empty', undefined, 'No incidents. Everything is processing cleanly.') }}</div>
-						</div>
-					</div>
-
-					<!-- Integration Routes -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-signpost-split"></i>{{ t('app.dashboard.routes.title', undefined, 'Integration routes') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openEipConsole', undefined, 'Open EIP Console')" @click="openEip()">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value">{{ routes.started }}<span class="dash-denom">/{{ routes.total }}</span></span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.routes.started', undefined, 'started') }}</span>
-						</div>
-						<div class="dash-rows">
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-hdd-network"></i>{{ t('app.dashboard.routes.context', undefined, 'Context') }}</span>
-								<wt-badge :variant="routes.contextPill">{{ routes.contextState }}</wt-badge>
-							</div>
-							<div class="dash-row" v-if="routes.stopped > 0">
-								<span class="dash-row-label"><i class="bi bi-stop-circle"></i>{{ t('app.dashboard.status.stopped', undefined, 'Stopped') }}</span>
-								<wt-badge :variant="routes.stopped > 0 ? 'warning' : 'success'">{{ routes.stopped }}</wt-badge>
-							</div>
-							<div class="dash-row" v-if="routes.suspended > 0">
-								<span class="dash-row-label"><i class="bi bi-pause-circle"></i>{{ t('app.dashboard.status.suspended', undefined, 'Suspended') }}</span>
-								<wt-badge variant="warning">{{ routes.suspended }}</wt-badge>
-							</div>
-							<div class="dash-row" v-if="routes.uptime">
-								<span class="dash-row-label">{{ t('app.dashboard.routes.uptime', undefined, 'Uptime') }}</span>
-								<span class="dash-row-value" style="font-weight: 400;">{{ routes.uptime }}</span>
-							</div>
-						</div>
-					</div>
-
-					<!-- Route Throughput / Errors -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-graph-up-arrow"></i>{{ t('app.dashboard.throughput.title', undefined, 'Throughput & errors') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openFailingRoutes', undefined, 'Open failing routes in EIP Console')"
-								@click="openEip({ status: 'failed' })">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value">{{ throughput.completedLabel }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.throughput.completedLatency', { latency: throughput.meanLatency }, 'completed · ' + throughput.meanLatency) }}</span>
-						</div>
-						<div class="dash-rows">
-							<div class="dash-row">
-								<span class="dash-row-label"><i class="bi bi-x-octagon"></i>{{ t('app.dashboard.status.failed', undefined, 'Failed') }}</span>
-								<wt-badge :variant="throughput.failed > 0 ? 'danger' : 'success'">{{ throughput.failedLabel }}</wt-badge>
-							</div>
-							<div class="dash-row" v-if="throughput.inflight > 0">
-								<span class="dash-row-label"><i class="bi bi-hourglass-split"></i>{{ t('app.dashboard.throughput.inFlight', undefined, 'In flight') }}</span>
-								<span class="dash-row-value">{{ throughput.inflight }}</span>
-							</div>
-						</div>
-						<div class="dash-list" v-if="throughput.failing.length">
-							<button class="dash-list-row" v-for="(r, i) in throughput.failing" :key="r.routeId"
-								@click="openEip({ routeId: r.routeId, status: 'failed' })" :title="r.lastError || r.routeId">
-								<span class="dash-list-rank">{{ i + 1 }}</span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ r.routeId }}</span>
-									<span class="dash-list-sub" v-if="r.lastError">{{ r.lastError }}</span>
-								</span>
-								<span class="dash-list-value dash-value-danger">{{ r.failed }}</span>
-							</button>
-						</div>
-					</div>
-
-					<!-- External Connections -->
-					<div class="island dash-card">
-						<div class="dash-card-head has-link">
-							<span class="head-title"><i class="bi bi-plug"></i>{{ t('app.dashboard.connections.title', undefined, 'External connections') }}</span>
-							<button class="dash-card-link" :title="t('app.dashboard.action.openEipConsole', undefined, 'Open EIP Console')" @click="openEip()">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value" :class="{ 'dash-value-danger': connections.down > 0 }">{{ connections.healthyLabel }}</span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.connections.endpointsReachable', undefined, 'endpoints reachable') }}</span>
-						</div>
-						<div class="dash-list" v-if="connections.problems.length">
-							<button class="dash-list-row" v-for="(c, i) in connections.problems" :key="c.key"
-								@click="openEip({ routeId: c.routeId })" :title="c.uri">
-								<span class="dash-list-rank"><i class="bi bi-exclamation-triangle"></i></span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ c.label }}</span>
-									<span class="dash-list-sub">{{ c.routeId }}</span>
-								</span>
-								<wt-badge variant="danger">{{ c.state }}</wt-badge>
-							</button>
-						</div>
-						<div class="dash-list-empty" v-else>
-							{{ connections.remoteTotal > 0 ? t('app.dashboard.connections.allReachable', undefined, 'All external systems are reachable.') : t('app.dashboard.connections.none', undefined, 'No external connections in use.') }}
-						</div>
-					</div>
-
-					<!-- Workspaces -->
-					<div class="island dash-card">
-						<div class="dash-card-head" :class="{ 'has-link': workspaceManagerAvailable }">
-							<span class="head-title"><i class="bi bi-collection"></i>{{ t('app.dashboard.workspaces.title', undefined, 'Workspaces') }}</span>
-							<button v-if="workspaceManagerAvailable" class="dash-card-link" :title="t('app.dashboard.action.openWorkspaceManager', undefined, 'Open Workspace Manager')" @click="openWorkspaceManager()">
-								<i class="bi bi-box-arrow-up-right"></i>
-							</button>
-						</div>
-						<div class="dash-metric">
-							<span class="dash-metric-value" :class="{ 'dash-value-warn': workspaces.starting > 0, 'dash-value-danger': workspaces.engineIssues > 0 || workspaces.failed > 0 }">{{ workspaces.online }}<span class="dash-denom">/{{ workspaces.total }}</span></span>
-							<span class="dash-metric-unit">{{ t('app.dashboard.workspaces.online', undefined, 'online') }}</span>
-						</div>
-						<div class="dash-list">
-							<button class="dash-list-row" :class="{ 'is-static': !workspaceManagerAvailable }" v-for="w in workspaces.list" :key="w.name"
-								@click="openWorkspaceManager()" :title="w.name">
-								<span class="dash-list-rank"><i class="bi bi-collection"></i></span>
-								<span class="dash-list-main">
-									<span class="dash-list-title">{{ w.displayName || w.name }}<wt-badge class="ms-1" variant="neutral" v-if="w.system">{{ t('app.dashboard.workspaces.system', undefined, 'System') }}</wt-badge><wt-badge class="ms-1" variant="neutral" v-if="w.current">{{ t('app.dashboard.workspaces.current', undefined, 'Current') }}</wt-badge></span>
-									<span class="dash-list-sub">{{ w.enginesLabel }}</span>
-								</span>
-								<wt-badge :variant="w.pillClass" :title="w.stateMessage">{{ w.pillLabel }}</wt-badge>
-							</button>
-							<div class="dash-list-empty" v-if="workspaces.list.length === 0">
-								{{ t('app.dashboard.workspaces.empty', undefined, 'No workspace information available.') }}
-							</div>
-						</div>
-					</div>
-
-					<!-- Cluster -->
-					<div class="island dash-card">
-						<div class="dash-card-head">
-							<span class="head-title"><i class="bi bi-hdd-rack"></i>{{ t('app.dashboard.cluster.title', undefined, 'Cluster') }}</span>
-						</div>
-
-						<!-- Clustered: every registered node with its heartbeat health -->
-						<div v-if="cluster.enabled">
-							<div class="dash-metric">
-								<span class="dash-metric-value" :class="{ 'dash-value-danger': cluster.stale > 0 }">{{ cluster.alive }}<span class="dash-denom">/{{ cluster.total }}</span></span>
-								<span class="dash-metric-unit">{{ t('app.dashboard.cluster.nodesAlive', undefined, 'nodes alive') }}</span>
-							</div>
-							<div class="dash-list">
-								<div class="dash-list-row is-static" v-for="m in cluster.members" :key="m.nodeId" :title="m.nodeId">
-									<span class="dash-list-rank"><i class="bi bi-hdd-network"></i></span>
-									<span class="dash-list-main">
-										<span class="dash-list-title">{{ m.name }}<wt-badge class="ms-1" variant="neutral" v-if="m.self">{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</wt-badge></span>
-										<span class="dash-list-sub">{{ m.nodeId }} · {{ m.address || t('app.dashboard.cluster.noAddress', undefined, 'no cluster port') }} · {{ t('app.dashboard.cluster.heartbeatAge', { age: m.heartbeatAge }, 'heartbeat ' + m.heartbeatAge + ' ago') }}</span>
-									</span>
-									<!-- The connection, kept apart from the heartbeat: a live node
-									     without one points at the cluster port or the firewall. -->
-									<wt-badge v-if="m.alive && m.linkState" :variant="m.linkState === 'both' ? 'success' : m.linkState === 'one' ? 'warning' : 'danger'" :title="t('app.dashboard.cluster.link.hint', undefined, 'Cluster connection in both directions')">{{ m.linkState === 'both' ? t('app.dashboard.cluster.link.both', undefined, 'Connected') : m.linkState === 'one' ? t('app.dashboard.cluster.link.one', undefined, 'One way') : t('app.dashboard.cluster.link.none', undefined, 'Not connected') }}</wt-badge>
-									<wt-badge :variant="m.alive ? 'success' : 'danger'">{{ m.alive ? t('app.dashboard.cluster.alive', undefined, 'Alive') : t('app.dashboard.cluster.stale', undefined, 'Stale') }}</wt-badge>
-								</div>
-							</div>
-							<div class="dash-list-empty" v-if="cluster.nodeId">{{ t('app.dashboard.cluster.viewedFrom', { node: cluster.nodeId }, 'Connections as seen from ' + cluster.nodeId) }}</div>
-
-							<!-- Three nodes or more: every pair, as each node reports its own
-							     outbound connection (row to column), from whichever node answered. -->
-							<div class="dash-matrix-wrap" v-if="cluster.matrix.nodes.length >= 3">
-								<table class="dash-matrix">
-									<caption>{{ t('app.dashboard.cluster.matrix', undefined, 'Connections reported by each node (row to column)') }}</caption>
-									<thead>
-										<tr>
-											<th></th>
-											<th v-for="n in cluster.matrix.nodes" :key="n" scope="col">{{ n }}</th>
-										</tr>
-									</thead>
-									<tbody>
-										<tr v-for="row in cluster.matrix.rows" :key="row.nodeId">
-											<th scope="row">{{ row.nodeId }}</th>
-											<td v-for="c in row.cells" :key="c.to" :class="'is-' + c.state" :title="row.nodeId + ' → ' + c.to">
-												<i class="bi bi-check-circle-fill" v-if="c.state === 'ok'"></i>
-												<i class="bi bi-hourglass-split" v-else-if="c.state === 'warn'"></i>
-												<i class="bi bi-x-circle-fill" v-else-if="c.state === 'down'"></i>
-												<span v-else>—</span>
-											</td>
-										</tr>
-									</tbody>
-								</table>
-							</div>
-						</div>
-
-						<!-- Standalone: say so explicitly — a single node is a normal,
-						     healthy deployment, not a degraded cluster. -->
-						<div v-else>
-							<div class="dash-metric">
-								<span class="dash-metric-value">1</span>
-								<span class="dash-metric-unit">{{ t('app.dashboard.cluster.singleNodeUnit', undefined, 'node (single)') }}</span>
-							</div>
-							<div class="dash-list-empty">{{ t('app.dashboard.cluster.standalone', undefined, 'Clustering is not configured; this workspace runs on a single node.') }}</div>
-							<div class="dash-rows" v-if="cluster.nodeId">
-								<div class="dash-row">
-									<span class="dash-row-label"><i class="bi bi-hdd-network"></i>{{ t('app.dashboard.cluster.thisNode', undefined, 'This node') }}</span>
-									<span class="dash-row-value" style="font-weight: 400;">{{ cluster.nodeId }}</span>
 								</div>
 							</div>
 						</div>
 					</div>
-
 				</div>
 			</section>
 

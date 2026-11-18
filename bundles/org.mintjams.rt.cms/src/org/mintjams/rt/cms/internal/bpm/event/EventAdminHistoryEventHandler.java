@@ -118,7 +118,7 @@ public class EventAdminHistoryEventHandler implements HistoryEventHandler {
 		BpmEventDispatcher.put(properties, "processDefinitionId", event.getProcessDefinitionId());
 		BpmEventDispatcher.put(properties, "executionId", event.getExecutionId());
 		BpmEventDispatcher.put(properties, "tenantId", event.getTenantId());
-		fDispatcher.dispatchOnCommit(fDispatcher.topic(Incident.class, action), properties);
+		fDispatcher.dispatchOnCommit(Incident.class, action, properties);
 	}
 
 	/**

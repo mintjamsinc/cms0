@@ -764,11 +764,12 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		long total = base.count();
 
 		TaskQuery unassignedQ = engine.getTaskService().createTaskQuery().taskUnassigned();
-		if (candidateUser != null && !candidateUser.isEmpty()) {
-			unassignedQ.taskCandidateUser(candidateUser);
-		}
+		// The engine takes the groups or the user, not both (as above): with the
+		// user alone it looks the user's groups up itself.
 		if (candidateGroups != null && !candidateGroups.isEmpty()) {
 			unassignedQ.taskCandidateGroupIn(candidateGroups);
+		} else if (candidateUser != null && !candidateUser.isEmpty()) {
+			unassignedQ.taskCandidateUser(candidateUser);
 		}
 		long unassigned = unassignedQ.count();
 		long assigned = total - unassigned;

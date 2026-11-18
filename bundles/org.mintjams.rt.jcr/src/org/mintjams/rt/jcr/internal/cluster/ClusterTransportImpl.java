@@ -358,6 +358,7 @@ public final class ClusterTransportImpl implements ClusterTransport, Closeable {
 	 * Sends an event to every connected node, which posts it locally. Never
 	 * blocks; a node that is not connected does not receive it.
 	 */
+	@Override
 	public void signal(String topic, Map<String, Object> properties) {
 		Map<String, Object> body = newBody();
 		body.put("topic", topic);

@@ -39,8 +39,12 @@
 #     unreadable. (Hardening nodeChanged's path-level metadata for unreadable
 #     nodes is a separate, Webtop-coordinated task.)
 #     BPM: taskAssigned/taskCompleted/taskUpdated/processStarted/processEnded —
-#     bridged from the Camunda EventAdmin topics; task/processInstance payloads
-#     are the typed Task/ProcessInstance (partial projections from the event).
+#     bridged from the view topics of the process engine's events, which every
+#     node of a cluster posts (bpm-eventadmin.md), so a subscriber hears of a
+#     change whichever node committed it; task/processInstance payloads are the
+#     typed Task/ProcessInstance (partial projections from the event).
+#     Dashboard: dashboardCards/dashboardCardDetail — what the cards show, made
+#     on the server and pushed (webtop-dashboard.md).
 #     EIP: routeStateChanged — bridged from the Camel Route EventAdmin topics
 #     (declared in eip-schema.graphqls / wired in PlatformEipWiringContributor).
 #   (Removed: queryChanged and systemNotification — dead declarations with no
@@ -362,6 +366,29 @@ type Subscription {
   `topic` is one topic, a topic followed by `/*` (that topic and everything under it), or `*` for every topic.
   """
   topicMessage(topic: String!): TopicMessage!
+
+  """
+  What the Dashboard cards show, made on the server. `path` is the apps folder whose apps declare the cards (the `dashboard` map of app.yml).
+  The current snapshot of every card the subscriber may see comes first, then each snapshot as it changes; nothing is queried by the client.
+  `timeZone` (IANA) is the subscriber's, for cards that count by the calendar day.
+  """
+  dashboardCards(path: String!, timeZone: String): DashboardCardSnapshot!
+
+  """The detail of one card (`<app relPath>/<name>`, declared with `detail: true`), for as long as it is shown maximized."""
+  dashboardCardDetail(path: String!, card: String!, timeZone: String): DashboardCardSnapshot!
+}
+
+"""What a Dashboard card shows at a moment."""
+type DashboardCardSnapshot {
+  """The card: `<app relPath>/<name>`."""
+  card: String!
+  """Whether this is the detail shown when the card is maximized."""
+  detail: Boolean!
+  """Changes whenever the data does."""
+  version: String!
+  at: DateTime!
+  """What the card's provider returned (webtop-dashboard.md)."""
+  data: JSON!
 }
 
 """A topic message, as published (Mutation.publish): a notification, not a record."""
@@ -1220,6 +1247,42 @@ type App {
   widgets: [AppWidget!]!
   """What the app extends in other apps (the `extensions` map of app.yml). A folder's .extensions.yml turns them on by name."""
   extensions: [AppExtension!]!
+  """What the app adds to the Dashboard (the `dashboard` map of app.yml): its sections, and the cards the caller may see."""
+  dashboard: AppDashboard!
+}
+
+"""The sections and cards an app adds to the Dashboard."""
+type AppDashboard {
+  sections: [DashboardSection!]!
+  cards: [DashboardCard!]!
+}
+
+"""A section of the Dashboard. The identifier is shared: any app may add cards to a section another app declares."""
+type DashboardSection {
+  identifier: String!
+  title: String
+  icon: String
+  order: Int!
+}
+
+"""A card of the Dashboard, as declared. What it shows comes through Subscription.dashboardCards."""
+type DashboardCard {
+  """The name of the card within the app; the card is `<app relPath>/<identifier>`."""
+  identifier: String!
+  section: String!
+  title: String
+  icon: String
+  order: Int!
+  """1, 2 (twice as wide) or full."""
+  size: String!
+  """shared (one snapshot for everyone who may see the card) or user."""
+  scope: String!
+  """Whether the card is the summary of its section."""
+  summary: Boolean!
+  """Whether the card can be maximized (Subscription.dashboardCardDetail)."""
+  detail: Boolean!
+  """Where the card's heading leads: `app` (a folder name, the card's own app when absent) and `options`."""
+  open: JSON
 }
 
 """An extension an app declares: a module of the app that the extended app loads where a folder's .extensions.yml names it."""

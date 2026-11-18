@@ -377,3 +377,82 @@
 .dash-matrix td.is-ok { color: var(--success-color); }
 .dash-matrix td.is-warn { color: var(--warning-color); }
 .dash-matrix td.is-down { color: var(--danger-color); }
+
+/* --- Cards drawn from snapshots ------------------------------------------ */
+
+/* Folds a section to its summary card, or shows every card again. */
+.dash-section-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.2rem 0.55rem;
+	border: 1px solid var(--island-border-color, transparent);
+	border-radius: 999px;
+	background: transparent;
+	color: var(--text-soft-color);
+	font-size: 12px;
+	font-weight: 400;
+	cursor: pointer;
+}
+
+.dash-section-toggle:hover {
+	color: var(--primary-color);
+}
+
+.dash-section-toggle .bi,
+.dash-section-head .dash-section-toggle .bi {
+	font-size: 13px;
+	color: inherit;
+}
+
+.dash-card-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.15rem;
+}
+
+/* A card twice as wide as the others, where the grid has the room. */
+.dash-card-double {
+	grid-column: span 2;
+}
+
+@media (max-width: 48rem) {
+	.dash-card-double { grid-column: 1 / -1; }
+}
+
+/* The blocks of a card, in one column or two. */
+.dash-columns {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 1.5rem;
+	align-items: start;
+}
+
+.dash-columns.is-split {
+	grid-template-columns: 1.2fr 1fr;
+}
+
+@media (max-width: 48rem) {
+	.dash-columns.is-split { grid-template-columns: 1fr; }
+}
+
+.dash-column {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	min-width: 0;
+}
+
+/* A block adds no box of its own: its parts sit in the column. */
+.dash-block {
+	display: contents;
+}
+
+/* A card shown alone, with its detail. */
+.dash-grid.is-maximized {
+	grid-template-columns: 1fr;
+}
+
+.dash-grid.is-maximized .dash-card {
+	min-height: 24rem;
+}

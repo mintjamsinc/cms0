@@ -64,9 +64,58 @@ attributes are **omitted when null** rather than set to `null`. Beyond
 | `ProcessInstance` | `processDefinitionId`, `processInstanceId`, `executionId`, `businessKey`, `tenantId` |
 | `ActivityInstance` | `processDefinitionId`, `processInstanceId`, `executionId`, `activityInstanceId`, `activityId`, `activityName`, `businessKey`, `tenantId` |
 | `SequenceFlow` | `processDefinitionId`, `processInstanceId`, `executionId`, `transitionId`, `activityId`, `businessKey`, `tenantId` |
-| `Task` | `taskId`, `taskName`, `taskDefinitionKey`, `assignee`, `eventName`, `processInstanceId`, `processDefinitionId`, `executionId`, `businessKey`, `tenantId`, `createTime` |
+| `Task` | `taskId`, `taskName`, `taskDefinitionKey`, `assignee`, `eventName`, `processInstanceId`, `processDefinitionId`, `executionId`, `businessKey`, `tenantId`, `createTime`, `dueDate`, `actor`, `previousAssignee`, `candidateUsers`, `candidateGroups` |
 | `VariableInstance` | `variableInstanceId`, `variableName`, `serializerName`, `scopeActivityInstanceId`, `processInstanceId`, `processDefinitionId`, `executionId` |
 | `Incident` | `incidentId`, `incidentType`, `incidentMessage`, `activityId`, `causeIncidentId`, `processInstanceId`, `processDefinitionId`, `executionId`, `tenantId` |
+
+Of a task, `actor` is the user on whose behalf the engine ran the command
+(the caller of a claim, an assignment, a completion; absent for work the
+engine did on its own), `previousAssignee` the user the task was assigned
+to before this change when the change is one of the assignee, and
+`candidateUsers` / `candidateGroups` the lists of who may claim it.
+
+## On one node, and on every node
+
+In a cluster the events above are posted **on the node that committed the
+transaction, and nowhere else**. Whatever acts on them — a route that
+leaves a notice, a script that sends mail — therefore acts once, however
+many nodes there are.
+
+What a screen shows must change on every node, though: a user connected to
+another node waits otherwise. So task, process instance and incident events
+are announced a second time under the **view topics**, on every node:
+
+```
+org/mintjams/rt/cms/bpm/<Type>/<ACTION>
+```
+
+| Engine topic root | View topic root |
+|---|---|
+| `org/camunda/bpm/engine/task/Task` | `org/mintjams/rt/cms/bpm/Task` |
+| `org/camunda/bpm/engine/runtime/ProcessInstance` | `org/mintjams/rt/cms/bpm/ProcessInstance` |
+| `org/camunda/bpm/engine/runtime/Incident` | `org/mintjams/rt/cms/bpm/Incident` |
+
+A view event carries the same properties as JSON values: a date is an ISO
+8601 string, a text is cut at 500 characters. It is posted on the
+committing node and sent to the others over the cluster connections
+([`clustering.md`](clustering.md), *Signals*), which costs no repository
+session. Activity, sequence flow and variable events have no view topic:
+there are too many of them, and no screen follows them.
+
+| Listen to | For | Delivered |
+|---|---|---|
+| the engine topics | acting on what happened: notices, mail, calling another system | once per cluster, on the committing node |
+| the view topics | showing what happened: a list, a count, a card of the Dashboard | on every node, to whoever is connected; an event may be lost while a node is disconnected |
+
+A view event is a hint that something changed, never a record: read the
+state again rather than trust the payload, and do not act on it — an
+action would run once per node. The GraphQL subscriptions `taskAssigned`,
+`taskCompleted`, `taskUpdated`, `processStarted` and `processEnded`, and
+the Dashboard ([`webtop-dashboard.md`](webtop-dashboard.md)), listen to the
+view topics; the task notices
+([`webtop-notifications.md`](webtop-notifications.md)) to the engine topics.
+
+A standalone deployment posts both, on its one node.
 
 ## Interaction with the `history` level
 

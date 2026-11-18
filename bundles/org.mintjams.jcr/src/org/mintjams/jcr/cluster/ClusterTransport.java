@@ -69,6 +69,16 @@ public interface ClusterTransport {
 	AutoCloseable setRequestHandler(String type, RequestHandler handler);
 
 	/**
+	 * Sends an event to every node connected at this moment, which posts it
+	 * locally as an event of the same topic and properties. The local post is
+	 * the caller's. Never blocks and never fails: a node that is not
+	 * connected does not receive the event, so whoever listens must have
+	 * another way to catch up. The properties are JSON values (strings,
+	 * numbers, booleans, lists and maps) and must stay small.
+	 */
+	void signal(String topic, Map<String, Object> properties);
+
+	/**
 	 * Returns the replicated table of the given name.
 	 */
 	Table getTable(String name);

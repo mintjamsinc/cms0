@@ -452,8 +452,10 @@ Some notifications do not ride a JCR transaction: they announce a change
 that is not itself a repository write — for example the workspace settings
 signal (`org/mintjams/rt/cms/workspace/SETTINGS_CHANGED`), which fires when a
 workspace's display name, auto-start or engine switches are edited in the
-files every node reads, or a topic message
-([`topic-messages.md`](topic-messages.md)). (A workspace's runtime state is
+files every node reads, a topic message
+([`topic-messages.md`](topic-messages.md)), or what the process engine did
+as far as a screen shows it (the view topics of
+[`bpm-eventadmin.md`](bpm-eventadmin.md)). (A workspace's runtime state is
 not announced this way: every node records it as a repository write, see
 *Workspace operations across the cluster* below.)
 
@@ -464,6 +466,13 @@ event-driven layers (CMS events, SSE/GraphQL subscriptions) deliver it
 unchanged. The publishing node does not receive its own signal; a caller
 that wants the whole cluster posts the event locally *and* publishes it,
 which is exactly what `CmsService.postWorkspaceSettingsChanged` does.
+
+Platform code sends a signal with `ClusterTransport.signal(topic,
+properties)`, which only queues the frames: it needs no repository session
+and is safe on any thread — the process engine sends one after every
+committed task change. `ClusterCoordinator.publish` is the same call for
+application code that holds a session. The properties may hold lists and
+maps besides scalars, as JSON carries them.
 
 - **Ephemeral, not durable.** A signal is sent once, to the nodes connected
   at that moment. A node that is down, or alive but not connected, does not
@@ -509,6 +518,11 @@ code uses). It holds:
 - **The owners of the subscription streams** (below).
 - **Each node's view of its connections**, refreshed every 10 seconds, for
   the Dashboard.
+- **What the Dashboard cards show** (`dashboard/cards`), with which node
+  makes the shared cards (`dashboard/owner`), which cards are looked at on
+  each node (`dashboard/watchers`) and each node's part of the cards that
+  gather by node (`dashboard/parts`); see
+  [`webtop-dashboard.md`](webtop-dashboard.md).
 
 Session values travel as Java serialization, each class resolved through the
 bundle that defines it. A script's own class cannot be stored — the

@@ -22,8 +22,12 @@
 
 package org.mintjams.rt.cms.internal.bpm.event;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.camunda.bpm.engine.impl.cfg.TransactionListener;
@@ -55,6 +59,16 @@ import org.mintjams.rt.cms.internal.CmsService;
  * {@code org/camunda/bpm/engine/runtime/ProcessInstance/STARTED}). Every event
  * carries at least the {@code workspace} property so consumers can tell which
  * workspace engine emitted it.
+ *
+ * <p>Those events are posted on the node that committed the transaction only,
+ * so whatever acts on them (a route sending a notice, a script) acts once per
+ * cluster. What a screen shows must change on every node, though, so task,
+ * process instance and incident events are announced a second time under
+ * {@link #VIEW_TOPIC_PREFIX}: posted on this node and sent to the others,
+ * which post them too. A view event carries the same properties as JSON
+ * values (a date is an ISO 8601 string). It reaches each node at most once
+ * and may be lost while a node is disconnected, so it is a hint that
+ * something changed, never a record to act on.
  */
 public class BpmEventDispatcher {
 
@@ -71,6 +85,17 @@ public class BpmEventDispatcher {
 	public static final String ACTION_DELETED = "DELETED";
 	public static final String ACTION_RESOLVED = "RESOLVED";
 	public static final String ACTION_MIGRATED = "MIGRATED";
+
+	/**
+	 * The root of the topics announced on every node of the cluster:
+	 * {@code org/mintjams/rt/cms/bpm/<Type>/<ACTION>}, where the type is the
+	 * simple name of the engine type ({@code Task}, {@code ProcessInstance},
+	 * {@code Incident}).
+	 */
+	public static final String VIEW_TOPIC_PREFIX = "org/mintjams/rt/cms/bpm/";
+
+	/** The longest text a view event carries in one property. */
+	private static final int MAX_VIEW_TEXT_LENGTH = 500;
 
 	private final String fWorkspaceName;
 
@@ -134,6 +159,79 @@ public class BpmEventDispatcher {
 				post(topic, snapshot);
 			}
 		});
+	}
+
+	/**
+	 * Builds the topic under which an event of the given type and action is
+	 * announced on every node.
+	 */
+	public static String viewTopic(Class<?> type, String action) {
+		return VIEW_TOPIC_PREFIX + type.getSimpleName() + "/" + action;
+	}
+
+	/**
+	 * Schedules the event for publication when the current engine transaction
+	 * commits, on this node under the engine topic and on every node under the
+	 * view topic.
+	 */
+	public void dispatchOnCommit(Class<?> type, String action, Map<String, Object> properties) {
+		dispatchOnCommit(topic(type, action), properties);
+
+		final String viewTopic = viewTopic(type, action);
+		final Map<String, Object> view = viewProperties(properties);
+		CommandContext commandContext = Context.getCommandContext();
+		if (commandContext == null) {
+			announce(viewTopic, view);
+			return;
+		}
+
+		commandContext.getTransactionContext().addTransactionListener(TransactionState.COMMITTED, new TransactionListener() {
+			@Override
+			public void execute(CommandContext commandContext) {
+				announce(viewTopic, view);
+			}
+		});
+	}
+
+	/**
+	 * Returns the properties as JSON values, which is what the other nodes
+	 * receive, so that every node sees the same event.
+	 */
+	private static Map<String, Object> viewProperties(Map<String, Object> properties) {
+		Map<String, Object> view = new LinkedHashMap<>();
+		for (Map.Entry<String, Object> e : properties.entrySet()) {
+			Object value = e.getValue();
+			if (value instanceof Date) {
+				value = ((Date) value).toInstant().toString();
+			} else if (value instanceof Collection) {
+				List<Object> list = new ArrayList<>();
+				for (Object item : (Collection<?>) value) {
+					list.add((item instanceof Number || item instanceof Boolean) ? item : String.valueOf(item));
+				}
+				value = list;
+			} else if (value instanceof String) {
+				String text = (String) value;
+				if (text.length() > MAX_VIEW_TEXT_LENGTH) {
+					value = text.substring(0, MAX_VIEW_TEXT_LENGTH);
+				}
+			} else if (!(value instanceof Number) && !(value instanceof Boolean)) {
+				value = String.valueOf(value);
+			}
+			view.put(e.getKey(), value);
+		}
+		return Collections.unmodifiableMap(view);
+	}
+
+	/**
+	 * Posts the view event on this node and sends it to the others.
+	 */
+	private void announce(String topic, Map<String, Object> properties) {
+		post(topic, properties);
+		try {
+			CmsService.broadcast(topic, fWorkspaceName, properties);
+		} catch (Throwable ex) {
+			CmsService.getLogger(getClass()).warn("Failed to send BPM event to the cluster: " + topic, ex);
+		}
 	}
 
 	/**

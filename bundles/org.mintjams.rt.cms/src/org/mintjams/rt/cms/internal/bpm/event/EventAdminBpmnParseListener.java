@@ -22,6 +22,9 @@
 
 package org.mintjams.rt.cms.internal.bpm.event;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import org.camunda.bpm.engine.delegate.DelegateExecution;
@@ -30,7 +33,11 @@ import org.camunda.bpm.engine.delegate.ExecutionListener;
 import org.camunda.bpm.engine.delegate.TaskListener;
 import org.camunda.bpm.engine.impl.bpmn.behavior.UserTaskActivityBehavior;
 import org.camunda.bpm.engine.impl.bpmn.parser.AbstractBpmnParseListener;
+import org.camunda.bpm.engine.impl.context.Context;
+import org.camunda.bpm.engine.impl.interceptor.CommandContext;
 import org.camunda.bpm.engine.impl.persistence.entity.ProcessDefinitionEntity;
+import org.camunda.bpm.engine.impl.persistence.entity.PropertyChange;
+import org.camunda.bpm.engine.impl.persistence.entity.TaskEntity;
 import org.camunda.bpm.engine.impl.pvm.process.ActivityImpl;
 import org.camunda.bpm.engine.impl.pvm.process.ScopeImpl;
 import org.camunda.bpm.engine.impl.pvm.process.TransitionImpl;
@@ -38,6 +45,8 @@ import org.camunda.bpm.engine.impl.task.TaskDefinition;
 import org.camunda.bpm.engine.impl.util.xml.Element;
 import org.camunda.bpm.engine.runtime.ActivityInstance;
 import org.camunda.bpm.engine.runtime.ProcessInstance;
+import org.camunda.bpm.engine.task.IdentityLink;
+import org.camunda.bpm.engine.task.IdentityLinkType;
 import org.camunda.bpm.engine.task.Task;
 import org.camunda.bpm.model.bpmn.instance.SequenceFlow;
 
@@ -232,7 +241,7 @@ public class EventAdminBpmnParseListener extends AbstractBpmnParseListener {
 			BpmEventDispatcher.put(properties, "executionId", execution.getId());
 			BpmEventDispatcher.put(properties, "businessKey", execution.getBusinessKey());
 			BpmEventDispatcher.put(properties, "tenantId", execution.getTenantId());
-			fDispatcher.dispatchOnCommit(fDispatcher.topic(ProcessInstance.class, fAction), properties);
+			fDispatcher.dispatchOnCommit(ProcessInstance.class, fAction, properties);
 		}
 	}
 
@@ -305,7 +314,68 @@ public class EventAdminBpmnParseListener extends AbstractBpmnParseListener {
 			BpmEventDispatcher.put(properties, "businessKey", execution != null ? execution.getProcessBusinessKey() : null);
 			BpmEventDispatcher.put(properties, "tenantId", task.getTenantId());
 			BpmEventDispatcher.put(properties, "createTime", task.getCreateTime());
-			fDispatcher.dispatchOnCommit(fDispatcher.topic(Task.class, fAction), properties);
+			BpmEventDispatcher.put(properties, "dueDate", task.getDueDate());
+			BpmEventDispatcher.put(properties, "actor", actor());
+			BpmEventDispatcher.put(properties, "previousAssignee", previousAssignee(task));
+			putCandidates(properties, task);
+			fDispatcher.dispatchOnCommit(Task.class, fAction, properties);
+		}
+
+		/** The user on whose behalf the engine is running the command, if any. */
+		private static String actor() {
+			try {
+				CommandContext commandContext = Context.getCommandContext();
+				return (commandContext == null) ? null : commandContext.getAuthenticatedUserId();
+			} catch (Throwable ignore) {
+				return null;
+			}
+		}
+
+		/**
+		 * The user the task was assigned to before this change, when the engine
+		 * still knows: it keeps what the running command changed, nothing more.
+		 */
+		private static String previousAssignee(DelegateTask task) {
+			try {
+				if (!(task instanceof TaskEntity)) {
+					return null;
+				}
+				PropertyChange change = ((TaskEntity) task).getPropertyChanges().get(TaskEntity.ASSIGNEE);
+				if (change == null || change.getOrgValue() == null) {
+					return null;
+				}
+				String previous = change.getOrgValueString();
+				return previous.equals(task.getAssignee()) ? null : previous;
+			} catch (Throwable ignore) {
+				return null;
+			}
+		}
+
+		/** Who may claim the task: the users and the groups named as candidates. */
+		private static void putCandidates(Map<String, Object> properties, DelegateTask task) {
+			try {
+				List<String> users = new ArrayList<>();
+				List<String> groups = new ArrayList<>();
+				for (IdentityLink link : task.getCandidates()) {
+					if (!IdentityLinkType.CANDIDATE.equals(link.getType())) {
+						continue;
+					}
+					if (link.getUserId() != null && !users.contains(link.getUserId())) {
+						users.add(link.getUserId());
+					}
+					if (link.getGroupId() != null && !groups.contains(link.getGroupId())) {
+						groups.add(link.getGroupId());
+					}
+				}
+				if (!users.isEmpty()) {
+					properties.put("candidateUsers", Collections.unmodifiableList(users));
+				}
+				if (!groups.isEmpty()) {
+					properties.put("candidateGroups", Collections.unmodifiableList(groups));
+				}
+			} catch (Throwable ignore) {
+				// The candidates only narrow who is told; without them everyone watching is.
+			}
 		}
 	}
 

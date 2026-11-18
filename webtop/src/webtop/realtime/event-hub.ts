@@ -6,7 +6,6 @@
  */
 
 import { SubscriptionClient, createSubscriptionClient } from './subscription-client.js';
-import { taskActions } from '../stores/task-store.js';
 import type {
   NodeChangeEvent,
   PreferenceChangeEvent,
@@ -90,63 +89,11 @@ export class EventHub {
   // =========================================================================
 
   /**
-   * Initialize with standard subscriptions for a user
+   * Called once the user is known. Nothing is subscribed up front: whoever
+   * shows something subscribes to it (the Dashboard to its cards, the shell
+   * to the user's notices), so a desktop holds no stream nobody reads.
    */
-  initialize(userId: string, groups: string[] = []): void {
-    this.#setupTaskSubscriptions(userId, groups);
-  }
-
-  /**
-   * Set up task-related subscriptions
-   */
-  #setupTaskSubscriptions(userId: string, groups: string[]): void {
-    // Task assigned to user
-    this.#unsubscribers.push(
-      this.#client.subscribe<TaskEvent>(
-        subscriptionDoc(`taskAssigned(assignee: ${gqlString(userId)})`, SELECTIONS.task),
-        (event) => {
-          if (event.task) {
-            taskActions.addTask(event.task);
-            // The notice ("a task was assigned to you") is not raised here:
-            // the server keeps one for the assignee on the task event
-            // (etc/eip/routes/webtop/notices.xml), and the shell shows it
-            // from the user's notice list — on every desktop, not just one.
-          }
-        }
-      )
-    );
-
-    // Task completed
-    this.#unsubscribers.push(
-      this.#client.subscribe<TaskEvent>(
-        subscriptionDoc('taskCompleted', SELECTIONS.task),
-        (event) => {
-          if (event.task) {
-            taskActions.removeTask(event.task.id);
-          }
-        }
-      )
-    );
-
-    // Tasks for candidate groups (claimable)
-    if (groups.length > 0) {
-      for (const group of groups) {
-        this.#unsubscribers.push(
-          this.#client.subscribe<TaskEvent>(
-            subscriptionDoc(`taskAssigned(candidateGroup: ${gqlString(group)})`, SELECTIONS.task),
-            (event) => {
-              if (event.task && !event.task.assignee) {
-                // Add to claimable tasks if unassigned
-                taskActions.setClaimableTasks([
-                  event.task,
-                  ...taskActions.getOverdueTasks(), // This is wrong, fix later
-                ]);
-              }
-            }
-          )
-        );
-      }
-    }
+  initialize(_userId: string, _groups: string[] = []): void {
   }
 
   // =========================================================================

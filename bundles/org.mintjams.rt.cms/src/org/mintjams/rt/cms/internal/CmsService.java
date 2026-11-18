@@ -152,6 +152,7 @@ public class CmsService {
 	private final Map<String, WorkspaceGraphQLEngineProvider> fWorkspaceGraphQLEngineProviders = new HashMap<>();
 	private final Map<String, WorkspaceWebServletProvider> fWorkspaceServletProviders = new HashMap<>();
 	private final Map<String, WorkspaceCmsEventManager> fWorkspaceCmsEventManagers = new HashMap<>();
+	private final Map<String, org.mintjams.rt.cms.internal.dashboard.DashboardWorker> fWorkspaceDashboardWorkers = new HashMap<>();
 	private final Map<String, org.mintjams.rt.cms.internal.searchindex.SearchIndexRebuildService> fWorkspaceSearchIndexRebuildServices = new HashMap<>();
 	private final Map<String, org.mintjams.rt.cms.internal.secrets.WorkspaceSecrets> fWorkspaceSecrets = new java.util.concurrent.ConcurrentHashMap<>();
 	/**
@@ -574,6 +575,7 @@ public class CmsService {
 		fStoppedWorkspaces.add(workspaceName);
 		WorkspaceUserHomes.invalidateWorkspace(workspaceName);
 		closeWorkspaceService(fWorkspaceSearchIndexRebuildServices.remove(workspaceName));
+		closeWorkspaceService(fWorkspaceDashboardWorkers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceCmsEventManagers.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceServletProviders.remove(workspaceName));
 		closeWorkspaceService(fWorkspaceGraphQLEngineProviders.remove(workspaceName));
@@ -684,30 +686,21 @@ public class CmsService {
 	}
 
 	/**
-	 * Fans a notification out to the other cluster nodes. The system workspace
-	 * is the repository-wide channel: it runs on every node, so its coordinator
-	 * reaches them all regardless of which workspaces each node runs. Each
-	 * receiving node re-emits the notification as a local event,
-	 * indistinguishable from a local post. Best-effort, and a no-op outside a
-	 * cluster.
+	 * Fans a notification out to the other cluster nodes over the cluster
+	 * connections, which reach every node regardless of which workspaces each
+	 * node runs. Each receiving node re-emits the notification as a local
+	 * event, indistinguishable from a local post. Only queues the frames, so it
+	 * is safe on any thread. Best-effort, and a no-op outside a cluster.
 	 */
 	private static void broadcastToCluster(String topic, String workspaceName, Map<String, Object> properties) {
-		Session session = null;
+		ClusterTransport transport = getClusterTransport();
+		if (transport == null) {
+			return;
+		}
 		try {
-			session = getRepository().login(new CmsServiceCredentials(), "system");
-			org.mintjams.jcr.cluster.ClusterCoordinator coordinator = Adaptables.getAdapter(session,
-					org.mintjams.jcr.cluster.ClusterCoordinator.class);
-			if (coordinator != null && coordinator.isClusterEnabled()) {
-				coordinator.publish(topic, properties);
-			}
+			transport.signal(topic, properties);
 		} catch (Throwable ex) {
 			getLogger(CmsService.class).warn("Could not broadcast '" + topic + "' to the cluster: " + workspaceName, ex);
-		} finally {
-			if (session != null) {
-				try {
-					session.logout();
-				} catch (Throwable ignore) {}
-			}
 		}
 	}
 
@@ -786,6 +779,10 @@ public class CmsService {
 		WorkspaceCmsEventManager cmsEventManager = fCloser.register(new WorkspaceCmsEventManager(workspaceName));
 		fWorkspaceCmsEventManagers.put(workspaceName, cmsEventManager);
 		cmsEventManager.open();
+
+		org.mintjams.rt.cms.internal.dashboard.DashboardWorker dashboardWorker = fCloser.register(new org.mintjams.rt.cms.internal.dashboard.DashboardWorker(workspaceName));
+		fWorkspaceDashboardWorkers.put(workspaceName, dashboardWorker);
+		dashboardWorker.open();
 
 		// Picks up the search index rebuild jobs addressed to this node —
 		// dispatched while it runs (node events) or while it was down (its
@@ -995,6 +992,10 @@ public class CmsService {
 
 	public static WorkspaceWebServletProvider getWorkspaceServletProvider(String workspaceName) {
 		return getDefault().fWorkspaceServletProviders.get(workspaceName);
+	}
+
+	public static org.mintjams.rt.cms.internal.dashboard.DashboardWorker getWorkspaceDashboardWorker(String workspaceName) {
+		return getDefault().fWorkspaceDashboardWorkers.get(workspaceName);
 	}
 
 	public static WorkspaceCmsEventManager getWorkspaceCmsEventManager(String workspaceName) {

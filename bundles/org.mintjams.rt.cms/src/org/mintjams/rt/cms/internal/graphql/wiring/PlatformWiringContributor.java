@@ -69,6 +69,7 @@ import org.mintjams.jcr.util.JCRs;
 import org.mintjams.jcr.security.GuestPrincipal;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.pubsub.TopicMessages;
+import org.mintjams.rt.cms.internal.bpm.event.BpmEventDispatcher;
 import org.mintjams.rt.cms.internal.cms.event.CmsEvent;
 import org.mintjams.rt.cms.internal.files.Deadline;
 import org.mintjams.rt.cms.internal.files.SearchExcerpts;
@@ -287,6 +288,10 @@ public final class PlatformWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformWiringContributor::processEnded)
 				.dataFetcher("Subscription", "topicMessage",
 						(DataFetcher<Object>) PlatformWiringContributor::topicMessage)
+				.dataFetcher("Subscription", "dashboardCards",
+						(DataFetcher<Object>) PlatformWiringContributor::dashboardCards)
+				.dataFetcher("Subscription", "dashboardCardDetail",
+						(DataFetcher<Object>) PlatformWiringContributor::dashboardCardDetail)
 				.typeResolver("PropertyValue", new PropertyValueTypeResolver());
 	}
 
@@ -878,6 +883,7 @@ public final class PlatformWiringContributor implements WiringContributor {
 		app.put("actions", actions);
 		app.put("widgets", AppWidgets.fromDescriptor(data.get("widgets")));
 		app.put("extensions", FolderExtensions.fromDescriptor(data.get("extensions")));
+		app.put("dashboard", org.mintjams.rt.cms.internal.dashboard.DashboardCards.forApp(appYmlNode.getSession(), relPath, data));
 		return app;
 	}
 
@@ -2456,16 +2462,45 @@ public final class PlatformWiringContributor implements WiringContributor {
 		return TopicMessages.subscribe(context.getWorkspaceName(), subscriberId, topic);
 	}
 
+	// ---- Dashboard cards ---------------------------------------------------
+	// What the cards show is made on the server and pushed, see DashboardWorker.
+
+	/** {@code Subscription.dashboardCards(path, timeZone)} — the snapshots of the cards the subscriber may see. */
+	private static Object dashboardCards(DataFetchingEnvironment environment) {
+		return dashboardFeed(environment, null);
+	}
+
+	/** {@code Subscription.dashboardCardDetail(path, card, timeZone)} — the detail of one card, while it is maximized. */
+	private static Object dashboardCardDetail(DataFetchingEnvironment environment) {
+		String card = environment.getArgument("card");
+		if (card == null || card.isEmpty()) {
+			throw new IllegalArgumentException("A card is required.");
+		}
+		return dashboardFeed(environment, card);
+	}
+
+	private static Object dashboardFeed(DataFetchingEnvironment environment, String detailCard) {
+		GraphQLExecutionContext context = GraphQLExecutionContext.from(environment);
+		org.mintjams.rt.cms.internal.dashboard.DashboardWorker worker = CmsService
+				.getWorkspaceDashboardWorker(context.getWorkspaceName());
+		if (worker == null) {
+			throw new IllegalStateException("The Dashboard is not available for the workspace: " + context.getWorkspaceName());
+		}
+		return worker.subscribe(context.getCallerSession(), environment.getArgument("path"),
+				environment.getArgument("timeZone"), detailCard);
+	}
+
 	// ---- BPM subscriptions (Phase 3b) --------------------------------------
-	// Bridged from the Camunda EventAdmin topics (see EventAdminBpmnParseListener /
+	// Bridged from the engine events (see EventAdminBpmnParseListener /
 	// BpmEventDispatcher). Task and process events carry their key fields directly
 	// (taskId/taskName/assignee/processInstanceId/processDefinitionId, ...), so the
 	// flat payload is built from the event without an engine query. Each event's
 	// "workspace" property scopes it to the subscriber's workspace.
 
-	// type.getName().replace('.','/') + "/*" — the dispatcher's topic convention.
-	private static final String[] TASK_TOPICS = { "org/camunda/bpm/engine/task/Task/*" };
-	private static final String[] PROCESS_TOPICS = { "org/camunda/bpm/engine/runtime/ProcessInstance/*" };
+	// The view topics, which every node of the cluster posts, so a subscriber
+	// hears of a change whichever node committed it.
+	private static final String[] TASK_TOPICS = { BpmEventDispatcher.VIEW_TOPIC_PREFIX + "Task/*" };
+	private static final String[] PROCESS_TOPICS = { BpmEventDispatcher.VIEW_TOPIC_PREFIX + "ProcessInstance/*" };
 
 	/** {@code Subscription.taskAssigned(assignee, candidateGroup)} — Task/ASSIGNED, filtered by assignee. */
 	private static Object taskAssigned(DataFetchingEnvironment environment) {
