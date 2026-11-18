@@ -26,13 +26,6 @@
 
 		<!-- Top toolbar -->
 		<nav class="nav-bar window-drag-region">
-			<div class="toolbar-group">
-				<button class="btn-icon" @click="refresh" :disabled="refreshing" :title="t('app.dashboard.toolbar.refresh', undefined, 'Refresh')">
-					<wt-spinner v-if="refreshing" size="sm"></wt-spinner>
-					<i v-else class="bi bi-arrow-clockwise"></i>
-				</button>
-			</div>
-
 			<span class="dash-greeting" v-if="view === 'ready'">{{ greeting }}</span>
 
 			<wt-live-indicator :connected="connected"
@@ -66,11 +59,11 @@
 		<!-- Error -->
 		<wt-empty-state v-else-if="view === 'error'" icon="bi-exclamation-triangle-fill">
 			{{ errorMessage }}
-			<button slot="actions" class="wt" @click="refresh">{{ t('app.dashboard.action.retry', undefined, 'Retry') }}</button>
+			<button slot="actions" class="wt" @click="retry">{{ t('app.dashboard.action.retry', undefined, 'Retry') }}</button>
 		</wt-empty-state>
 
 		<!-- Ready -->
-		<div v-else class="dash-body">
+		<div v-else class="dash-body" :class="{ 'is-maximized': !!maximized }">
 
 			<wt-empty-state v-if="layout.length === 0" icon="bi-grid">
 				{{ t('app.dashboard.state.empty', undefined, 'There is nothing on your dashboard yet.') }}
@@ -201,8 +194,7 @@
 			</div>
 			<span class="nav-spacer"></span>
 			<div class="status-group">
-				<span v-if="refreshing" class="status-item"><i class="bi bi-arrow-repeat me-1"></i>{{ t('app.dashboard.statusbar.refreshing', undefined, 'Refreshing…') }}</span>
-				<span v-else-if="lastUpdated" class="status-item">{{ t('app.dashboard.statusbar.updated', { when: lastUpdatedLabel }, 'Updated ' + lastUpdatedLabel) }}</span>
+				<span v-if="lastUpdated" class="status-item">{{ t('app.dashboard.statusbar.updated', { when: lastUpdatedLabel }, 'Updated ' + lastUpdatedLabel) }}</span>
 				<span v-else class="status-item">{{ t('app.dashboard.statusbar.ready', undefined, 'Ready') }}</span>
 			</div>
 		</div>

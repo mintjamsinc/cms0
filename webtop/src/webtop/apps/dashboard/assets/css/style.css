@@ -448,11 +448,28 @@
 	display: contents;
 }
 
-/* A card shown alone, with its detail. */
+/* A card shown alone, with its detail. It reaches down to the status bar;
+ * a detail taller than the window still scrolls the body. */
+.dash-body.is-maximized {
+	display: flex;
+	flex-direction: column;
+}
+
+.dash-body.is-maximized .dash-section {
+	flex: 1 0 auto;
+	display: flex;
+	flex-direction: column;
+	margin-bottom: 0;
+}
+
 .dash-grid.is-maximized {
+	flex: 1 0 auto;
 	grid-template-columns: 1fr;
+	grid-template-rows: 1fr;
+	align-items: stretch;
 }
 
 .dash-grid.is-maximized .dash-card {
+	height: auto;
 	min-height: 24rem;
 }
