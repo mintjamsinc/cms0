@@ -7,7 +7,17 @@
 **
 
 # Pre-built Felix runtime (laid down by the build pipeline before `docker build`).
+# Only the distribution itself: a felix-dist/ that has been run locally also
+# holds felix-cache/, repository/ (initial passwords, keystore passwords,
+# content), repository-local/, log/ and test output.
 !felix-dist/
+felix-dist/*
+!felix-dist/bin/
+!felix-dist/bundle/
+!felix-dist/conf/
+!felix-dist/DEPENDENCIES
+!felix-dist/LICENSE*
+!felix-dist/NOTICE
 
 # Container packaging files referenced by the Dockerfile.
 !docker/Dockerfile
