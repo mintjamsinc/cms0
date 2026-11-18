@@ -59,7 +59,7 @@ const APPS_QUERY = `
 					identifier
 					relPath
 					dashboard {
-						sections { identifier title icon order }
+						sections { identifier title subtitle icon order }
 						cards { identifier section title icon order size scope summary detail open }
 					}
 				}
@@ -516,6 +516,7 @@ const App = {
 						key: 'maximized:' + card.id,
 						id: card.section,
 						title: this.sectionTitle(section, card.section),
+						subtitle: this.sectionSubtitle(section, card.section),
 						icon: (section && section.icon) || 'bi-grid',
 						canToggle: false,
 						summaryOnly: false,
@@ -534,7 +535,7 @@ const App = {
 			for (const card of this._cards) {
 				if (!known.has(card.section)) {
 					known.add(card.section);
-					sections.push({ identifier: card.section, title: null, icon: null, order: 1000, app: card.app });
+					sections.push({ identifier: card.section, title: null, subtitle: null, icon: null, order: 1000, app: card.app });
 				}
 			}
 			for (const section of sections) {
@@ -550,6 +551,7 @@ const App = {
 					key: section.identifier,
 					id: section.identifier,
 					title: this.sectionTitle(section, section.identifier),
+					subtitle: this.sectionSubtitle(section, section.identifier),
 					icon: section.icon || 'bi-grid',
 					canToggle,
 					summaryOnly,
@@ -564,6 +566,12 @@ const App = {
 			const fallback = (section && section.title) || identifier;
 			const app = section ? section.app : undefined;
 			return translate(this.localization, this.instance, `app.${app}.dashboard.section.${identifier}.title`, undefined, fallback, app);
+		},
+
+		// The line beside the title; empty when the section declares none.
+		sectionSubtitle(section: any, identifier: string): string {
+			if (!section || !section.subtitle) return '';
+			return translate(this.localization, this.instance, `app.${section.app}.dashboard.section.${identifier}.subtitle`, undefined, section.subtitle, section.app);
 		},
 
 		cardView(card: any, snapshot: any, now: number, maximized: boolean, leading = false): any {

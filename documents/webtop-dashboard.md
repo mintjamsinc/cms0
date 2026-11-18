@@ -34,6 +34,7 @@ extensions:
     sections:
       jp.example.office:
         title: Office
+        subtitle: Rooms and visitors today
         icon: bi-building
         order: 400
     cards:
@@ -60,8 +61,9 @@ A section:
 |---|---|
 | *(name)* | the identifier of the section, shared by every app that adds cards to it |
 | `title` | shown when no bundle has `app.<relPath>.dashboard.section.<identifier>.title` |
+| `subtitle` | optional; a short line beside the title, shown when no bundle has `app.<relPath>.dashboard.section.<identifier>.subtitle` |
 | `icon` | a Bootstrap icon class |
-| `order` | sections are shown in this order; when several apps declare one section, the lowest order names it |
+| `order` | sections are shown in this order; when several apps declare one section, the lowest order gives its title, subtitle and icon |
 
 A card (its identifier is `<app relPath>/<name>`, e.g. `office/rooms`):
 

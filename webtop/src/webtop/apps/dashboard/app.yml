@@ -19,10 +19,12 @@ extensions:
     sections:
       today:
         title: Today's Work
+        subtitle: What needs your attention
         icon: bi-sun
         order: 100
       operations:
         title: Operations
+        subtitle: BPM & EIP — is everything running?
         icon: bi-activity
         order: 900
     cards:

@@ -1261,6 +1261,8 @@ type AppDashboard {
 type DashboardSection {
   identifier: String!
   title: String
+  """The line shown beside the title."""
+  subtitle: String
   icon: String
   order: Int!
 }

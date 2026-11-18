@@ -77,6 +77,7 @@
 			<section class="dash-section" v-for="section in layout" :key="section.key">
 				<div class="dash-section-head">
 					<i class="bi" :class="section.icon"></i>{{ section.title }}
+					<span class="dash-section-sub" v-if="section.subtitle">{{ section.subtitle }}</span>
 					<span class="nav-spacer"></span>
 					<button class="dash-section-toggle" v-if="section.canToggle" @click="toggleSection(section.id)"
 						:title="section.summaryOnly ? t('app.dashboard.section.showAll.hint', undefined, 'Show every card of this section') : t('app.dashboard.section.showSummary.hint', undefined, 'Show the summary only')">

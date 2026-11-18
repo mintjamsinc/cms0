@@ -99,13 +99,16 @@ public final class DashboardCards {
 		public final String identifier;
 		public final String app;
 		public final String title;
+		/** The line shown beside the title, or {@code null}. */
+		public final String subtitle;
 		public final String icon;
 		public final int order;
 
-		Section(String identifier, String app, String title, String icon, int order) {
+		Section(String identifier, String app, String title, String subtitle, String icon, int order) {
 			this.identifier = identifier;
 			this.app = app;
 			this.title = title;
+			this.subtitle = subtitle;
 			this.icon = icon;
 			this.order = order;
 		}
@@ -115,6 +118,7 @@ public final class DashboardCards {
 			Map<String, Object> map = new LinkedHashMap<>();
 			map.put("identifier", identifier);
 			map.put("title", title);
+			map.put("subtitle", subtitle);
 			map.put("icon", icon);
 			map.put("order", order);
 			return map;
@@ -261,6 +265,7 @@ public final class DashboardCards {
 				Map<String, Object> value = map(e.getValue());
 				sections.add(new Section(identifier, app,
 						(value.get("title") instanceof String) ? (String) value.get("title") : null,
+						(value.get("subtitle") instanceof String) ? (String) value.get("subtitle") : null,
 						text(value.get("icon"), ICON_PATTERN, 64), integer(value.get("order"), 1000)));
 			}
 		}
