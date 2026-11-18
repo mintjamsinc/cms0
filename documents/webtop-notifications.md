@@ -121,6 +121,7 @@ the task is theirs (`webtop.notices.TaskNotices`):
 | What happens to the task | The notice |
 |---|---|
 | assigned to a user by someone else | written for that user |
+| created with an assignee (by the process) | written for that user, also when it is the user who started the process or completed the step before |
 | claimed, or assigned to oneself | none: nobody is told of what they did themselves |
 | assigned to another user | taken back from the one, written for the other |
 | given back (no assignee) | taken back |

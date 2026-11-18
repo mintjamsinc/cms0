@@ -20,8 +20,12 @@ package webtop.notices;
  * right by the next event of the same task.
  *
  * Nobody is told of what they did themselves: a task one claimed, or
- * assigned to oneself, leaves no notice. The candidates of a task are not
- * told either; what they may claim is on the Dashboard.
+ * assigned to oneself (ASSIGNED, with the assignee as the actor), leaves no
+ * notice. A task the process creates for the user who moved it on — the
+ * progress task of a process they started, the next step after one they
+ * completed — is new work put before them, and is told (CREATED, whoever
+ * the actor). The candidates of a task are not told; what they may claim
+ * is on the Dashboard.
  *
  * The texts are the Webtop's own messages (webtop.notification.task.*),
  * resolved in the reader's language; the task's name is given as the
@@ -55,7 +59,8 @@ class TaskNotices {
 			forget(scriptAPI, taskId);
 			told = null;
 		}
-		if (assignee && assignee != told && assignee != actor && GIVEN.contains(action)) {
+		boolean ownDoing = (action == 'ASSIGNED' && assignee == actor);
+		if (assignee && assignee != told && !ownDoing && GIVEN.contains(action)) {
 			if (Notices.publish(scriptAPI, assigned(event, taskId), [assignee])) {
 				remember(scriptAPI, taskId, assignee);
 			}
