@@ -6,7 +6,10 @@
 // dashboardCards): the current snapshot of every card the user may see first,
 // then each one as it changes. This app queries nothing but the declarations
 // and draws what arrives, so every Dashboard shows the same numbers and none
-// of them polls. See documents/webtop-dashboard.md.
+// of them polls. The stream reconnects by itself and the feed then sends the
+// current snapshots again, so there is nothing to refresh by hand; when an
+// app.yml under the apps folder changes, the declarations are read again and
+// the feed opened anew. See documents/webtop-dashboard.md.
 //
 //   • A section gathers cards, from any app. A card declared `summary` leads
 //     its section at full width, and the section can be folded to it alone
@@ -41,6 +44,12 @@ type AnyInstance = any;
 // Ages and "due" pills are relative to now, so the layout is drawn again
 // this often even when nothing arrives.
 const REDRAW_INTERVAL_MS = 60000;
+
+// After an app.yml changed, the declarations are read again this long after
+// the last change: the server reads its own again some 3 seconds after the
+// change (once the search index follows), and a feed opened before that would
+// hold the cards of before.
+const DECLARATIONS_SETTLE_MS = 5000;
 
 const APPS_QUERY = `
 	query DashboardApps($path: String!, $first: Int, $after: String) {
@@ -109,7 +118,7 @@ const App = {
 			layout: [] as any[],
 			// Epoch ms of the last snapshot that arrived (0 = none yet).
 			lastUpdated: 0,
-			refreshing: false,
+			// Whether the stream the snapshots come by is open.
 			connected: false,
 
 			isAdmin: false,
@@ -133,6 +142,9 @@ const App = {
 			_timeZone: '' as string,
 			_unsubscribe: null as null | (() => void),
 			_unsubscribeDetail: null as null | (() => void),
+			_unwatchApps: null as null | (() => void),
+			_unwatchConnection: null as null | (() => void),
+			_declarationsTimer: null as any,
 			_redrawTimer: null as any,
 			_messageListener: null as any,
 		};
@@ -247,6 +259,7 @@ const App = {
 			if (this._messageListener) window.removeEventListener('message', this._messageListener);
 			if (this._redrawTimer) clearInterval(this._redrawTimer);
 			this.unsubscribe();
+			this.stopWatching();
 		},
 
 		// ---- Identity --------------------------------------------------------
@@ -291,6 +304,7 @@ const App = {
 		async load() {
 			try {
 				await this.loadDeclarations();
+				this.startWatching();
 				this.subscribe();
 				this.rebuild();
 				this.view = 'ready';
@@ -300,15 +314,69 @@ const App = {
 			}
 		},
 
-		// Reads the declarations again and opens the feed anew, which brings
-		// the current snapshot of every card.
-		async refresh() {
-			if (this.refreshing) return;
-			this.refreshing = true;
+		// From the error state: try loading again.
+		async retry() {
+			this.view = 'loading';
+			await this.load();
+		},
+
+		// Watches what the feed itself does not tell: whether the stream is
+		// open, and the app.yml files under the apps folder. Held apart from
+		// the feed, so that opening the feed anew never leaves the stream with
+		// nothing subscribed (which closes it).
+		startWatching() {
+			const hub = this.instance?.api?.eventHub;
+			if (!hub) return;
+			if (!this._unwatchConnection) {
+				if (typeof hub.watchConnection === 'function') {
+					this._unwatchConnection = hub.watchConnection((connected: boolean) => { this.connected = connected; });
+				} else {
+					this.connected = true;
+				}
+			}
+			if (!this._unwatchApps && typeof hub.watchNode === 'function') {
+				this._unwatchApps = hub.watchNode(this._appsPath, (event: any) => this.onAppsChanged(event), true);
+			}
+		},
+
+		stopWatching() {
+			if (this._declarationsTimer) {
+				clearTimeout(this._declarationsTimer);
+				this._declarationsTimer = null;
+			}
+			for (const key of ['_unwatchApps', '_unwatchConnection']) {
+				if (this[key]) {
+					try { this[key](); } catch { /* noop */ }
+					this[key] = null;
+				}
+			}
+		},
+
+		// A change under the apps folder: an app.yml written or removed, or an
+		// app folder added or removed. Read the declarations again once the
+		// changes have settled.
+		onAppsChanged(event: any) {
+			const path = event && event.path;
+			const prefix = this._appsPath + '/';
+			if (typeof path !== 'string' || !path.startsWith(prefix)) return;
+			const parts = path.slice(prefix.length).split('/');
+			if (parts.length > 1 && parts[1] !== 'app.yml') return;
+			if (this._declarationsTimer) clearTimeout(this._declarationsTimer);
+			this._declarationsTimer = setTimeout(() => {
+				this._declarationsTimer = null;
+				void this.reloadDeclarations();
+			}, DECLARATIONS_SETTLE_MS);
+		},
+
+		// Reads the declarations again and opens the feed anew: the server
+		// fixes the cards of a feed when it opens.
+		async reloadDeclarations() {
 			try {
-				await this.load();
-			} finally {
-				this.refreshing = false;
+				await this.loadDeclarations();
+				this.subscribe();
+				this.rebuild();
+			} catch (e) {
+				console.warn('[Dashboard] Could not read the cards again:', e);
 			}
 		},
 
@@ -359,7 +427,6 @@ const App = {
 			this._unsubscribe = hub.subscribe(
 				`subscription { dashboardCards(${args}) { ${SNAPSHOT_FIELDS} } }`,
 				(snapshot: any) => this.onSnapshot(snapshot));
-			this.connected = true;
 			if (this.maximized) {
 				this.subscribeDetail();
 			}
@@ -391,7 +458,6 @@ const App = {
 					this[key] = null;
 				}
 			}
-			this.connected = false;
 		},
 
 		onSnapshot(snapshot: any) {

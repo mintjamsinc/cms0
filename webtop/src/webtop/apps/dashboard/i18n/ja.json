@@ -1,6 +1,5 @@
 {
 	"app.dashboard.title": "ダッシュボード",
-	"app.dashboard.toolbar.refresh": "更新",
 	"app.dashboard.window.minimize": "最小化",
 	"app.dashboard.window.maximize": "最大化",
 	"app.dashboard.window.close": "閉じる",
@@ -107,7 +106,6 @@
 	"app.dashboard.cluster.link.none": "未接続",
 	"app.dashboard.statusbar.operatorView": "オペレーター表示",
 	"app.dashboard.statusbar.myWork": "自分の作業",
-	"app.dashboard.statusbar.refreshing": "更新中…",
 	"app.dashboard.statusbar.updated": "更新 {when}",
 	"app.dashboard.statusbar.ready": "準備完了",
 	"app.dashboard.state.empty": "ダッシュボードに表示するものはまだありません。",

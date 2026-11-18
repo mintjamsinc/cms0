@@ -285,6 +285,7 @@ export const App = {
 			flashIds: {} as Record<string, boolean>,
 			_liveUnsub: null as null | (() => void),
 			_routeStateUnsub: null as null | (() => void),
+			_liveUnwatchConnection: null as null | (() => void),
 			_liveDebounceTimer: null as number | null,
 			_routeReloadTimer: null as number | null,
 			// Public (template-bound) flag for the Refresh button spinner.
@@ -1228,9 +1229,19 @@ export const App = {
 				vm._liveUnsub = eventHub.watchNode(HISTORY_BASE_PATH, (event: any) => {
 					vm.onHistoryEvent(event);
 				}, true /* deep */);
-				vm.liveConnected = true;
 			} catch {
+				vm._liveUnsub = null;
+			}
+			// The indicator follows the stream itself: off while it is lost,
+			// on again once it has reconnected (and re-posted the watches).
+			if (!vm._liveUnsub) {
 				vm.liveConnected = false;
+			} else if (typeof eventHub.watchConnection === 'function') {
+				vm._liveUnwatchConnection = eventHub.watchConnection((connected: boolean) => {
+					vm.liveConnected = connected;
+				});
+			} else {
+				vm.liveConnected = true;
 			}
 			// Live route lifecycle (routeStateChanged): reflect start/stop/suspend/
 			// resume in the route list the instant Camel transitions. The
@@ -1255,6 +1266,10 @@ export const App = {
 			if (vm._routeReloadTimer != null) {
 				window.clearTimeout(vm._routeReloadTimer);
 				vm._routeReloadTimer = null;
+			}
+			if (vm._liveUnwatchConnection) {
+				try { vm._liveUnwatchConnection(); } catch { /* noop */ }
+				vm._liveUnwatchConnection = null;
 			}
 			if (vm._liveUnsub) {
 				try { vm._liveUnsub(); } catch { /* noop */ }

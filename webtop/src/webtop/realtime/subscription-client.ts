@@ -29,10 +29,10 @@ export interface SubscriptionClientOptions {
   /** SSE endpoint URL (…/stream). */
   endpoint: string;
 
-  /** Called when the connection is established. */
+  /** Called when the connection opens. */
   onConnect?: () => void;
 
-  /** Called when the connection is lost. */
+  /** Called when an open connection closes: lost, or closed for want of subscriptions. */
   onDisconnect?: () => void;
 
   /** Called on connection error. */
@@ -61,6 +61,8 @@ export class SubscriptionClient {
   #reconnectDelay = 1000;
   #maxReconnectDelay = 30000;
   #reconnectTimer: number | null = null;
+  /** Whether onConnect was the last of onConnect/onDisconnect told. */
+  #open = false;
   /** Tail of the stream's send queue: POST/DELETE run one after another. */
   #sendQueue: Promise<void> = Promise.resolve();
 
@@ -155,7 +157,7 @@ export class SubscriptionClient {
 
       es.onopen = () => {
         this.#reconnectDelay = 1000;
-        this.#options.onConnect?.();
+        this.#setOpen(true);
         if (!settled) {
           settled = true;
           resolve(true);
@@ -277,7 +279,6 @@ export class SubscriptionClient {
       return;
     }
     this.#options.onError?.(event);
-    this.#options.onDisconnect?.();
     // The server drops the token (and its operations) when the SSE drops, so a full
     // re-establish — new token, new stream, re-post every active operation — is needed.
     // Closing the EventSource here also stops its built-in retry of the dead token.
@@ -334,6 +335,20 @@ export class SubscriptionClient {
     this.#token = null;
     if (!keepOperations) {
       this.#operations.clear();
+    }
+    this.#setOpen(false);
+  }
+
+  /** Tells onConnect / onDisconnect when the connection opens or closes, once per change. */
+  #setOpen(open: boolean): void {
+    if (this.#open === open) {
+      return;
+    }
+    this.#open = open;
+    if (open) {
+      this.#options.onConnect?.();
+    } else {
+      this.#options.onDisconnect?.();
     }
   }
 

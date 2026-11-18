@@ -90,7 +90,10 @@ cards for everyone and cards for administrators. A section is shown to
 whoever sees at least one of its cards.
 
 Unlike a Content Browser extension, nothing turns a card on: it is there
-when the app is installed and the reader may see it.
+when the app is installed and the reader may see it. An open Dashboard
+follows the app.yml files under its apps folder and shows a card added or
+removed some five seconds after the change; a change of the reader's roles
+shows when the Dashboard is opened again.
 
 ### Names
 

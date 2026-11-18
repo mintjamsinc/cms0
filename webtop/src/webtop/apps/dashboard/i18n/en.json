@@ -1,6 +1,5 @@
 {
 	"app.dashboard.title": "Dashboard",
-	"app.dashboard.toolbar.refresh": "Refresh",
 	"app.dashboard.window.minimize": "Minimize",
 	"app.dashboard.window.maximize": "Maximize",
 	"app.dashboard.window.close": "Close",
@@ -107,7 +106,6 @@
 	"app.dashboard.cluster.link.none": "Not connected",
 	"app.dashboard.statusbar.operatorView": "Operator view",
 	"app.dashboard.statusbar.myWork": "My work",
-	"app.dashboard.statusbar.refreshing": "Refreshing…",
 	"app.dashboard.statusbar.updated": "Updated {when}",
 	"app.dashboard.statusbar.ready": "Ready",
 	"app.dashboard.state.empty": "There is nothing on your dashboard yet.",

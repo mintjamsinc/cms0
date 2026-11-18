@@ -63,6 +63,7 @@ function subscriptionDoc(fieldWithArgs: string, selection: string): string {
 export class EventHub {
   #client: SubscriptionClient;
   #unsubscribers: Array<() => void> = [];
+  #connectionHandlers = new Set<(connected: boolean) => void>();
   #workspace: string;
 
   constructor(workspace: string) {
@@ -308,12 +309,37 @@ export class EventHub {
   // Connection Events
   // =========================================================================
 
+  /**
+   * Follow whether the stream is open: the handler is called now, then each
+   * time the stream opens or closes. The stream is open only while something
+   * is subscribed, and it reconnects by itself after it was lost.
+   */
+  watchConnection(handler: (connected: boolean) => void): () => void {
+    this.#connectionHandlers.add(handler);
+    handler(this.isConnected);
+    return () => {
+      this.#connectionHandlers.delete(handler);
+    };
+  }
+
+  #notifyConnection(connected: boolean): void {
+    for (const handler of [...this.#connectionHandlers]) {
+      try {
+        handler(connected);
+      } catch (error) {
+        console.warn('[EventHub] A connection handler failed:', error);
+      }
+    }
+  }
+
   #onConnect(): void {
     console.log(`[EventHub] Connected to ${this.#workspace}`);
+    this.#notifyConnection(true);
   }
 
   #onDisconnect(): void {
     console.log(`[EventHub] Disconnected from ${this.#workspace}`);
+    this.#notifyConnection(false);
   }
 
   #onError(error: Event): void {
@@ -331,6 +357,7 @@ export class EventHub {
     this.#unsubscribers.forEach(unsub => unsub());
     this.#unsubscribers = [];
     this.#client.disconnect();
+    this.#connectionHandlers.clear();
   }
 
   /**
