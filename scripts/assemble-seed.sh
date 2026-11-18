@@ -75,6 +75,8 @@ copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/mail.xml" "${SEED_
 copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/mail" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/mail" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/mail"
 copy_tree "${SEED_ASSETS}/system/provisioning/mail.yml" "${SEED_ASSETS}/workspace/provisioning/mail.yml"
+# dashboard app: the providers of its own cards
+copy_tree "${SEED_ASSETS}/system/deploy/usr/local/classes/webtop/dashboard" "${SEED_ASSETS}/workspace/deploy/usr/local/classes/webtop/dashboard"
 # notification center: Server-side assets
 copy_tree "${SEED_ASSETS}/system/deploy/etc/eip/routes/webtop/notices.xml" "${SEED_ASSETS}/workspace/deploy/etc/eip/routes/webtop/notices.xml"
 copy_tree "${SEED_ASSETS}/system/deploy/etc/graphql/webtop/notices" "${SEED_ASSETS}/workspace/deploy/etc/graphql/webtop/notices"

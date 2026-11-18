@@ -291,7 +291,9 @@ worker on every node as the view topics
 ## The Dashboard's own cards
 
 Declared in the Dashboard's `app.yml`, with providers in
-`/usr/local/classes/webtop/dashboard`:
+`/usr/local/classes/webtop/dashboard`. The Dashboard is in every workspace,
+so the seed lays its providers into every workspace too
+(`scripts/assemble-seed.*` copies them from the system workspace's assets):
 
 | Section | Card | Scope | Made anew on |
 |---|---|---|---|

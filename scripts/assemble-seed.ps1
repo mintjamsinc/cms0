@@ -80,6 +80,8 @@ Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/mail.xml" "$SeedAsset
 Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/mail" "$SeedAssets/workspace/deploy/etc/graphql/webtop/mail"
 Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/mail" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/mail"
 Copy-Tree "$SeedAssets/system/provisioning/mail.yml" "$SeedAssets/workspace/provisioning/mail.yml"
+# dashboard app: the providers of its own cards
+Copy-Tree "$SeedAssets/system/deploy/usr/local/classes/webtop/dashboard" "$SeedAssets/workspace/deploy/usr/local/classes/webtop/dashboard"
 # notification center: Server-side assets
 Copy-Tree "$SeedAssets/system/deploy/etc/eip/routes/webtop/notices.xml" "$SeedAssets/workspace/deploy/etc/eip/routes/webtop/notices.xml"
 Copy-Tree "$SeedAssets/system/deploy/etc/graphql/webtop/notices" "$SeedAssets/workspace/deploy/etc/graphql/webtop/notices"
