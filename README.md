@@ -1,20 +1,17 @@
-# MintJams CMS
+# MintJams Webtop (AI-Ready CMS & Business Workspace)
 
-A lightweight Content Management System built on a simplified implementation
-of the **Content Repository for Java Technology API 2.0 (JSR 283)**.
-It bundles a JCR-backed server runtime on Apache Felix together with a
-browser-based virtual desktop ("Webtop") for content authoring and
-administration. Zero-configuration SAML 2.0 (both Service Provider and
-Identity Provider) is included out of the box.
+**An AI-native, self-hosted CMS and virtual desktop built for small businesses and local shops.**
 
-- **Server** — Apache Felix runtime, JCR repository, SAML SP/IdP, Camel/Camunda
-  integrations. Sources under [`bundles/`](bundles/).
-- **Client** — "Webtop" virtual desktop and built-in apps (Content Browser,
-  Identity Manager, BPM Console, BPMN/EIP Modeler, OSGi Console, etc.).
-  Sources under [`webtop/`](webtop/).
+Manage your website, documents, inventory, and daily workflows in a familiar OS-like browser desktop—or simply ask your AI assistant (like Claude Desktop) to update your site for you via the built-in **MCP (Model Context Protocol) server**.
 
-> Status: **0.2.0** — public preview. APIs, on-disk formats, and bundled
-> apps may change before 1.0.
+![MintJams Webtop Screenshot](https://github.com/user-attachments/assets/e55abb40-f4ff-49d6-99b0-99f0c75278a1)
+
+## ✨ Why MintJams?
+
+- **🤖 AI-Ready with Built-in MCP Server:** Connect Claude Desktop or any MCP-compatible AI assistant directly to your CMS. Just say, *"Add an autumn limited menu page to our cafe website using the photos I just uploaded,"* and the AI handles the rest.
+- **🖥️ Intuitive "Webtop" Experience:** No complicated admin panels. Organize content, edit documents, preview PDFs, and check Shopify analytics in a clean, multi-window virtual desktop right in your browser.
+- **🏪 Designed for Small Businesses & Shops:** Everything you need to run a shop or small company in one place—content management, task workflows (BPMN), and commerce reporting.
+- **🔒 Enterprise-Grade Security, Zero Config:** Includes built-in Passkey (WebAuthn), TOTP two-factor authentication, and SAML 2.0 out of the box—no complex setup required.
 
 ---
 
