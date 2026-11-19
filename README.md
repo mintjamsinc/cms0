@@ -10,7 +10,7 @@ Manage your website, documents, inventory, and daily workflows in a familiar OS-
 
 - **🤖 AI-Ready with Built-in MCP Server:** Connect Claude Desktop or any MCP-compatible AI assistant directly to your CMS. Just say, *"Add an autumn limited menu page to our cafe website using the photos I just uploaded,"* and the AI handles the rest.
 - **🖥️ Intuitive "Webtop" Experience:** No complicated admin panels. Organize content, edit documents, preview PDFs, and check commerce analytics *(via an optional Shopify extension package)* in a clean, multi-window virtual desktop right in your browser.
-- **🏪 Designed for Small Businesses & Shops:** Everything you need to run a shop or small company in one place—content management, task workflows (BPMN), and optional commerce reporting *(Shopify integration available as an add-on package)*.
+- **🏪 Designed for Small Businesses & Shops:** Everything you need to run a shop or small company in one place—content management, task workflows (BPMN), and optional commerce reporting *(Shopify integration available as an extension package)*.
 - **🔒 Enterprise-Grade Security, Zero Config:** Includes built-in Passkey (WebAuthn), TOTP two-factor authentication, and SAML 2.0 out of the box—no complex setup required.
 
 ---
