@@ -352,7 +352,7 @@ type Subscription {
   """A task was completed (Camunda Task/COMPLETED), optionally scoped to a process instance."""
   taskCompleted(processInstanceId: String): TaskEvent!
 
-  """Any lifecycle change of a specific task (Camunda Task/*), used to track a single task by id."""
+  """Any lifecycle change of a task (Camunda Task/*): of the task `taskId` names, or of every task of the workspace when it is left out (the Tasks app reloads its list on these)."""
   taskUpdated(taskId: String): TaskEvent!
 
   """A process instance started (Camunda ProcessInstance/STARTED). `definitionKey` is derived from the process definition id."""

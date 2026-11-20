@@ -6,6 +6,12 @@
 #
 # Every tool runs as the caller: the rules the schema applies (who may read
 # a room, who may play) apply here unchanged.
+#
+# A game goes: the host invites (reversi_invite), the invited user accepts
+# (reversi_accept) and says it is ready (reversi_ready), the host starts
+# (reversi_start), then the two play (reversi_board, reversi_play). The discs
+# and the board are left to the app: they are pictures a model cannot see,
+# and the defaults are used until a player changes them there.
 tools:
 
   reversi_rooms:
@@ -13,7 +19,10 @@ tools:
     description: >
       The caller's Reversi games: those waiting for an answer, getting ready
       or being played, then the ended ones, newest first. A room's moves are
-      the moves played so far; yourSide is the caller's colour.
+      the moves played so far; yourSide is the caller's colour. status says
+      what the game waits for: waiting (the invited user to accept), lobby
+      (the invited user to be ready, guestReady, then the host to start),
+      playing; host is the user who invited.
     graphql: |
       query {
         reversiRooms {
@@ -39,6 +48,133 @@ tools:
           black { id displayName } white { id displayName }
           moves createdAt startedAt finishedAt
         }
+      }
+
+  reversi_players:
+    title: Reversi players
+    description: >
+      Users the caller can invite to a Reversi game, found by a keyword in
+      their name or user id (groups, roles, service accounts, the anonymous
+      user and the caller are left out). The id is what reversi_invite takes.
+    access: read
+    input:
+      properties:
+        keyword:
+          type: string
+          description: Part of the user's name or id.
+      required: [keyword]
+    script: tools/reversiPlayers.groovy
+
+  reversi_invite:
+    title: Invite to a Reversi game
+    description: >
+      Invites a user to a Reversi game; the caller is the host. The
+      invitation is also posted as a card in the two users' direct messages.
+      The room waits until the invited user accepts; then, once that user is
+      ready, the host starts the game with reversi_start.
+    input:
+      properties:
+        opponentId:
+          type: string
+          description: The user to invite, an id from reversi_players.
+        side:
+          type: string
+          enum: [black, white, random]
+          description: The caller's colour; black moves first. random unless given.
+        size:
+          type: integer
+          enum: [6, 8, 10]
+          description: The board size, 8 unless given.
+        locale:
+          type: string
+          description: The language of the invitation card's text, such as ja or en.
+      required: [opponentId]
+    graphql: |
+      mutation ($opponentId: ID!, $side: String, $size: Int, $locale: String) {
+        reversiInvite(opponentId: $opponentId, side: $side, size: $size, locale: $locale) {
+          id size status yourSide host guestReady
+          black { id displayName } white { id displayName }
+          createdAt
+        }
+      }
+
+  reversi_accept:
+    title: Accept a Reversi invitation
+    description: >
+      The invited user accepts an invitation that is waiting: the room is
+      then getting ready (lobby). Say ready with reversi_ready so the host
+      can start.
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id, from reversi_rooms.
+      required: [id]
+    graphql: |
+      mutation ($id: ID!) {
+        reversiAccept(id: $id) {
+          id size status yourSide host guestReady
+          black { id displayName } white { id displayName }
+        }
+      }
+
+  reversi_ready:
+    title: Ready for a Reversi game
+    description: >
+      The invited user says it is ready (or, with ready false, no longer is)
+      while the room is getting ready. The host then starts the game.
+    idempotent: true
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id.
+        ready:
+          type: boolean
+          description: true unless given.
+      required: [id]
+    graphql: |
+      mutation ($id: ID!, $ready: Boolean) {
+        reversiReady(id: $id, ready: $ready) {
+          id status yourSide host guestReady
+        }
+      }
+
+  reversi_start:
+    title: Start a Reversi game
+    description: >
+      The host starts the game once the invited user is ready (guestReady).
+      Black moves first.
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id.
+      required: [id]
+    graphql: |
+      mutation ($id: ID!) {
+        reversiStart(id: $id) {
+          id size status yourSide startedAt
+          black { id displayName } white { id displayName }
+        }
+      }
+
+  reversi_decline:
+    title: Decline a Reversi invitation
+    description: >
+      Ends a game that has not started: the invited user declines a waiting
+      invitation or leaves while getting ready; the host takes the
+      invitation back. The room cannot be opened again.
+    access: destructive
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id.
+      required: [id]
+    graphql: |
+      mutation ($id: ID!) {
+        reversiDecline(id: $id) { id status finishedAt }
       }
 
   reversi_board:
@@ -80,4 +216,21 @@ tools:
         reversiPlay(id: $id, ply: $ply, move: $move) {
           id status moves winner
         }
+      }
+
+  reversi_resign:
+    title: Resign a Reversi game
+    description: >
+      The caller gives up a game that is being played: the other player
+      wins. Only when the user asks to resign.
+    access: destructive
+    input:
+      properties:
+        id:
+          type: string
+          description: The room id.
+      required: [id]
+    graphql: |
+      mutation ($id: ID!) {
+        reversiResign(id: $id) { id status winner resignedBy finishedAt }
       }

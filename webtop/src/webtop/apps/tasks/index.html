@@ -29,19 +29,19 @@
 	     ============================================================ -->
 	<nav class="nav-bar window-drag-region">
 
-		<!-- Left: mode group (Runtime / Start) -->
+		<!-- Left: mode group (Start / Runtime / History) -->
 		<div class="toolbar-group">
-			<button class="btn-icon"
-				:class="{active: mode === 'tasks-runtime'}"
-				@click="switchMode('tasks-runtime')"
-				:title="t('app.tasks.mode.runtime', undefined, 'My tasks (running)')">
-				<i class="bi bi-inbox-fill"></i>
-			</button>
 			<button class="btn-icon"
 				:class="{active: mode === 'start'}"
 				@click="switchMode('start')"
 				:title="t('app.tasks.mode.start', undefined, 'Start a process')">
 				<i class="bi bi-play-fill"></i>
+			</button>
+			<button class="btn-icon"
+				:class="{active: mode === 'tasks-runtime'}"
+				@click="switchMode('tasks-runtime')"
+				:title="t('app.tasks.mode.runtime', undefined, 'My tasks (running)')">
+				<i class="bi bi-inbox-fill"></i>
 			</button>
 			<button class="btn-icon"
 				:class="{active: mode === 'history'}"
@@ -252,14 +252,16 @@
 						<span class="task-badge" :class="historyStateClass(entry.state)" :title="historyStateLabel(entry.state)">
 							<i class="bi" :class="historyStateIcon(entry.state)"></i>
 						</span>
-						<span class="task-item-name">{{ historyProcessName(entry) }}</span>
+						<span class="task-item-name" :title="historyTitle(entry)">{{ historyTitle(entry) }}</span>
+						<span v-if="entry.app" class="app-badge" :title="appTitleOf(entry)">{{ appTitleOf(entry) }}</span>
 					</div>
 					<div class="task-item-row2">
-						<span class="task-process-name">{{ historyStateLabel(entry.state) }}</span>
-						<span v-if="entry.businessKey" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: entry.businessKey }, 'Business key: {key}')">
+						<span class="task-process-name">{{ subjectText(entry) ? historyProcessName(entry) + ' · ' + historyStateLabel(entry.state) : historyStateLabel(entry.state) }}</span>
+						<span v-if="entry.businessKey && !subjectText(entry)" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: entry.businessKey }, 'Business key: {key}')">
 							#{{ entry.businessKey }}
 						</span>
 					</div>
+					<div v-if="previewText(entry)" class="task-item-preview" :title="previewText(entry)">{{ previewText(entry) }}</div>
 					<div class="task-item-row3">
 						<span class="task-meta">{{ t('app.tasks.history.list.startedAt', { when: formatRelativeDate(entry.startTime) }, 'started {when}') }}</span>
 						<span v-if="entry.startUserId" class="task-meta">· {{ entry.startUserDisplayName || entry.startUserId }}</span>
@@ -286,17 +288,19 @@
 						<span v-else class="task-badge task-badge-other" :title="t('app.tasks.badge.assignedTo', { assignee: task.assigneeDisplayName || task.assignee }, 'Assigned to {assignee}')">
 							<i class="bi bi-person-fill"></i>
 						</span>
-						<span class="task-item-name">{{ taskName(task) }}</span>
+						<span class="task-item-name" :title="taskTitle(task)">{{ taskTitle(task) }}</span>
+						<span v-if="task.app" class="app-badge" :title="appTitleOf(task)">{{ appTitleOf(task) }}</span>
 						<span v-if="task.priority >= 75" class="task-badge task-badge-priority" :title="t('app.tasks.badge.highPriority', undefined, 'High priority')">
 							<i class="bi bi-flag-fill"></i>
 						</span>
 					</div>
 					<div class="task-item-row2">
-						<span class="task-process-name">{{ resolveProcessName(task) }}</span>
-						<span v-if="task.businessKey" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: task.businessKey }, 'Business key: {key}')">
+						<span class="task-process-name">{{ taskSubline(task) }}</span>
+						<span v-if="task.businessKey && !subjectText(task)" class="task-business-key" :title="t('app.tasks.list.businessKey', { key: task.businessKey }, 'Business key: {key}')">
 							#{{ task.businessKey }}
 						</span>
 					</div>
+					<div v-if="previewText(task)" class="task-item-preview" :title="previewText(task)">{{ previewText(task) }}</div>
 					<div class="task-item-row3">
 						<span v-if="task.due" :class="['task-due', {overdue: isOverdue(task.due)}]">
 							<i class="bi bi-clock"></i>
@@ -324,6 +328,7 @@
 							<i class="bi" :class="favorites[def.key] ? 'bi-star-fill' : 'bi-star'"></i>
 						</button>
 						<span class="def-item-name">{{ processName(def) }}</span>
+						<span v-if="def.app" class="app-badge" :title="appTitleOf(def)">{{ appTitleOf(def) }}</span>
 						<span class="def-item-version">{{ t('app.tasks.def.version', { version: def.version }, 'v{version}') }}</span>
 					</div>
 					<div class="def-item-row2">
@@ -352,17 +357,21 @@
 					<span v-if="mode === 'start' && selectedDef" class="form-context-title">
 						<i class="bi bi-play-fill"></i>
 						<strong>{{ processName(selectedDef) }}</strong>
+						<span v-if="selectedDef.app" class="app-badge" :title="appTitleOf(selectedDef)">{{ appTitleOf(selectedDef) }}</span>
 						<span class="form-context-sub">{{ t('app.tasks.def.version', { version: selectedDef.version }, 'v{version}') }}</span>
 					</span>
 					<span v-else-if="mode === 'history' && selectedHistory" class="form-context-title">
 						<i class="bi bi-clock-history"></i>
-						<strong>{{ historyProcessName(selectedHistory) }}</strong>
-						<span v-if="selectedHistory.businessKey" class="form-context-sub">#{{ selectedHistory.businessKey }}</span>
+						<strong :title="historyTitle(selectedHistory)">{{ historyTitle(selectedHistory) }}</strong>
+						<span v-if="selectedHistory.app" class="app-badge" :title="appTitleOf(selectedHistory)">{{ appTitleOf(selectedHistory) }}</span>
+						<span v-if="selectedHistory.businessKey && !subjectText(selectedHistory)" class="form-context-sub">#{{ selectedHistory.businessKey }}</span>
 						<span class="history-state" :class="historyStateClass(selectedHistory.state)">{{ historyStateLabel(selectedHistory.state) }}</span>
 					</span>
 					<span v-else-if="mode === 'tasks-runtime' && selectedTask" class="form-context-title">
 						<i class="bi bi-card-checklist"></i>
-						<strong>{{ taskName(selectedTask) }}</strong>
+						<strong :title="taskTitle(selectedTask)">{{ taskTitle(selectedTask) }}</strong>
+						<span v-if="selectedTask.app" class="app-badge" :title="appTitleOf(selectedTask)">{{ appTitleOf(selectedTask) }}</span>
+						<span v-if="subjectText(selectedTask)" class="form-context-sub">{{ taskName(selectedTask) }}</span>
 						<span v-if="selectedTask.assignee" class="form-context-sub">
 							· {{ selectedTask.assignee === currentUserID ? t('app.tasks.context.me', undefined, 'me') : (selectedTask.assigneeDisplayName || selectedTask.assignee) }}
 						</span>
@@ -398,6 +407,12 @@
 							:title="t('app.tasks.action.assign.title', undefined, 'Assign to another user')">
 							<i class="bi bi-person-gear"></i>
 						</button>
+						<button v-if="commentsEnabled"
+							class="wt wt-slim"
+							@click="showCommentsDialog"
+							:title="t('app.tasks.action.comments.title', undefined, 'Write a comment (you can leave one for whoever takes the task over)')">
+							<i class="bi bi-chat-left-text"></i>
+						</button>
 					</template>
 				</div>
 			</div>
@@ -431,37 +446,76 @@
 					<div v-if="historyLoading" class="history-note">
 						<wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.tasks.list.loading', undefined, 'Loading…') }}
 					</div>
-					<div v-if="!historyLoading && historySteps.length === 0" class="history-note">
-						{{ t('app.tasks.history.noSteps', undefined, 'No task in this process was handled by a person.') }}
+					<div v-if="!historyLoading && historyTimeline.length === 0" class="history-note">
+						{{ t('app.tasks.history.noSteps', undefined, 'Nothing in this process was done by a person yet.') }}
 					</div>
 
-					<div v-if="!historyLoading && historySteps.length > 0" class="history-steps">
-						<div v-for="step in historySteps" :key="step.id" class="history-step">
-							<span class="history-step-dot" :class="historyStateClass(step.state)">
-								<i class="bi" :class="historyStateIcon(step.state)"></i>
-							</span>
-							<div class="history-step-main">
-								<div class="history-step-head">
-									<span class="history-step-name">{{ historyStepName(step) }}</span>
-									<span class="history-state" :class="historyStateClass(step.state)">{{ historyStateLabel(step.state) }}</span>
+					<!-- One line of time: the user tasks, the steps recorded outside
+					     them (the start, a message from outside), each with the body
+					     written there, and the comments written on the process. A
+					     comment written at a task stands among that task's operations,
+					     at the person who wrote it. -->
+					<div v-if="!historyLoading && historyTimeline.length > 0" class="history-steps">
+						<div v-for="item in historyTimeline" :key="item.id" class="history-step">
+							<template v-if="item.kind === 'record'">
+								<span class="history-step-dot history-record-dot">
+									<i class="bi" :class="recordIcon(item.record)"></i>
+								</span>
+								<div class="history-step-main">
+									<div class="history-step-head">
+										<span class="history-step-name">{{ recordLabel(item.record) }}</span>
+									</div>
+									<div class="history-record-meta">
+										<span>{{ item.record.userDisplayName || item.record.userId || t('app.tasks.history.record.nobody', undefined, 'automatically') }}</span>
+										<span class="history-op-time">{{ formatDateTime(item.record.time) }}</span>
+									</div>
+									<div v-if="recordBodyText(item.record)" class="history-record-body">{{ recordBodyText(item.record) }}</div>
 								</div>
-								<div class="history-step-grid">
-									<span class="history-label">{{ t('app.tasks.history.assignee', undefined, 'Assignee') }}</span>
-									<span class="history-value">{{ step.assigneeDisplayName || step.assignee || '—' }}</span>
-									<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
-									<span class="history-value">{{ formatDateTime(step.startTime) }}</span>
-									<span class="history-label">{{ t('app.tasks.history.ended', undefined, 'Ended') }}</span>
-									<span class="history-value">{{ formatDateTime(step.endTime) }}</span>
-									<span class="history-label">{{ t('app.tasks.history.operations', undefined, 'Operations') }}</span>
-									<span v-if="step.ops.length === 0" class="history-value" :title="historyOperationsNote">—</span>
-									<span v-if="step.ops.length > 0" class="history-value history-ops">
-										<span v-for="op in step.ops" :key="op.id" class="history-op">
-											<span class="history-op-time">{{ formatDateTime(op.time) }}</span>
-											<span>{{ operationLabel(op) }}</span>
+							</template>
+							<template v-if="item.kind === 'comment'">
+								<span class="history-step-dot history-comment-dot">
+									<i class="bi bi-chat-left-text"></i>
+								</span>
+								<div class="history-step-main">
+									<div class="history-record-meta history-comment-meta">
+										<span>{{ t('app.tasks.history.op.comment', { user: commentAuthor(item.comment) }, '{user} commented') }}</span>
+										<span class="history-op-time">{{ formatDateTime(item.comment.time) }}</span>
+									</div>
+									<div class="history-record-body">{{ item.comment.message }}</div>
+								</div>
+							</template>
+							<template v-if="item.kind === 'step'">
+								<span class="history-step-dot" :class="historyStateClass(item.step.state)">
+									<i class="bi" :class="historyStateIcon(item.step.state)"></i>
+								</span>
+								<div class="history-step-main">
+									<div class="history-step-head">
+										<span class="history-step-name">{{ historyStepName(item.step) }}</span>
+										<span class="history-state" :class="historyStateClass(item.step.state)">{{ historyStateLabel(item.step.state) }}</span>
+									</div>
+									<div class="history-step-grid">
+										<span class="history-label">{{ t('app.tasks.history.assignee', undefined, 'Assignee') }}</span>
+										<span class="history-value">{{ item.step.assigneeDisplayName || item.step.assignee || '—' }}</span>
+										<span class="history-label">{{ t('app.tasks.history.started', undefined, 'Started') }}</span>
+										<span class="history-value">{{ formatDateTime(item.step.startTime) }}</span>
+										<span class="history-label">{{ t('app.tasks.history.ended', undefined, 'Ended') }}</span>
+										<span class="history-value">{{ formatDateTime(item.step.endTime) }}</span>
+										<span class="history-label">{{ t('app.tasks.history.operations', undefined, 'Operations') }}</span>
+										<span v-if="item.step.entries.length === 0" class="history-value" :title="historyOperationsNote">—</span>
+										<span v-if="item.step.entries.length > 0" class="history-value history-ops">
+											<span v-for="entry in item.step.entries" :key="entry.id" class="history-op" :class="{ 'history-op-comment': entry.kind === 'comment' }">
+												<span class="history-op-time">{{ formatDateTime(entry.kind === 'op' ? entry.op.time : entry.comment.time) }}</span>
+												<span v-if="entry.kind === 'op'">{{ operationLabel(entry.op) }}</span>
+												<span v-if="entry.kind === 'comment'">
+													<i class="bi bi-chat-left-text me-1"></i>{{ t('app.tasks.history.op.comment', { user: commentAuthor(entry.comment) }, '{user} commented') }}
+												</span>
+												<span v-if="entry.kind === 'comment'" class="history-comment-text">{{ entry.comment.message }}</span>
+											</span>
 										</span>
-									</span>
+									</div>
+									<div v-for="record in item.step.records" :key="record.id" v-if="recordBodyText(record)" class="history-record-body">{{ recordBodyText(record) }}</div>
 								</div>
-							</div>
+							</template>
 						</div>
 						<div v-if="historyHasUnrecordedSteps" class="history-note history-note-foot">{{ historyOperationsNote }}</div>
 					</div>
@@ -585,6 +639,49 @@
 		<template v-slot:footer="d">
 			<button class="wt" @click="closeDialog">{{ t('app.tasks.action.cancel', undefined, 'Cancel') }}</button>
 			<button class="wt wt-primary" @click="executeTakeOver">{{ t('app.tasks.action.takeover', undefined, 'Take over') }}</button>
+		</template>
+	</wt-dialog>
+
+	<!-- ============================================================
+	     Comments Dialog: what was written in the process, and a comment
+	     of one's own on the task (its assignee only)
+	     ============================================================ -->
+	<wt-dialog :open="dialog.type === 'comments'" @close="closeDialog">
+		<template v-slot:title="d">
+			<i class="bi bi-chat-left-text me-2"></i>{{ t('app.tasks.dialog.comments.title', undefined, 'Comments') }}
+		</template>
+		<template v-slot="d">
+			<div v-if="dialog.data.loading" class="history-note">
+				<wt-spinner size="sm" class="me-1"></wt-spinner>{{ t('app.tasks.list.loading', undefined, 'Loading…') }}
+			</div>
+			<p v-if="!dialog.data.loading && dialog.data.comments.length === 0" class="mt-0 text-muted">
+				{{ t('app.tasks.dialog.comments.none', undefined, 'No comments yet.') }}
+			</p>
+			<div v-if="!dialog.data.loading && dialog.data.comments.length > 0" class="comment-list">
+				<div v-for="c in dialog.data.comments" :key="c.id" class="comment-item">
+					<div class="history-record-meta">
+						<strong>{{ commentAuthor(c) }}</strong>
+						<span class="history-op-time">{{ formatDateTime(c.time) }}</span>
+						<span class="history-op-time">{{ commentPlace(c) }}</span>
+					</div>
+					<div class="history-record-body">{{ c.message }}</div>
+				</div>
+			</div>
+			<wt-field v-if="selectedTask && selectedTask.assignee === currentUserID" class="mt-3"
+				:label="t('app.tasks.dialog.comments.add', undefined, 'Your comment')"
+				:hint="t('app.tasks.dialog.comments.hint', undefined, 'Kept in the history of the process, with your name and the time. Leave one before you hand the task over.')">
+				<textarea class="wt w-100" rows="3" v-model="dialog.data.message" :disabled="dialog.data.saving"></textarea>
+			</wt-field>
+			<p v-if="selectedTask && selectedTask.assignee !== currentUserID" class="mb-0 small text-muted">
+				{{ t('app.tasks.dialog.comments.claimFirst', undefined, 'Claim the task to leave a comment.') }}
+			</p>
+			<div v-if="dialog.data.error" class="alert wt-danger mt-2">{{ dialog.data.error }}</div>
+		</template>
+		<template v-slot:footer="d">
+			<button class="wt" @click="closeDialog">{{ t('app.tasks.action.close', undefined, 'Close') }}</button>
+			<button v-if="selectedTask && selectedTask.assignee === currentUserID" class="wt wt-primary"
+				:disabled="dialog.data.saving || !String(dialog.data.message || '').trim()"
+				@click="executeAddComment">{{ t('app.tasks.action.addComment', undefined, 'Add comment') }}</button>
 		</template>
 	</wt-dialog>
 

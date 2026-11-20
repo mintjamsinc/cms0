@@ -89,6 +89,43 @@ export const INCIDENT_FIELDS = `
   tenantId
 `;
 
+// What a process says about itself to the people in it (ProcessRecords on the
+// server): the app it belongs to, its subject and its latest record. Selected
+// only where they are shown - each costs a lookup per process instance.
+export const PROCESS_TEXT_FIELDS = `
+  key
+  template
+  params
+`;
+
+export const PROCESS_RECORD_FIELDS = `
+  id
+  time
+  userId
+  userDisplayName
+  taskId
+  activityId
+  activityType
+  activityName
+  body { ${PROCESS_TEXT_FIELDS} }
+`;
+
+export const PROCESS_COMMENT_FIELDS = `
+  id
+  time
+  userId
+  userDisplayName
+  taskId
+  message
+`;
+
+export const PROCESS_SUMMARY_FIELDS = `
+  app
+  subject { ${PROCESS_TEXT_FIELDS} }
+  latestRecord { ${PROCESS_RECORD_FIELDS} }
+  latestComment { ${PROCESS_COMMENT_FIELDS} }
+`;
+
 export const PROCESS_VARIABLE_FIELDS = `
   name
   type
@@ -125,6 +162,7 @@ export const BPM_QUERIES = {
         formKey
         candidateUsers
         candidateGroups
+        ${PROCESS_SUMMARY_FIELDS}
         processInstance {
           businessKey
         }
@@ -277,6 +315,23 @@ export const BPM_QUERIES = {
   `,
 
   /** Get activity history for a process instance */
+  /** Whether comments can be written in the workspace's processes (history level other than none) */
+  GET_PROCESS_COMMENTS_ENABLED: `
+    query GetProcessCommentsEnabled {
+      processCommentsEnabled
+    }
+  `,
+
+  /** The comments written in a task's process, oldest first */
+  GET_TASK_COMMENTS: `
+    query GetTaskComments($id: ID!) {
+      task(id: $id) {
+        id
+        comments { ${PROCESS_COMMENT_FIELDS} }
+      }
+    }
+  `,
+
   /** What the caller may see of the process history */
   GET_PROCESS_HISTORY_ACCESS: `
     query GetProcessHistoryAccess {
@@ -316,6 +371,7 @@ export const BPM_QUERIES = {
             endTime
             durationInMillis
             state
+            ${PROCESS_SUMMARY_FIELDS}
           }
           cursor
         }
@@ -343,6 +399,9 @@ export const BPM_QUERIES = {
         endTime
         durationInMillis
         state
+        ${PROCESS_SUMMARY_FIELDS}
+        records { ${PROCESS_RECORD_FIELDS} }
+        comments { ${PROCESS_COMMENT_FIELDS} }
         steps {
           id
           taskDefinitionKey
@@ -416,6 +475,7 @@ export const BPM_QUERIES = {
             suspended
             category
             startFormKey
+            app
           }
           cursor
         }
@@ -550,6 +610,16 @@ export const BPM_QUERIES = {
 // =============================================================================
 // Mutations
 // =============================================================================
+
+/**
+ * The task list with what an inbox shows of each task's process: the app, the
+ * subject and the latest record (the Tasks app).
+ */
+export const LIST_TASKS_WITH_SUMMARY = BPM_QUERIES.LIST_TASKS.replace(
+  'processInstance {',
+  `${PROCESS_SUMMARY_FIELDS}
+            processInstance {`,
+);
 
 export const BPM_MUTATIONS = {
   /** Start a new process instance */

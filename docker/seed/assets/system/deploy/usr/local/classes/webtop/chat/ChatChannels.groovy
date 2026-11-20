@@ -202,6 +202,10 @@ class ChatChannels {
 
 	/** Grants jcr:read to each principal that does not have it. Returns how many were added. */
 	static int addMembers(session, String id, List<String> names) {
+		// Letting anonymous read a private channel would open it to anyone who is not signed in.
+		if (names.contains(ChatStore.ANONYMOUS)) {
+			throw new IllegalArgumentException("No such user or group: ${ChatStore.ANONYMOUS}".toString());
+		}
 		List<String> members = memberIds(session, id);
 		def folder = session.getResource(path(id));
 		def acl = folder.getAccessControlList();

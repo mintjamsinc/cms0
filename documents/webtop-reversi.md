@@ -138,12 +138,24 @@ is over after the move, records the winner.
 ## MCP tools
 
 `/etc/graphql/webtop/reversi/tools.yml` gives an MCP client (such as Claude)
-the game as four tools, so that it plays without composing GraphQL:
-`reversi_rooms` and `reversi_room` (the queries above), `reversi_play` (the
-mutation) and `reversi_board`, a script (`tools/reversiBoard.groovy`) that
-replays the room's moves with `ReversiRules` and returns the board as text
-with whose turn it is and the legal moves. Each runs as the caller, so the
-checks in the table above apply unchanged. The file format is described in
+the whole game as tools, so that it invites, gets ready and plays without
+composing GraphQL:
+
+| Tool | |
+| --- | --- |
+| `reversi_players` | A script (`tools/reversiPlayers.groovy`): the users the caller can invite, found with `searchPrincipals` as the app's opponent search finds them (no groups, roles, service accounts, the anonymous user or the caller). |
+| `reversi_invite` | `reversiInvite` with the opponent, the side, the size and the card's locale. |
+| `reversi_accept`, `reversi_ready`, `reversi_start` | The invited user accepts and says it is ready; the host starts. |
+| `reversi_decline` | Declines, leaves or takes back an invitation (destructive). |
+| `reversi_rooms`, `reversi_room` | The queries above. |
+| `reversi_board` | A script (`tools/reversiBoard.groovy`) that replays the room's moves with `ReversiRules` and returns the board as text with whose turn it is and the legal moves. |
+| `reversi_play`, `reversi_resign` | A move; giving up (destructive). |
+
+The discs and the board (`reversiSetup`, and `face`/`theme` on invite and
+accept) are not tools: they are pictures of the app a model cannot see, so a
+game started over MCP has the default discs and board until a player changes
+them in the app. Each tool runs as the caller, so the checks in the table
+above apply unchanged. The file format is described in
 documents/mcp-server.md.
 
 ## Live updates

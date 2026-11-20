@@ -1531,7 +1531,6 @@ body {
 
 	.notification-body {
 		font-size: 0.75rem;
-		opacity: 0.8;
 		overflow: hidden;
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
@@ -1541,7 +1540,7 @@ body {
 
 	.notification-time {
 		font-size: 0.65rem;
-		opacity: 0.55;
+		color: var(--text-soft-color);
 	}
 
 	.notification-remove {

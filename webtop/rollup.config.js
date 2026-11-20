@@ -277,6 +277,21 @@ const markdownEditorConfig = makeConfig({
   ],
 });
 
+// Memo editor bundle: the memo document (lib/memo-document.ts) with its
+// formatting toolbar in one ESM, for a page that edits a memo file outside
+// the Memo app (a task form editing a ledger row's memo). Ships with
+// wt-memo.css, which the Memo app links as well, so both draw the document
+// with the same rules.
+const memoEditorConfig = makeConfig({
+  name: 'webtop-memo',
+  input: 'src/webtop/ui/memo-editor.ts',
+  outputFile: 'dist/webtop/ui/wt-memo.esm.js',
+  outputExtra: { inlineDynamicImports: true },
+  cssMinifyTargets: [
+    { src: 'src/webtop/ui/wt-memo.css', dest: 'dist/webtop/ui' },
+  ],
+});
+
 // PDF Viewer: pdf.js runs its parser in a Web Worker and loads CMaps (CJK
 // text), standard fonts, ICC profiles and wasm image decoders at runtime, so
 // these ship next to the app instead of inside app.js. The worker is renamed
@@ -374,6 +389,10 @@ const specialConfigs = {
   'webtop': webtopCoreConfig,
   'webtop-ui-standalone': uiStandaloneConfig,
   'webtop-markdown': markdownEditorConfig,
+  'webtop-memo': memoEditorConfig,
+  // The Memo app links ../../ui/wt-memo.css; copied with it too, so a build
+  // of the memo target alone is complete (the same file webtop-memo minifies).
+  'memo': makeAppConfig('memo', { extraCopyTargets: [{ src: 'src/webtop/ui/wt-memo.css', dest: 'dist/webtop/ui' }] }),
   'pdf-viewer': pdfViewerConfig,
   'radio': radioConfig,
   'mail': mailConfig,
@@ -386,6 +405,7 @@ export const TARGET_NAMES = [
   'webtop',
   'webtop-ui-standalone',
   'webtop-markdown',
+  'webtop-memo',
   'content-browser',
   'memo',
   'text-editor',

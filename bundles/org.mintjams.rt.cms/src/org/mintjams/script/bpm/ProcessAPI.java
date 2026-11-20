@@ -26,8 +26,10 @@ import java.util.function.Supplier;
 
 import org.camunda.bpm.engine.IdentityService;
 import org.camunda.bpm.engine.ProcessEngine;
+import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.camunda.bpm.engine.impl.identity.Authentication;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.bpm.record.ProcessRecords;
 import org.mintjams.rt.cms.internal.script.WorkspaceScriptContext;
 import org.mintjams.script.ScriptingContext;
 import org.mintjams.tools.lang.Strings;
@@ -58,6 +60,40 @@ public class ProcessAPI {
 
 	public SignalSender createSignalSender() {
 		return new SignalSender(this);
+	}
+
+	public TaskCompleter createTaskCompleter() {
+		return new TaskCompleter(this);
+	}
+
+	/**
+	 * Whether the engine keeps comments ({@code TaskService.createComment}):
+	 * every history level but {@code none}. An app hides its comment fields
+	 * when it is false; a comment given to a starter, a correlator or a
+	 * completer is then not written.
+	 */
+	public boolean isCommentsEnabled() {
+		return ProcessRecords.commentsKept(getEngine());
+	}
+
+	/**
+	 * Runs {@code action} as one engine command: the engine calls it makes join
+	 * that command, so they are kept together or not at all. A comment written
+	 * on a process in the command that ends it also gets the process's removal
+	 * time, which one written afterwards would not (history cleanup would never
+	 * remove it).
+	 */
+	<T> T inOneCommand(Supplier<T> action) {
+		ProcessEngineConfigurationImpl config = (ProcessEngineConfigurationImpl) getEngine().getProcessEngineConfiguration();
+		return config.getCommandExecutorTxRequired().execute(commandContext -> action.get());
+	}
+
+	/** Writes {@code comment} on a task or a process when it says something and the engine keeps comments. */
+	void writeComment(String taskId, String processInstanceId, String comment) {
+		if (comment == null || comment.trim().isEmpty() || !isCommentsEnabled()) {
+			return;
+		}
+		getEngine().getTaskService().createComment(taskId, processInstanceId, comment.trim());
 	}
 
 	/**

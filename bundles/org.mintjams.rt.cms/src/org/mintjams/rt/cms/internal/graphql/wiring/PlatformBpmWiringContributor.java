@@ -47,12 +47,12 @@ import org.camunda.bpm.engine.impl.persistence.entity.TaskEntity;
 import org.mintjams.rt.cms.internal.graphql.ConflictException;
 import org.camunda.bpm.engine.EntityTypes;
 import org.camunda.bpm.engine.ProcessEngine;
-import org.camunda.bpm.engine.ProcessEngineConfiguration;
 import org.camunda.bpm.engine.history.HistoricActivityInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstance;
 import org.camunda.bpm.engine.history.HistoricProcessInstanceQuery;
 import org.camunda.bpm.engine.history.HistoricTaskInstance;
 import org.camunda.bpm.engine.history.UserOperationLogEntry;
+import org.camunda.bpm.engine.impl.history.event.HistoryEventTypes;
 import org.camunda.bpm.engine.history.HistoricVariableInstance;
 import org.camunda.bpm.engine.migration.MigrationInstruction;
 import org.camunda.bpm.engine.migration.MigrationInstructionsBuilder;
@@ -73,6 +73,7 @@ import org.camunda.bpm.engine.task.Task;
 import org.camunda.bpm.engine.task.TaskQuery;
 import org.camunda.bpm.engine.variable.Variables;
 import org.mintjams.rt.cms.internal.CmsService;
+import org.mintjams.rt.cms.internal.bpm.record.ProcessRecords;
 import org.mintjams.rt.cms.internal.job.JobNodes;
 import org.mintjams.rt.cms.internal.job.JobStatus;
 import org.mintjams.rt.cms.internal.graphql.type.PrincipalDisplayNameResolver;
@@ -145,8 +146,32 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistoryEntry)
 				.dataFetcher("ProcessHistoryEntry", "steps",
 						(DataFetcher<Object>) PlatformBpmWiringContributor::processHistorySteps)
+				.dataFetcher("ProcessHistoryEntry", "app",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historyApp)
+				.dataFetcher("ProcessHistoryEntry", "subject",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historySubject)
+				.dataFetcher("ProcessHistoryEntry", "latestRecord",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historyLatestRecord)
+				.dataFetcher("ProcessHistoryEntry", "records",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historyRecords)
+				.dataFetcher("ProcessHistoryEntry", "comments",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historyComments)
+				.dataFetcher("ProcessHistoryEntry", "latestComment",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::historyLatestComment)
+				.dataFetcher("Query", "processCommentsEnabled",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::processCommentsEnabled)
 				.dataFetcher("Task", "assigneeDisplayName",
 						(DataFetcher<Object>) PlatformBpmWiringContributor::taskAssigneeDisplayName)
+				.dataFetcher("Task", "app", (DataFetcher<Object>) PlatformBpmWiringContributor::taskApp)
+				.dataFetcher("Task", "subject", (DataFetcher<Object>) PlatformBpmWiringContributor::taskSubject)
+				.dataFetcher("Task", "latestRecord",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::taskLatestRecord)
+				.dataFetcher("Task", "comments",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::taskComments)
+				.dataFetcher("Task", "latestComment",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::taskLatestComment)
+				.dataFetcher("ProcessDefinition", "app",
+						(DataFetcher<Object>) PlatformBpmWiringContributor::definitionApp)
 				.dataFetcher("Query", "task", (DataFetcher<Object>) PlatformBpmWiringContributor::task)
 				.dataFetcher("Query", "tasks", (DataFetcher<Object>) PlatformBpmWiringContributor::tasks)
 				.dataFetcher("Query", "taskCounts", (DataFetcher<Object>) PlatformBpmWiringContributor::taskCounts)
@@ -382,13 +407,15 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	}
 
 	/**
-	 * Whether the engine records the user operation log — who claimed, reassigned
-	 * or completed a task, step by step. Only at history level {@code full}.
+	 * Whether the engine records the user operation log — who claimed, released,
+	 * reassigned or completed a task, step by step: at history level
+	 * {@code audit} (as a workspace runs it, see WorkspaceAuditHistoryLevel) and
+	 * {@code full}.
 	 */
 	private static boolean operationsRecorded(ProcessEngine engine) {
 		try {
-			return ProcessEngineConfiguration.HISTORY_FULL.equals(
-					((ProcessEngineConfigurationImpl) engine.getProcessEngineConfiguration()).getHistoryLevel().getName());
+			return ((ProcessEngineConfigurationImpl) engine.getProcessEngineConfiguration()).getHistoryLevel()
+					.isHistoryEventProduced(HistoryEventTypes.USER_OPERATION_LOG, null);
 		} catch (Exception ex) {
 			return false;
 		}
@@ -476,7 +503,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 					held = engine.getHistoryService().createHistoricTaskInstanceQuery()
 							.processInstanceId(id).taskInvolvedUser(userId).count() > 0;
 				} catch (Exception ignore) {
-					// identity link history is only kept at history level full
+					// no identity link history at this level
 				}
 			}
 			if (!held) {
@@ -512,9 +539,10 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	}
 
 	/**
-	 * The process instances the user held a task in. At history level
-	 * {@code audit} a task only remembers its last assignee, so a user who passed
-	 * a task on is found only at {@code full}, where the identity links are kept.
+	 * The process instances the user held a task in. A task only remembers its
+	 * last assignee, so a user who released a task or passed it on is found by
+	 * the identity link history, kept at {@code audit} and {@code full}: below
+	 * that, and for what ran before it was kept, only the last assignee counts.
 	 */
 	private static Set<String> heldTaskInstanceIds(ProcessEngine engine, String userId) {
 		Set<String> ids = new HashSet<>();
@@ -534,7 +562,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 				}
 			}
 		} catch (Exception ignore) {
-			// identity link history is only kept at history level full
+			// no identity link history at this level
 		}
 		return ids;
 	}
@@ -542,6 +570,8 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 	private static Map<String, Object> mapHistoryEntry(HistoricProcessInstance inst, PrincipalDisplayNameResolver resolver) {
 		Map<String, Object> m = new HashMap<>();
 		m.put("id", inst.getId());
+		// Not part of the type: read by the app / subject / record resolvers.
+		m.put("definitionId", inst.getProcessDefinitionId());
 		m.put("definitionKey", inst.getProcessDefinitionKey());
 		m.put("definitionName", inst.getProcessDefinitionName());
 		m.put("definitionVersion", inst.getProcessDefinitionVersion());
@@ -577,8 +607,8 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		ProcessEngine engine = engine(environment);
 		PrincipalDisplayNameResolver resolver = displayNames(environment);
 
-		// Empty unless the engine runs at history level full; entries recorded
-		// before the level was raised simply have none.
+		// Empty below history level audit; what ran before the operations were
+		// kept simply has none.
 		Map<String, List<Map<String, Object>>> operations = new HashMap<>();
 		try {
 			for (UserOperationLogEntry entry : engine.getHistoryService().createUserOperationLogQuery()
@@ -1047,7 +1077,12 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		return m;
 	}
 
-	/** Builds a Camunda variable map from ProcessVariableInput list (typed values). */
+	/**
+	 * Builds a Camunda variable map from ProcessVariableInput list (typed values).
+	 * {@code valueInfo: {transient: true}} makes a transient variable, as in
+	 * Camunda's REST API: the process sees it until it next waits, and it is
+	 * never stored nor kept in the history.
+	 */
 	private static Map<String, Object> toVariableMap(List<Map<String, Object>> variableInputs) {
 		Map<String, Object> vars = new HashMap<>();
 		if (variableInputs == null) {
@@ -1058,16 +1093,19 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			if (name == null) {
 				continue;
 			}
-			vars.put(name, convertVariableValue(v.get("value"), (String) v.get("type")));
+			Object valueInfo = v.get("valueInfo");
+			boolean isTransient = (valueInfo instanceof Map)
+					&& Boolean.parseBoolean(String.valueOf(((Map<?, ?>) valueInfo).get("transient")));
+			vars.put(name, convertVariableValue(v.get("value"), (String) v.get("type"), isTransient));
 		}
 		return vars;
 	}
 
 	/** Coerces a value to a Camunda TypedValue per the declared type (mirrors convertVariableValue). */
-	private static Object convertVariableValue(Object value, String type) {
+	private static Object convertVariableValue(Object value, String type, boolean isTransient) {
 		String str = (value != null) ? value.toString() : null;
 		if (type == null) {
-			return Variables.stringValue(str);
+			return Variables.stringValue(str, isTransient);
 		}
 		switch (type) {
 		case "Long":
@@ -1078,7 +1116,7 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 					parsed = Long.parseLong(str);
 				} catch (Exception ignore) {}
 			}
-			return Variables.longValue(parsed);
+			return Variables.longValue(parsed, isTransient);
 		}
 		case "Double": {
 			Double parsed = null;
@@ -1087,14 +1125,14 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 					parsed = Double.parseDouble(str);
 				} catch (Exception ignore) {}
 			}
-			return Variables.doubleValue(parsed);
+			return Variables.doubleValue(parsed, isTransient);
 		}
 		case "Boolean": {
 			Boolean parsed = null;
 			if (str != null && !str.isEmpty()) {
 				parsed = Boolean.parseBoolean(str);
 			}
-			return Variables.booleanValue(parsed);
+			return Variables.booleanValue(parsed, isTransient);
 		}
 		case "Date": {
 			Date parsed = null;
@@ -1110,10 +1148,10 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 					} catch (Exception ignore) {}
 				}
 			}
-			return Variables.dateValue(parsed);
+			return Variables.dateValue(parsed, isTransient);
 		}
 		default:
-			return Variables.stringValue(str);
+			return Variables.stringValue(str, isTransient);
 		}
 	}
 
@@ -1273,7 +1311,11 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		String userId = session.getUserID();
 		Integer expectedRevision = (input.get("expectedRevision") instanceof Number)
 				? Integer.valueOf(((Number) input.get("expectedRevision")).intValue()) : null;
+		String comment = (input.get("comment") instanceof String) ? ((String) input.get("comment")).trim() : "";
 		return asCaller(environment, engine -> {
+			if (!comment.isEmpty()) {
+				requireCommentsKept(engine);
+			}
 			onTask(engine, taskId, expectedRevision, task -> {
 				String assignee = task.getAssignee();
 				if (!userId.equals(assignee)) {
@@ -1283,6 +1325,11 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 								: "Only the assignee can complete this task.");
 					}
 					engine.getTaskService().setAssignee(taskId, userId);
+				}
+				// The comment belongs to the task and to its writer, and is kept
+				// only if the task is completed: both are this one command.
+				if (!comment.isEmpty()) {
+					engine.getTaskService().createComment(taskId, task.getProcessInstanceId(), comment);
 				}
 				engine.getTaskService().complete(taskId, vars);
 				return null;
@@ -1310,16 +1357,33 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		});
 	}
 
+	/**
+	 * Adds a comment to a task as the caller - a note for whoever takes the
+	 * task over, say. Written by the task's assignee (an Admin or a Supervisor
+	 * may write on any task), like the comment given with a completion; refused
+	 * at history level none, where the engine keeps no comments.
+	 */
 	private static Object addTaskComment(DataFetchingEnvironment environment) throws Exception {
 		String taskId = requireTaskId(environment.getArgument("taskId"));
-		String message = environment.getArgument("message");
-		if (message == null || message.isEmpty()) {
+		String raw = environment.getArgument("message");
+		String message = (raw != null) ? raw.trim() : "";
+		if (message.isEmpty()) {
 			throw new IllegalArgumentException("message is required");
 		}
+		javax.jcr.Session session = callerSession(environment);
+		String userId = session.getUserID();
 		return asCaller(environment, engine -> {
+			requireCommentsKept(engine);
 			Task task = engine.getTaskService().createTaskQuery().taskId(taskId).singleResult();
-			String processInstanceId = (task != null) ? task.getProcessInstanceId() : null;
-			Comment comment = engine.getTaskService().createComment(taskId, processInstanceId, message);
+			if (task == null) {
+				throw new IllegalArgumentException("Task not found: " + taskId);
+			}
+			if (!userId.equals(task.getAssignee()) && !isAdminOrSupervisor(session)) {
+				throw new javax.jcr.AccessDeniedException((task.getAssignee() == null)
+						? "This task is not assigned to anyone. Claim it before commenting on it."
+						: "Only the assignee can comment on this task.");
+			}
+			Comment comment = engine.getTaskService().createComment(taskId, task.getProcessInstanceId(), message);
 			Map<String, Object> m = new HashMap<>();
 			m.put("id", comment.getId());
 			m.put("taskId", comment.getTaskId());
@@ -1328,6 +1392,14 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 			m.put("message", comment.getFullMessage());
 			return m;
 		});
+	}
+
+	/** Refuses a comment the engine would not keep (history level none) with a message a person can act on. */
+	private static void requireCommentsKept(ProcessEngine engine) {
+		if (!ProcessRecords.commentsKept(engine)) {
+			throw new IllegalArgumentException(
+					"Comments are not kept in this workspace: its BPM history level is none (bpm.yml).");
+		}
 	}
 
 	// ---- mutations: deployments / definitions (mirror BpmMutationExecutor) --
@@ -1717,6 +1789,170 @@ public final class PlatformBpmWiringContributor implements WiringContributor {
 		}
 		Object assignee = ((Map<String, Object>) source).get("assignee");
 		return (assignee instanceof String) ? displayNames(environment).getUserDisplayName((String) assignee) : null;
+	}
+
+	// ---- app, subject and records (ProcessRecords) ---------------------------
+	// Resolved per field from the source map, so a list pays for them only when
+	// they are selected. The records of an instance are read once per request.
+
+	private static final String CTX_RECORDS = PlatformBpmWiringContributor.class.getName() + ".records";
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> sourceMap(DataFetchingEnvironment environment) {
+		Object source = environment.getSource();
+		return (source instanceof Map) ? (Map<String, Object>) source : null;
+	}
+
+	private static String stringOf(Map<String, Object> m, String key) {
+		Object v = (m != null) ? m.get(key) : null;
+		return (v instanceof String && !((String) v).isEmpty()) ? (String) v : null;
+	}
+
+	/** The key of a definition, from the map when it carries it, else from the engine. */
+	private static String definitionKey(ProcessEngine engine, String definitionId, String known) {
+		if (known != null) {
+			return known;
+		}
+		if (definitionId == null) {
+			return null;
+		}
+		try {
+			return engine.getRepositoryService().getProcessDefinition(definitionId).getKey();
+		} catch (Exception ex) {
+			return null;
+		}
+	}
+
+	/** The records and comments of an instance with display names, read once per request. */
+	private static ProcessRecords.Trail trail(DataFetchingEnvironment environment, String processInstanceId,
+			String definitionKey) {
+		Map<String, ProcessRecords.Trail> cache = environment.getGraphQlContext()
+				.computeIfAbsent(CTX_RECORDS, k -> new HashMap<String, ProcessRecords.Trail>());
+		return cache.computeIfAbsent(processInstanceId, id -> {
+			PrincipalDisplayNameResolver resolver = displayNames(environment);
+			ProcessRecords.Trail trail = ProcessRecords.trail(engine(environment), id, definitionKey);
+			for (Map<String, Object> r : trail.records) {
+				r.put("userDisplayName", resolver.getUserDisplayName((String) r.get("userId")));
+			}
+			for (Map<String, Object> c : trail.comments) {
+				c.put("userDisplayName", resolver.getUserDisplayName((String) c.get("userId")));
+			}
+			return trail;
+		});
+	}
+
+	/** The records of an instance with display names, read once per request. */
+	private static List<Map<String, Object>> records(DataFetchingEnvironment environment, String processInstanceId,
+			String definitionKey) {
+		if (processInstanceId == null || definitionKey == null) {
+			return Collections.emptyList();
+		}
+		return trail(environment, processInstanceId, definitionKey).records;
+	}
+
+	/** The comments people wrote in an instance, oldest first, with display names; read once per request. */
+	private static List<Map<String, Object>> comments(DataFetchingEnvironment environment, String processInstanceId,
+			String definitionKey) {
+		if (processInstanceId == null || definitionKey == null) {
+			return Collections.emptyList();
+		}
+		return trail(environment, processInstanceId, definitionKey).comments;
+	}
+
+	private static Object last(List<Map<String, Object>> list) {
+		return list.isEmpty() ? null : list.get(list.size() - 1);
+	}
+
+	/** The comments of a task's process instance; the key is resolved as for its records. */
+	private static List<Map<String, Object>> commentsOfTask(DataFetchingEnvironment environment) {
+		Map<String, Object> task = sourceMap(environment);
+		ProcessEngine engine = engine(environment);
+		return comments(environment, stringOf(task, "processInstanceId"),
+				definitionKey(engine, stringOf(task, "processDefinitionId"), stringOf(task, "processDefinitionKey")));
+	}
+
+	private static Object taskComments(DataFetchingEnvironment environment) {
+		return commentsOfTask(environment);
+	}
+
+	private static Object taskLatestComment(DataFetchingEnvironment environment) {
+		return last(commentsOfTask(environment));
+	}
+
+	private static Object historyComments(DataFetchingEnvironment environment) {
+		Map<String, Object> entry = sourceMap(environment);
+		return comments(environment, stringOf(entry, "id"), stringOf(entry, "definitionKey"));
+	}
+
+	private static Object historyLatestComment(DataFetchingEnvironment environment) {
+		Map<String, Object> entry = sourceMap(environment);
+		return last(comments(environment, stringOf(entry, "id"), stringOf(entry, "definitionKey")));
+	}
+
+	/** Whether comments can be written: every history level but none. */
+	private static Object processCommentsEnabled(DataFetchingEnvironment environment) {
+		return ProcessRecords.commentsKept(engine(environment));
+	}
+
+	/**
+	 * The record a list previews: the last one whose body says something. A
+	 * step recorded without words after it (an outcome named by an event) does
+	 * not blank the preview. Without any such body, the last record.
+	 */
+	private static Object latest(List<Map<String, Object>> records) {
+		for (int i = records.size() - 1; i >= 0; i--) {
+			if (ProcessRecords.hasBodyText(records.get(i))) {
+				return records.get(i);
+			}
+		}
+		return records.isEmpty() ? null : records.get(records.size() - 1);
+	}
+
+	private static Object taskApp(DataFetchingEnvironment environment) {
+		return ProcessRecords.app(engine(environment), stringOf(sourceMap(environment), "processDefinitionId"));
+	}
+
+	private static Object taskSubject(DataFetchingEnvironment environment) {
+		Map<String, Object> task = sourceMap(environment);
+		ProcessEngine engine = engine(environment);
+		String definitionId = stringOf(task, "processDefinitionId");
+		return ProcessRecords.subject(engine, definitionId,
+				definitionKey(engine, definitionId, stringOf(task, "processDefinitionKey")),
+				stringOf(task, "processInstanceId"), false);
+	}
+
+	private static Object taskLatestRecord(DataFetchingEnvironment environment) {
+		Map<String, Object> task = sourceMap(environment);
+		ProcessEngine engine = engine(environment);
+		String definitionId = stringOf(task, "processDefinitionId");
+		return latest(records(environment, stringOf(task, "processInstanceId"),
+				definitionKey(engine, definitionId, stringOf(task, "processDefinitionKey"))));
+	}
+
+	private static Object definitionApp(DataFetchingEnvironment environment) {
+		return ProcessRecords.app(engine(environment), stringOf(sourceMap(environment), "id"));
+	}
+
+	private static Object historyApp(DataFetchingEnvironment environment) {
+		return ProcessRecords.app(engine(environment), stringOf(sourceMap(environment), "definitionId"));
+	}
+
+	private static Object historySubject(DataFetchingEnvironment environment) {
+		Map<String, Object> entry = sourceMap(environment);
+		String state = stringOf(entry, "state");
+		boolean ended = !"ACTIVE".equals(state) && !"SUSPENDED".equals(state);
+		return ProcessRecords.subject(engine(environment), stringOf(entry, "definitionId"),
+				stringOf(entry, "definitionKey"), stringOf(entry, "id"), ended);
+	}
+
+	private static Object historyLatestRecord(DataFetchingEnvironment environment) {
+		Map<String, Object> entry = sourceMap(environment);
+		return latest(records(environment, stringOf(entry, "id"), stringOf(entry, "definitionKey")));
+	}
+
+	private static Object historyRecords(DataFetchingEnvironment environment) {
+		Map<String, Object> entry = sourceMap(environment);
+		return records(environment, stringOf(entry, "id"), stringOf(entry, "definitionKey"));
 	}
 
 	/**

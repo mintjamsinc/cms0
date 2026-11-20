@@ -27,6 +27,8 @@ import java.util.Map;
 
 import org.camunda.bpm.engine.RuntimeService;
 import org.camunda.bpm.engine.runtime.Execution;
+import org.camunda.bpm.engine.runtime.MessageCorrelationBuilder;
+import org.camunda.bpm.engine.runtime.MessageCorrelationResult;
 import org.camunda.bpm.engine.runtime.ExecutionQuery;
 import org.mintjams.tools.lang.Strings;
 
@@ -41,6 +43,7 @@ public class MessageCorrelator {
 	private Map<String, Object> fCorrelationKeys;
 	private Map<String, Object> fVariables;
 	private String fUserId;
+	private String fComment;
 
 	protected MessageCorrelator(ProcessAPI processAPI) {
 		fProcessAPI = processAPI;
@@ -126,47 +129,75 @@ public class MessageCorrelator {
 		return this;
 	}
 
+	/**
+	 * A comment on the process the message reaches, written by the user who
+	 * tells it (the note given when publishing, say): kept with the process,
+	 * not as a variable, and shown in its history after the step the message
+	 * triggered. Written in the same transaction as the correlation, so it
+	 * also belongs to a process the message ends; blank, or at history level
+	 * {@code none}, none is written.
+	 */
+	public MessageCorrelator setComment(String comment) {
+		fComment = comment;
+		return this;
+	}
+
 	public void correlate() {
 		if (Strings.isEmpty(fMessageName)) {
 			throw new IllegalStateException("The message name must not be empty");
 		}
 
-		fProcessAPI.callAsUser(fUserId, () -> {
-			RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
-
-			if (!Strings.isEmpty(fProcessInstanceId)) {
-				ExecutionQuery query = runtime.createExecutionQuery()
-						.processInstanceId(fProcessInstanceId)
-						.messageEventSubscriptionName(fMessageName);
-				if (!Strings.isEmpty(fProcessDefinitionKey)) {
-					query.processDefinitionKey(fProcessDefinitionKey);
-				}
-				if (!Strings.isEmpty(fProcessDefinitionId)) {
-					query.processDefinitionId(fProcessDefinitionId);
-				}
-				if (!Strings.isEmpty(fBusinessKey)) {
-					query.processInstanceBusinessKey(fBusinessKey);
-				}
-				Execution execution = query.singleResult();
-				if (execution == null) {
-					throw new IllegalStateException("Could not find waiting process instance with id '" + fProcessInstanceId + "' for message '" + fMessageName + "'");
-				}
-
-				runtime.messageEventReceived(fMessageName, execution.getId(), fVariables);
-				return null;
+		fProcessAPI.callAsUser(fUserId, () -> fProcessAPI.inOneCommand(() -> {
+			String processInstanceId = correlateMessage();
+			if (processInstanceId != null) {
+				fProcessAPI.writeComment(null, processInstanceId, fComment);
 			}
-
-			// The engine refuses a null map of correlation keys ("variables is
-			// null"); none set means none required.
-			Map<String, Object> correlationKeys = (fCorrelationKeys != null) ? fCorrelationKeys : new HashMap<>();
-			Map<String, Object> variables = (fVariables != null) ? fVariables : new HashMap<>();
-			if (!Strings.isEmpty(fBusinessKey)) {
-				runtime.correlateMessage(fMessageName, fBusinessKey, correlationKeys, variables);
-				return null;
-			}
-			runtime.correlateMessage(fMessageName, correlationKeys, variables);
 			return null;
-		});
+		}));
+	}
+
+	/** Correlates the message; answers the process instance it reached (null when the engine does not say). */
+	private String correlateMessage() {
+		RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
+
+		if (!Strings.isEmpty(fProcessInstanceId)) {
+			ExecutionQuery query = runtime.createExecutionQuery()
+					.processInstanceId(fProcessInstanceId)
+					.messageEventSubscriptionName(fMessageName);
+			if (!Strings.isEmpty(fProcessDefinitionKey)) {
+				query.processDefinitionKey(fProcessDefinitionKey);
+			}
+			if (!Strings.isEmpty(fProcessDefinitionId)) {
+				query.processDefinitionId(fProcessDefinitionId);
+			}
+			if (!Strings.isEmpty(fBusinessKey)) {
+				query.processInstanceBusinessKey(fBusinessKey);
+			}
+			Execution execution = query.singleResult();
+			if (execution == null) {
+				throw new IllegalStateException("Could not find waiting process instance with id '" + fProcessInstanceId + "' for message '" + fMessageName + "'");
+			}
+
+			runtime.messageEventReceived(fMessageName, execution.getId(), fVariables);
+			return execution.getProcessInstanceId();
+		}
+
+		// The engine refuses a null map of correlation keys ("variables is
+		// null"); none set means none required.
+		Map<String, Object> correlationKeys = (fCorrelationKeys != null) ? fCorrelationKeys : new HashMap<>();
+		Map<String, Object> variables = (fVariables != null) ? fVariables : new HashMap<>();
+		// The same as RuntimeService.correlateMessage, answering where it went.
+		MessageCorrelationBuilder correlation = runtime.createMessageCorrelation(fMessageName)
+				.processInstanceVariablesEqual(correlationKeys)
+				.setVariables(variables);
+		if (!Strings.isEmpty(fBusinessKey)) {
+			correlation.processInstanceBusinessKey(fBusinessKey);
+		}
+		MessageCorrelationResult result = correlation.correlateWithResult();
+		if (result.getExecution() != null) {
+			return result.getExecution().getProcessInstanceId();
+		}
+		return (result.getProcessInstance() != null) ? result.getProcessInstance().getId() : null;
 	}
 
 }

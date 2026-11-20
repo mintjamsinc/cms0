@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0" name="org.mintjams.rt.cms.internal.connections.ConnectionsServlet">
+   <property name="osgi.http.whiteboard.servlet.pattern" type="String" value="/bin/auth.cgi/oauth/*"/>
+   <property name="osgi.http.whiteboard.context.select" value="(osgi.http.whiteboard.context.name=org.osgi.service.http)"/>
+   <service>
+      <provide interface="javax.servlet.Servlet"/>
+   </service>
+   <implementation class="org.mintjams.rt.cms.internal.connections.ConnectionsServlet"/>
+</scr:component>

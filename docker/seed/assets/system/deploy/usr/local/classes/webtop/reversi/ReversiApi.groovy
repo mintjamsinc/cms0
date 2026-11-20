@@ -110,6 +110,10 @@ class ReversiApi {
 		if (opponent == userId) {
 			throw new IllegalArgumentException('Invite somebody else.');
 		}
+		// The anonymous user cannot sign in to answer an invitation.
+		if (opponent == 'anonymous') {
+			throw new IllegalArgumentException('No such user.');
+		}
 		int boardSize = ReversiRules.checkSize(size);
 		String mySide = side ?: 'random';
 		if (!(mySide in ['black', 'white', 'random'])) {

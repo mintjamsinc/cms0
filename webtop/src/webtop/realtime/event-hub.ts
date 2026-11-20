@@ -253,6 +253,42 @@ export class EventHub {
   }
 
   /**
+   * Subscribe to every task lifecycle event of the workspace (created,
+   * assigned, completed, updated, deleted). A signal to re-query: the payload
+   * is the engine's partial view of the task, and the subscriber's own query
+   * decides what it may see.
+   */
+  watchTasks(handler: EventHandler<TaskEvent>): () => void {
+    return this.#client.subscribe(
+      subscriptionDoc('taskUpdated', SELECTIONS.task),
+      handler
+    );
+  }
+
+  /**
+   * Subscribe to process instances starting and ending, of one process
+   * definition key or (null) of every process. A signal to re-query.
+   */
+  watchProcessLifecycle(
+    definitionKey: string | null,
+    handler: EventHandler<ProcessEvent>
+  ): () => void {
+    const arg = definitionKey ? `(definitionKey: ${gqlString(definitionKey)})` : '';
+    const offStarted = this.#client.subscribe(
+      subscriptionDoc(`processStarted${arg}`, SELECTIONS.process),
+      handler
+    );
+    const offEnded = this.#client.subscribe(
+      subscriptionDoc(`processEnded${arg}`, SELECTIONS.process),
+      handler
+    );
+    return () => {
+      offStarted();
+      offEnded();
+    };
+  }
+
+  /**
    * Subscribe to task assignment events for a user
    */
   watchTaskAssignment(

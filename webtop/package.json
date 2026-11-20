@@ -58,6 +58,8 @@
 		"build:webtop-ui-standalone:prod": "node scripts/build.mjs --prod webtop-ui-standalone",
 		"build:webtop-markdown": "node scripts/build.mjs webtop-markdown",
 		"build:webtop-markdown:prod": "node scripts/build.mjs --prod webtop-markdown",
+		"build:webtop-memo": "node scripts/build.mjs webtop-memo",
+		"build:webtop-memo:prod": "node scripts/build.mjs --prod webtop-memo",
 		"prepare": "npm run build",
 		"test": "npm run build && node --test"
 	},

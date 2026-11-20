@@ -36,6 +36,9 @@ import {
 	translate,
 	bpmProcessName,
 	bpmTaskName,
+	bpmEventName,
+	bpmProcessText,
+	webtopAppTitle,
 	formatDate,
 } from "../../composables/use-localization.js";
 import type {
@@ -51,6 +54,9 @@ import type {
 	ProcessHistoryEntry,
 	ProcessHistoryOperation,
 	ProcessHistoryStep,
+	ProcessRecord,
+	ProcessComment,
+	ProcessSummary,
 	IdpUser,
 	Node as CmsNode,
 } from "../../graphql/types.js";
@@ -60,9 +66,34 @@ type Mode = 'tasks-runtime' | 'start' | 'history';
 // How many history entries the list loads (newest first).
 const HISTORY_PAGE_SIZE = 200;
 
+// One row of a step's "operations": what somebody did to the task (claim,
+// assign, complete, ...) or a comment somebody wrote at it, oldest first.
+type HistoryStepEntry =
+	| { kind: 'op'; id: string; time: number; op: ProcessHistoryOperation }
+	| { kind: 'comment'; id: string; time: number; comment: ProcessComment };
+
 // A history step as the detail pane renders it: `ops` is the step's operation
-// log condensed to one row per user action.
-type HistoryStepView = ProcessHistoryStep & { ops: ProcessHistoryOperation[] };
+// log condensed to one row per user action, `comments` what the people who
+// held it wrote there, `entries` both in one line of time, and `records` what
+// was recorded when it was completed (the body written there).
+type HistoryStepView = ProcessHistoryStep & {
+	ops: ProcessHistoryOperation[];
+	comments: ProcessComment[];
+	entries: HistoryStepEntry[];
+	records: ProcessRecord[];
+};
+
+// One row of the history timeline: a user task, a step recorded outside one
+// (the start, a message from outside such as a publication or a call-off),
+// or a comment written on the process itself rather than at a task.
+type HistoryTimelineItem =
+	| { kind: 'step'; id: string; time: number; step: HistoryStepView }
+	| { kind: 'record'; id: string; time: number; record: ProcessRecord }
+	| { kind: 'comment'; id: string; time: number; comment: ProcessComment };
+
+// Task and process events come in bursts (a completion ends one task, starts
+// the next and may end the process); one reload a little after the last.
+const LIVE_RELOAD_DELAY_MS = 500;
 
 interface Favorites {
 	[processDefinitionKey: string]: boolean;
@@ -307,7 +338,23 @@ export const App = {
 			historyAccess: { all: false, operationsRecorded: false } as ProcessHistoryAccess,
 			selectedHistory: null as ProcessHistoryEntry | null,
 			historySteps: [] as HistoryStepView[],
+			// The records of the open entry that belong to no user task: its
+			// start, and messages from outside (a publication, a call-off).
+			historyRecords: [] as ProcessRecord[],
+			// The comments of the open entry written on the process itself
+			// (when it was started, when it was told something).
+			historyComments: [] as ProcessComment[],
+
+			// Whether the workspace keeps comments (BPM history level other
+			// than none). When false, no comment field is offered anywhere.
+			commentsEnabled: false,
 			historyLoading: false,
+
+			// Live updates: task and process events of the workspace reload the
+			// list, so a task decided elsewhere (another app, another person)
+			// leaves it. Both hold non-reactive handles.
+			liveUnwatch: null as (() => void) | null,
+			liveTimer: null as ReturnType<typeof setTimeout> | null,
 
 			// Filtered list shown in the middle pane
 			filteredItems: [] as Array<Task | ProcessDefinition | ProcessHistoryEntry>,
@@ -342,6 +389,10 @@ export const App = {
 			// incoming document's own subscription (registered while its
 			// module scripts run) is never swept away.
 			formListeners: null as Set<FormEventListener> | null,
+			// The node watches a form asked for (`TasksFormHost.watchNode()`),
+			// each an unwatch function. Raw for the same reason, and ended
+			// with the listeners when the form goes.
+			formWatches: null as Set<() => void> | null,
 
 			// Mirrors document.documentElement.dataset.theme. Forms read it off
 			// the bridge to paint with the right palette on their first render;
@@ -436,18 +487,60 @@ export const App = {
 			];
 		},
 
+		// The open history entry as one line of time: the user tasks and the
+		// steps recorded outside them, oldest first. A record and a task that
+		// start in the same moment keep the record (the start) first.
+		historyTimeline(): HistoryTimelineItem[] {
+			const items: HistoryTimelineItem[] = [];
+			for (const record of this.historyRecords as ProcessRecord[]) {
+				items.push({ kind: 'record', id: 'r:' + record.id, time: timeOf(record.time), record });
+			}
+			for (const step of this.historySteps as HistoryStepView[]) {
+				items.push({ kind: 'step', id: 's:' + step.id, time: timeOf(step.startTime), step });
+			}
+			const line = items
+				.map((item, index) => ({ item, index }))
+				.sort((a, b) => (a.item.time - b.item.time)
+					|| ((a.item.kind === b.item.kind) ? 0 : (a.item.kind === 'record' ? -1 : 1))
+					|| (a.index - b.index))
+				.map((x) => x.item);
+			// A comment on the process is written with what its writer did -
+			// the start, a message - in the same transaction, after the engine
+			// has already run on to the next task. So it goes right after the
+			// latest step its writer recorded by then, not by its own time
+			// (which would put a request's note after the first approval).
+			for (const comment of this.historyComments as ProcessComment[]) {
+				const item: HistoryTimelineItem = { kind: 'comment', id: 'c:' + comment.id, time: timeOf(comment.time), comment };
+				let at = -1;
+				for (let i = 0; i < line.length; i++) {
+					const x = line[i];
+					if (x.kind === 'record' && x.time <= item.time && !!comment.userId && x.record.userId === comment.userId) at = i;
+				}
+				if (at < 0) {
+					// Nothing of theirs to go with: by time.
+					at = line.length - 1;
+					while (at >= 0 && line[at].time > item.time) at--;
+				} else {
+					// After the comments already placed there.
+					while (at + 1 < line.length && line[at + 1].kind === 'comment' && line[at + 1].time <= item.time) at++;
+				}
+				line.splice(at + 1, 0, item);
+			}
+			return line;
+		},
+
 		// True when at least one step of the open entry has no operation rows:
 		// only then is the explanation of "—" worth showing.
 		historyHasUnrecordedSteps(): boolean {
-			return this.historySteps.some((s: HistoryStepView) => s.ops.length === 0);
+			return this.historySteps.some((s: HistoryStepView) => s.entries.length === 0);
 		},
 
 		// Shown under the steps when a step has no operation rows, so "—" is
 		// read as "nothing was recorded", never as "nothing happened".
 		historyOperationsNote(): string {
 			return this.historyAccess.operationsRecorded
-				? this.t('app.tasks.history.operations.partial', undefined, '"—" means no operation was recorded for that step, for example because it ran before detailed recording was turned on.')
-				: this.t('app.tasks.history.operations.notRecorded', undefined, 'This workspace does not record intermediate operations such as claiming or reassigning (history level other than "full"), so they are shown as "—".');
+				? this.t('app.tasks.history.operations.partial', undefined, '"—" means no operation was recorded for that step, for example because it ran before operations were recorded.')
+				: this.t('app.tasks.history.operations.notRecorded', undefined, 'This workspace does not record intermediate operations such as claiming or reassigning (history level below "audit"), so they are shown as "—".');
 		},
 
 		categoryItems(): any[] {
@@ -510,6 +603,7 @@ export const App = {
 
 				await vm.initServices();
 				await vm.loadCurrentUser();
+				await vm.loadCommentsEnabled();
 				// Publish the form bridge before the first form can be opened.
 				vm.installFormHost();
 				vm.loadFavorites();
@@ -520,6 +614,7 @@ export const App = {
 				vm.seedLaunchFilters(options);
 				await vm.refresh();
 				vm.selectLaunchTask(options);
+				vm.watchLive();
 
 				vm.$nextTick(() => {
 					appInstance.notifyLaunched();
@@ -531,7 +626,62 @@ export const App = {
 			if (this.messageListener) {
 				window.removeEventListener('message', this.messageListener);
 			}
+			this.unwatchLive();
 			this.uninstallFormHost();
+		},
+
+		// =====================================================================
+		// Live updates
+		// =====================================================================
+
+		// Every task event and every process start / end of the workspace is a
+		// signal to re-query the open list; the query, run as the user, decides
+		// what they may see. So a task approved in another app, or by another
+		// person, leaves the inbox without a manual refresh.
+		watchLive() {
+			this.unwatchLive();
+			const hub = this.instance?.api?.eventHub;
+			if (!hub || typeof hub.watchTasks !== 'function') return;
+			const onEvent = () => this.scheduleLiveReload();
+			try {
+				const offTasks = hub.watchTasks(onEvent);
+				const offProcesses = hub.watchProcessLifecycle(null, onEvent);
+				this.liveUnwatch = this.$markRaw(() => {
+					offTasks();
+					offProcesses();
+				});
+			} catch (err) {
+				console.warn('Tasks: live updates are not available', err);
+			}
+		},
+
+		unwatchLive() {
+			if (this.liveTimer) {
+				clearTimeout(this.liveTimer);
+				this.liveTimer = null;
+			}
+			if (this.liveUnwatch) {
+				try { this.liveUnwatch(); } catch { /* gone */ }
+				this.liveUnwatch = null;
+			}
+		},
+
+		scheduleLiveReload() {
+			if (this.liveTimer) clearTimeout(this.liveTimer);
+			this.liveTimer = setTimeout(() => {
+				this.liveTimer = null;
+				this.reloadQuietly();
+			}, LIVE_RELOAD_DELAY_MS);
+		},
+
+		// The list of the current mode again, keeping what is open as long as
+		// it is still there (loadTasks / loadHistory reconcile the selection).
+		async reloadQuietly() {
+			if (this.mode === 'tasks-runtime') {
+				await this.loadTasks();
+			} else if (this.mode === 'history') {
+				await this.loadHistory();
+			}
 		},
 
 		async initServices() {
@@ -541,6 +691,18 @@ export const App = {
 			this.cms = this.$markRaw(new ContentServiceGraphQL(client));
 			// IdP lives in the system workspace
 			this.idp = this.$markRaw(new IdpServiceGraphQL());
+		},
+
+		// Whether the workspace keeps comments. A failure leaves them off:
+		// a comment field that cannot be saved is worse than none.
+		async loadCommentsEnabled() {
+			if (!this.bpm) return;
+			try {
+				this.commentsEnabled = await this.bpm.getProcessCommentsEnabled();
+			} catch (err) {
+				console.warn('[Tasks] Could not tell whether comments are kept:', err);
+				this.commentsEnabled = false;
+			}
 		},
 
 		async loadCurrentUser() {
@@ -651,10 +813,11 @@ export const App = {
 				if (selectedId) {
 					const fresh = this.history.find((h: ProcessHistoryEntry) => h.id === selectedId);
 					if (fresh) {
-						await this.selectHistory(fresh);
+						await this.selectHistory(fresh, true);
 					} else {
 						this.selectedHistory = null;
 						this.historySteps = [];
+						this.historyRecords = [];
 					}
 				}
 			} catch (err) {
@@ -664,11 +827,17 @@ export const App = {
 			}
 		},
 
-		async selectHistory(entry: ProcessHistoryEntry) {
+		// `quiet` re-reads the open entry in place (a refresh, a live update)
+		// instead of blanking it while it loads.
+		async selectHistory(entry: ProcessHistoryEntry, quiet = false) {
 			if (!this.bpm) return;
-			this.selectedHistory = { ...entry };
-			this.historySteps = [];
-			this.historyLoading = true;
+			if (!quiet || this.selectedHistory?.id !== entry.id) {
+				this.selectedHistory = { ...entry };
+				this.historySteps = [];
+				this.historyRecords = [];
+				this.historyComments = [];
+				this.historyLoading = true;
+			}
 			try {
 				const full = await this.bpm.getProcessHistoryEntry(entry.id);
 				// The user may have picked another entry while this one loaded.
@@ -678,10 +847,22 @@ export const App = {
 					return;
 				}
 				this.selectedHistory = { ...entry, ...full };
-				this.historySteps = (full.steps ?? []).map((s: ProcessHistoryStep) => ({
-					...s,
-					ops: this.condenseOperations(s.operations ?? []),
-				}));
+				const records = (full.records ?? []) as ProcessRecord[];
+				const comments = (full.comments ?? []) as ProcessComment[];
+				this.historySteps = (full.steps ?? []).map((s: ProcessHistoryStep) => {
+					const ops = this.condenseOperations(s.operations ?? []);
+					const written = comments.filter((c) => c.taskId === s.id);
+					return {
+						...s,
+						ops,
+						comments: written,
+						entries: this.stepEntries(ops, written),
+						records: records.filter((r) => r.taskId === s.id),
+					};
+				});
+				const stepIds = new Set((full.steps ?? []).map((s: ProcessHistoryStep) => s.id));
+				this.historyRecords = records.filter((r) => !r.taskId || !stepIds.has(r.taskId));
+				this.historyComments = comments.filter((c) => !c.taskId || !stepIds.has(c.taskId));
 			} catch (err) {
 				if (this.selectedHistory?.id === entry.id) {
 					this.errorMessage = this.t('app.tasks.error.loadHistory', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load the history: {detail}');
@@ -689,6 +870,20 @@ export const App = {
 			} finally {
 				if (!this.selectedHistory || this.selectedHistory.id === entry.id) this.historyLoading = false;
 			}
+		},
+
+		// A step's operations and the comments written at it, in one line of
+		// time: each person's comments stand where they wrote them, between
+		// their claim and their hand-over or completion. A comment given with
+		// a completion is written just before it, so it reads before it too.
+		stepEntries(ops: ProcessHistoryOperation[], comments: ProcessComment[]): HistoryStepEntry[] {
+			const entries: HistoryStepEntry[] = [];
+			for (const op of ops) entries.push({ kind: 'op', id: 'o:' + op.id, time: timeOf(op.time), op });
+			for (const comment of comments) entries.push({ kind: 'comment', id: 'c:' + comment.id, time: timeOf(comment.time), comment });
+			return entries
+				.map((entry, index) => ({ entry, index }))
+				.sort((a, b) => (a.entry.time - b.entry.time) || (a.index - b.index))
+				.map((x) => x.entry);
 		},
 
 		// The engine logs one row per changed property, so a single user action
@@ -709,7 +904,7 @@ export const App = {
 			const q = this.filters.historyKeyword.trim().toLowerCase();
 			if (!q) return entries;
 			return entries.filter(h => {
-				const hay = `${this.historyProcessName(h)} ${h.definitionName || ''} ${h.definitionKey || ''} ${h.businessKey || ''} ${h.startUserId || ''} ${h.startUserDisplayName || ''}`.toLowerCase();
+				const hay = `${this.subjectText(h)} ${this.appTitleOf(h)} ${this.previewText(h)} ${this.historyProcessName(h)} ${h.definitionName || ''} ${h.definitionKey || ''} ${h.businessKey || ''} ${h.startUserId || ''} ${h.startUserDisplayName || ''}`.toLowerCase();
 				return hay.includes(q);
 			});
 		},
@@ -717,6 +912,89 @@ export const App = {
 		historyProcessName(entry: ProcessHistoryEntry | null): string {
 			if (!entry) return '';
 			return bpmProcessName(this.localization, this.instance, entry.definitionKey, entry.definitionName ?? undefined);
+		},
+
+		// =====================================================================
+		// Subject, app and body (what a process says about itself)
+		// =====================================================================
+
+		// The subject of the item's process in the reader's language, or ''
+		// when the process declares none.
+		subjectText(item: ProcessSummary | null): string {
+			if (!item || !item.subject) return '';
+			return bpmProcessText(this.localization, this.instance, item.subject).trim();
+		},
+
+		// The title of the app the item's process belongs to, or ''.
+		appTitleOf(item: ProcessSummary | null): string {
+			if (!item || !item.app) return '';
+			return webtopAppTitle(this.localization, this.instance, item.app);
+		},
+
+		// A record's body in the reader's language, or ''.
+		recordBodyText(record: ProcessRecord | null | undefined): string {
+			if (!record || !record.body) return '';
+			return bpmProcessText(this.localization, this.instance, record.body).trim();
+		},
+
+		// The latest words written in the item's process, on one line (the
+		// preview a mail list shows under the subject): its latest comment or
+		// the latest body of a step, whichever was written last.
+		previewText(item: ProcessSummary | null): string {
+			const body = this.recordBodyText(item?.latestRecord);
+			const comment = (item?.latestComment?.message ?? '').trim();
+			let text = body;
+			if (comment && (!body || timeOf(item?.latestComment?.time) >= timeOf(item?.latestRecord?.time))) {
+				text = comment;
+			}
+			if (!text) return '';
+			return text.split(/\r?\n/).map((line: string) => line.trim()).filter(Boolean).join(' ');
+		},
+
+		// Who wrote a comment, as the history shows it.
+		commentAuthor(comment: ProcessComment): string {
+			return comment.userDisplayName || comment.userId || this.t('app.tasks.history.record.nobody', undefined, 'automatically');
+		},
+
+		// The line a list item leads with: the subject, else the task name.
+		taskTitle(task: Task): string {
+			return this.subjectText(task) || this.taskName(task);
+		},
+
+		// The line under it: the task name when the subject leads, else the process.
+		taskSubline(task: Task): string {
+			return this.subjectText(task) ? this.taskName(task) : this.resolveProcessName(task);
+		},
+
+		historyTitle(entry: ProcessHistoryEntry): string {
+			return this.subjectText(entry) || this.historyProcessName(entry);
+		},
+
+		// What a recorded step was, for its row of the timeline: a task by its
+		// task name, any other step by its localized BPMN name, the start of
+		// the process by the words "started" when its start event has none.
+		recordLabel(record: ProcessRecord): string {
+			const key = this.selectedHistory?.definitionKey ?? '';
+			if (record.activityType === 'userTask') {
+				return bpmTaskName(this.localization, this.instance, key, record.activityId ?? '', record.activityName ?? undefined);
+			}
+			const name = bpmEventName(this.localization, this.instance, key, record.activityId ?? '', record.activityName ?? undefined);
+			if (record.activityType === 'startEvent' && (!record.activityName || name === record.activityId)) {
+				return this.t('app.tasks.history.record.started', undefined, 'Started');
+			}
+			return name;
+		},
+
+		recordIcon(record: ProcessRecord): string {
+			switch (record.activityType) {
+				case 'startEvent': return 'bi-play-fill';
+				case 'userTask': return 'bi-check-lg';
+				// An outcome the process reached: approved, returned, ...
+				case 'intermediateThrowEvent':
+				case 'endEvent': return 'bi-flag-fill';
+				// Somebody acted on it from outside: published, called off, ...
+				default: return 'bi-envelope-fill';
+			}
 		},
 
 		historyStepName(step: ProcessHistoryStep): string {
@@ -842,7 +1120,7 @@ export const App = {
 				this.isLoading = true;
 				this.errorMessage = '';
 
-				const opts: { first: number; assignee?: string; candidateUser?: string } = { first: 200 };
+				const opts: { first: number; assignee?: string; candidateUser?: string; withSummary: boolean } = { first: 200, withSummary: true };
 				if (this.filters.scope === 'assigned') {
 					opts.assignee = this.currentUserID;
 				} else if (this.filters.scope === 'candidate') {
@@ -861,11 +1139,29 @@ export const App = {
 					.sort(this.compareTasks);
 
 				this.filterList();
+				this.reconcileSelectedTask();
 			} catch (err) {
 				this.errorMessage = this.t('app.tasks.error.loadTasks', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load tasks: {detail}');
 			} finally {
 				this.isLoading = false;
 			}
+		},
+
+		// After the list was reloaded: a selected task that left it (completed
+		// here or elsewhere, taken by someone else, no longer in this scope)
+		// takes its form with it; one that is still there keeps its form and
+		// gets its new assignment and revision, which the form is told of.
+		reconcileSelectedTask() {
+			const selected = this.selectedTask as Task | null;
+			if (!selected) return;
+			const fresh = (this.tasks as Task[]).find((t) => t.id === selected.id);
+			if (!fresh) {
+				this.selectedTask = null;
+				this.clearForm();
+				return;
+			}
+			const changed = fresh.assignee !== selected.assignee || fresh.revision !== selected.revision;
+			if (this.applySelectedTaskUpdate(fresh.id, fresh) && changed) this.notifyFormContext();
 		},
 
 		compareTasks(a: Task, b: Task): number {
@@ -943,7 +1239,7 @@ export const App = {
 
 				if (q) {
 					const procName = this.resolveProcessName(t).toLowerCase();
-					const hay = `${this.taskName(t)} ${t.name || ''} ${t.taskDefinitionKey || ''} ${t.description || ''} ${procName} ${t.businessKey || ''}`.toLowerCase();
+					const hay = `${this.subjectText(t)} ${this.appTitleOf(t)} ${this.previewText(t)} ${this.taskName(t)} ${t.name || ''} ${t.taskDefinitionKey || ''} ${t.description || ''} ${procName} ${t.businessKey || ''}`.toLowerCase();
 					if (!hay.includes(q)) return false;
 				}
 				return true;
@@ -1059,6 +1355,17 @@ export const App = {
 			// `load` fires, so clearing there would unsubscribe the form that
 			// just subscribed.
 			this.formListeners?.clear();
+			this.endFormWatches();
+		},
+
+		// Ends every node watch the outgoing form asked for.
+		endFormWatches() {
+			const watches = this.formWatches as Set<() => void> | null;
+			if (!watches) return;
+			for (const unwatch of Array.from(watches)) {
+				try { unwatch(); } catch { /* gone */ }
+			}
+			watches.clear();
 		},
 
 		async openFormForTask(task: Task) {
@@ -1322,6 +1629,7 @@ export const App = {
 					theme,
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
 					localization: this.buildLocalization(),
+					commentsEnabled: this.commentsEnabled,
 					processDefinition: {
 						id: this.selectedDef.id,
 						key: this.selectedDef.key,
@@ -1338,6 +1646,8 @@ export const App = {
 					theme,
 					currentUser: { id: this.currentUserID, displayName: this.currentUserDisplay },
 					localization: this.buildLocalization(),
+					// False at BPM history level none: the form hides its comment field.
+					commentsEnabled: this.commentsEnabled,
 					task: {
 						id: this.selectedTask.id,
 						name: this.selectedTask.name,
@@ -1355,6 +1665,10 @@ export const App = {
 						candidateUsers: this.selectedTask.candidateUsers,
 						candidateGroups: this.selectedTask.candidateGroups,
 						businessKey: this.selectedTask.businessKey ?? this.selectedTask.processInstance?.businessKey ?? null,
+						// The app the process belongs to (relPath) and its subject
+						// as the user reads it, for a form that shows them.
+						app: this.selectedTask.app ?? null,
+						subject: this.subjectText(this.selectedTask) || null,
 					},
 				};
 			}
@@ -1388,12 +1702,14 @@ export const App = {
 			// from the iframe's realm, which must not be wrapped in proxies. The
 			// bridge object itself never enters reactive data, so it needs none.
 			this.formListeners = this.$markRaw(new Set<FormEventListener>());
+			this.formWatches = this.$markRaw(new Set<() => void>());
 			(window as unknown as { TasksFormHost?: unknown }).TasksFormHost = this.buildFormHost();
 		},
 
 		uninstallFormHost() {
 			this.cancelFormReadyWatchdog();
 			this.formListeners?.clear();
+			this.endFormWatches();
 			delete (window as unknown as { TasksFormHost?: unknown }).TasksFormHost;
 		},
 
@@ -1409,7 +1725,8 @@ export const App = {
 				//     the overlay until the watchdog fires.
 				// 3 — adds app launch: listApps() / openApp() / openFile().
 				//     Purely additive — every version 2 form keeps working.
-				version: 3,
+				// 4 — adds watchNode(). Additive as well.
+				version: 4,
 
 				// ----- Environment -----
 
@@ -1443,6 +1760,9 @@ export const App = {
 				get context(): Record<string, unknown> { return vm.buildContext(); },
 				get theme(): string { return vm.currentTheme || 'light'; },
 				get localization(): FormLocalization { return vm.buildLocalization(); },
+				// Whether comments are kept (history level other than none). A
+				// form shows its comment field only when this is true.
+				get commentsEnabled(): boolean { return vm.commentsEnabled; },
 				get currentUser(): { id: string; displayName: string; groups: string[] } {
 					return {
 						id: vm.currentUserID,
@@ -1777,9 +2097,16 @@ export const App = {
 					return toPlainData(vm.serializeTask(updated));
 				},
 
-				async completeTask(variables?: unknown) {
+				// `options.comment`: the comment given with the completion, kept
+				// as a comment of the task (written by the user, in the same
+				// transaction). Ignored blank; refused when comments are off.
+				async completeTask(variables?: unknown, options?: { comment?: string }) {
 					vm.requireSelectedTask();
 					vm.requireOwnership();
+					const comment = typeof options?.comment === 'string' ? options.comment.trim() : '';
+					if (comment && !vm.commentsEnabled) {
+						throw new Error(vm.t('app.tasks.error.commentsOff', undefined, 'Comments are not kept in this workspace.'));
+					}
 					// Capture the task being completed before awaiting the server.
 					// Selecting another task while the call is in flight reassigns
 					// vm.selectedTask; reading the live reference afterwards would
@@ -1791,6 +2118,7 @@ export const App = {
 						taskId: completedId,
 						variables: vm.normalizeVariables(variables),
 						expectedRevision: revision,
+						comment: comment || undefined,
 					}));
 					// Drop the completed task from the runtime list.
 					vm.tasks = vm.tasks.filter(t => t.id !== completedId);
@@ -1803,6 +2131,29 @@ export const App = {
 						vm.clearForm();
 					}
 					return true;
+				},
+
+				// A comment on the selected task, written by the user without
+				// completing it - a note for whoever takes it over. Only the
+				// assignee writes one; refused when comments are off.
+				async addComment(message: string) {
+					vm.requireSelectedTask();
+					vm.requireOwnership();
+					const text = String(message ?? '').trim();
+					if (!text) throw new Error('message is required');
+					if (!vm.commentsEnabled) {
+						throw new Error(vm.t('app.tasks.error.commentsOff', undefined, 'Comments are not kept in this workspace.'));
+					}
+					const created = await vm.bpm!.addTaskComment(vm.selectedTask!.id, text);
+					return toPlainData(created);
+				},
+
+				// The comments written in the selected task's process, oldest
+				// first: at its tasks (taskId) and on the process (taskId null).
+				async getComments() {
+					vm.requireSelectedTask();
+					if (!vm.commentsEnabled) return [];
+					return toPlainData(await vm.bpm!.getTaskComments(vm.selectedTask!.id));
 				},
 
 				// ----- CMS convenience (server-side JCR ACLs apply) -----
@@ -1845,6 +2196,30 @@ export const App = {
 					}
 					await vm.cms!.setProperty(p, n, value);
 					return true;
+				},
+
+				// Calls `listener(path)` whenever the node at `path` changes
+				// (its content or its properties; with `deep`, any node below
+				// it too), over the shell's change stream, until the returned
+				// function is called or the form goes away. What changed is
+				// not said: read the node again. Changes the form made itself
+				// are reported too.
+				watchNode(path: string, listener: (path: string) => void, deep?: boolean): () => void {
+					const p = String(path ?? '');
+					if (!p) throw new Error('path is required');
+					if (typeof listener !== 'function') throw new Error('listener must be a function');
+					const hub = vm.instance?.api?.eventHub;
+					const watches = vm.formWatches as Set<() => void> | null;
+					if (!hub || typeof hub.watchNode !== 'function' || !watches) return () => { /* noop */ };
+					const off = hub.watchNode(p, () => {
+						try { listener(p); } catch (err) { console.error('Tasks: form node watch failed', err); }
+					}, !!deep);
+					const unwatch = () => {
+						if (!watches.delete(unwatch)) return;
+						try { off(); } catch { /* gone */ }
+					};
+					watches.add(unwatch);
+					return unwatch;
 				},
 
 				// Read a node's binary content as text.
@@ -2115,6 +2490,69 @@ export const App = {
 			}
 		},
 
+		// The comments of the selected task's process, and, for its assignee,
+		// a field to leave one - say, before handing the task over.
+		async showCommentsDialog() {
+			if (!this.selectedTask || !this.bpm || !this.commentsEnabled) return;
+			const t = this.selectedTask;
+			this.dialog = {
+				type: 'comments',
+				data: {
+					taskId: t.id,
+					taskName: this.taskName(t),
+					comments: [] as ProcessComment[],
+					message: '',
+					loading: true,
+					saving: false,
+					error: '',
+				},
+			};
+			await this.loadDialogComments(t.id);
+		},
+
+		async loadDialogComments(taskId: string) {
+			try {
+				const comments = await this.bpm!.getTaskComments(taskId);
+				if (this.dialog.type !== 'comments' || this.dialog.data.taskId !== taskId) return;
+				this.dialog.data.comments = comments;
+			} catch (err) {
+				if (this.dialog.type === 'comments') {
+					this.dialog.data.error = this.t('app.tasks.error.loadComments', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to load the comments: {detail}');
+				}
+			} finally {
+				if (this.dialog.type === 'comments') this.dialog.data.loading = false;
+			}
+		},
+
+		async executeAddComment() {
+			if (!this.selectedTask || !this.bpm || this.dialog.type !== 'comments') return;
+			const text = String(this.dialog.data.message || '').trim();
+			if (!text) return;
+			const taskId = this.dialog.data.taskId as string;
+			this.dialog.data.saving = true;
+			this.dialog.data.error = '';
+			try {
+				await this.bpm.addTaskComment(taskId, text);
+				if (this.dialog.type !== 'comments' || this.dialog.data.taskId !== taskId) return;
+				this.dialog.data.message = '';
+				await this.loadDialogComments(taskId);
+			} catch (err) {
+				if (this.dialog.type === 'comments') {
+					this.dialog.data.error = this.t('app.tasks.error.addComment', { detail: err instanceof Error ? err.message : String(err) }, 'Failed to add the comment: {detail}');
+				}
+			} finally {
+				if (this.dialog.type === 'comments') this.dialog.data.saving = false;
+			}
+		},
+
+		// Where a comment in the dialog was written: this task, another step,
+		// or the process itself.
+		commentPlace(comment: ProcessComment): string {
+			if (!comment.taskId) return this.t('app.tasks.comments.onProcess', undefined, 'On the process');
+			if (comment.taskId === this.dialog.data.taskId) return this.t('app.tasks.comments.thisTask', undefined, 'This task');
+			return this.t('app.tasks.comments.otherStep', undefined, 'An earlier step');
+		},
+
 		showAssignDialog() {
 			if (!this.selectedTask) return;
 			this.dialog = {
@@ -2284,6 +2722,13 @@ export const App = {
 		},
 	},
 };
+
+// An ISO time as milliseconds, for ordering; 0 when there is none.
+function timeOf(value: string | null | undefined): number {
+	if (!value) return 0;
+	const t = new Date(value).getTime();
+	return Number.isFinite(t) ? t : 0;
+}
 
 function startOfToday(): number {
 	const d = new Date();

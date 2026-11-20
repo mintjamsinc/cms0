@@ -28,7 +28,7 @@ docker run --rm \
   -v cms-repository:/data/repository \
   -v cms-secrets:/data/secrets \
   -v cms-index:/data/index \
-  mintjams/cms:0.2.0
+  mintjams/cms:latest
 ```
 
 Then open <http://localhost:8080/> in a browser.
@@ -42,7 +42,7 @@ generate correct redirect URLs.
 ```yaml
 services:
   cms:
-    image: mintjams/cms:0.2.0
+    image: mintjams/cms:0.3.0
     restart: unless-stopped
     environment:
       CMS_PUBLIC_BASE_URL: "http://localhost:8080"

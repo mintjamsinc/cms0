@@ -28,6 +28,7 @@ refuse to run against a host older than it expects.
 | 1 | Initial bridge. |
 | 2 | `notifyReady()` became **mandatory** — the host holds a loading overlay over the frame until the form calls it. A version 1 form never calls it and sits behind the overlay until the watchdog fires. |
 | 3 | Adds app launch: `listApps()`, `openApp()`, `openFile()`. Purely additive; every version 2 form keeps working. |
+| 4 | Adds `watchNode(path, listener, deep?)`. Additive as well. |
 
 ```js
 if (!host || host.version < 3) throw new Error('Tasks host is too old for this form');
@@ -39,14 +40,15 @@ if (!host || host.version < 3) throw new Error('Tasks host is too old for this f
 |-------|---------|
 | Environment | `workspace`, `webtopBaseUrl` |
 | GraphQL | `graphql`, `createGraphQLClient(workspace)`, `bpm`, `cms`, `idp` |
-| Context | `context`, `theme`, `localization`, `currentUser`, `subscribe(listener)` |
+| Context | `context`, `theme`, `localization`, `currentUser`, `commentsEnabled`, `subscribe(listener)` |
 | Readiness | `notifyReady()`, `activate()` |
 | **App launch** | **`listApps()`, `openApp(appId, options?)`, `openFile(path, opts?)`** |
 | Identity | `getUser(username)` |
 | Localization | `translate(id, params?, fallback?)`, `formatTemplate(template, params?)`, `getI18nMessages(prefix?)` |
 | Process start (`start` mode) | `getProcessDefinition()`, `startProcess(opts?)` |
-| Task operations | `getTask()`, `getTaskWithVariables()`, `getTaskVariables()`, `setTaskVariables()`, `getProcessVariables()`, `setProcessVariables()`, `claimTask()`, `unclaimTask()`, `setAssignee()`, `completeTask()` |
-| CMS convenience | `getNode(path)`, `listChildren(path, opts?)`, `setNodeProperty()`, `readNodeText(path)` |
+| Task operations | `getTask()`, `getTaskWithVariables()`, `getTaskVariables()`, `setTaskVariables()`, `getProcessVariables()`, `setProcessVariables()`, `claimTask()`, `unclaimTask()`, `setAssignee()`, `completeTask(variables?, { comment }?)` |
+| Comments | `addComment(message)`, `getComments()` |
+| CMS convenience | `getNode(path)`, `listChildren(path, opts?)`, `setNodeProperty()`, `readNodeText(path)`, `watchNode(path, listener, deep?)` |
 
 Task, process and CMS values come back as deep copies (plain JSON data), so a
 form can never mutate the host's list or selection through a returned
@@ -55,6 +57,53 @@ deliberate exception — they are the live objects, which is the point of them.
 
 `notifyReady()` is required — see the doc comment on the method. Call it on
 failure paths too, once the form has rendered its own error state.
+
+In task mode, `context.task` also carries `app` (the relPath of the app the
+process belongs to) and `subject` (the process's subject, rendered in the
+user's language) — see [`bpm-subjects-and-records.md`](bpm-subjects-and-records.md).
+The Tasks app shows both above the form, so a form need not repeat them.
+
+### Comments
+
+What a person writes at a task - the comment given with a decision, a note
+for whoever takes the task over - is kept as a **comment** of the task
+(Camunda `TaskService.createComment`), written by that person with the time,
+never as a process variable. The Tasks app's history shows each comment at
+the step and among the operations of the person who wrote it.
+
+- `commentsEnabled` (also `context.commentsEnabled`) is false when the
+  workspace keeps no comments (BPM history level `none`). A form then shows
+  no comment field.
+- `completeTask(variables, { comment })` writes the comment and completes the
+  task in one transaction. A blank comment writes none; a comment while
+  comments are off is refused.
+- `addComment(message)` leaves a comment without completing the task (the
+  assignee only). The Tasks app offers the same in its form bar.
+- `getComments()` lists the comments of the task's process, oldest first:
+  `{ id, time, userId, userDisplayName, taskId, message }`, `taskId` null for
+  one written on the process itself.
+
+When the process needs the words as well (a script after the task that puts
+them on a record of its own, or sends them on), pass them once more as a
+**transient** variable, which the process sees until it next waits and never
+stores:
+
+```js
+const comment = host.commentsEnabled ? text.trim() : '';
+await host.completeTask([
+	{ name: 'decision', value: 'approve' },
+	{ name: 'approverComment', value: comment, valueInfo: { transient: true } },
+], { comment });
+```
+
+A transient variable cannot take the name of a stored variable of the same
+scope (the engine refuses it), so give it a name the process never stored.
+
+The task list reloads itself on every task event of the workspace. When the
+task a form is open for is completed elsewhere (another app, another person)
+it leaves the list and its form is closed; when it is still there but was
+reassigned or changed, the form gets a `context` announcement with the new
+assignee and revision instead.
 
 ## App launch
 
@@ -127,6 +176,32 @@ that does not exist, an unknown `appId`, or no editor for the content type.
 
 > Unlike `openApp()`, this path always opens a **new** window; the shell does
 > not apply the singleton rule to `open-file-with-app`.
+
+## Watching a node
+
+### `watchNode(path, listener, deep?): () => void`
+
+Calls `listener(path)` whenever the node at `path` changes — its content or
+its properties; with `deep`, any node below it as well — over the shell's
+change stream. What changed is not said: read the node again. Changes the
+form made itself are reported too, so a form that saves and watches the same
+node compares what it reads with what it wrote.
+
+The returned function ends the watch. Every watch a form started also ends
+when the form goes away (another task is selected, the form is reloaded), so
+a form need not clean up after itself.
+
+```js
+const unwatch = host.watchNode(rowPath, async () => {
+  const text = await host.readNodeText(rowPath);
+  if (text !== shown) show(text);
+});
+```
+
+To edit a memo file in a form, load the Memo app's editor,
+`ui/wt-memo.esm.js` (`documents/webtop-memo-editor.md`), beside wt-ui.
+
+## App launch: the receiving side
 
 ### Receiving side (the launched app)
 

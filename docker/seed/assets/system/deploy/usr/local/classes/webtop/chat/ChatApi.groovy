@@ -196,6 +196,10 @@ class ChatApi {
 			if (!peerId || peerId == userId) {
 				throw new IllegalArgumentException('Name another user.');
 			}
+			// The anonymous user cannot sign in to answer.
+			if (peerId == ChatStore.ANONYMOUS) {
+				throw new IllegalArgumentException("No such user: ${peerId}".toString());
+			}
 			def user = service.userManager.getUser(peerId);
 			if (user == null) {
 				throw new IllegalArgumentException("No such user: ${peerId}".toString());
@@ -776,9 +780,12 @@ class ChatApi {
 
 	// --- mentions -----------------------------------------------------------------
 
-	/** The users named as @name in the text; a name that is no user is left as text. */
+	/** The users named as @name in the text; a name that is no user is left as text, and so is anonymous, who cannot sign in to read. */
 	private List<String> mentionedUsers(service, String body) {
 		return ChatMessages.mentionsIn(body).findAll { String name ->
+			if (name == ChatStore.ANONYMOUS) {
+				return false;
+			}
 			try {
 				return service.userManager.getUser(name) != null;
 			} catch (Throwable ignore) {

@@ -1,0 +1,514 @@
+@charset "utf-8";
+
+/* ============================================================================
+ * The memo document and its formatting toolbar.
+ *
+ * Shared by the Memo app (which links this file) and the embeddable editor
+ * wt-memo.esm.js (which appends it; see ui/memo-editor.ts), so a memo looks
+ * the same wherever it is edited. The document rules apply under an element
+ * with the class wt-memo; the scope is wrapped in :where() so each rule keeps
+ * the weight it had as a plain `.ProseMirror ...` rule and an app's own rules
+ * (the Memo app's dataset blocks) still override it as before.
+ *
+ * Theme tokens (--body-color, --primary-color, --list-header-bg, ...) come
+ * from webtop-app.css / wt-ui.css.
+ * ============================================================================ */
+
+:root {
+	--formatbar-height: 2.5rem;
+	/* Neutral, light-grey rule colour for document lines (table cells, hr,
+	   blockquote bar). Derived from the body text colour at low opacity so it
+	   reads as a faint grey in both light and dark themes — unlike the default
+	   --input-border-color, which is a blue-tinted input outline. */
+	--memo-rule-color: rgb(from var(--body-color) r g b / 0.18);
+}
+
+/* ----------------------------------------------------------------------------
+ * Formatting toolbar — pinned to the top of the editor pane body, directly
+ * under the file tabs (scoped to the editor, not spanning the inspector).
+ * -------------------------------------------------------------------------- */
+.format-bar {
+	flex-shrink: 0;
+	min-height: var(--formatbar-height);
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.125rem;
+	padding: 0.25rem 0.5rem;
+	background-color: var(--navbar-bg);
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.format-group {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.0625rem;
+}
+
+.format-divider {
+	width: 1px;
+	height: 1.25rem;
+	margin: 0 0.25rem;
+	background-color: var(--text-muted-color);
+	opacity: 0.35;
+}
+
+.fmt-btn {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.75rem;
+	height: 1.75rem;
+	padding: 0 0.375rem;
+	border: none;
+	background: transparent;
+	color: var(--text-muted-color);
+	cursor: pointer;
+	border-radius: 0.3rem;
+	font-size: 0.95rem;
+	line-height: 1;
+	transition: background-color 0.12s, color 0.12s;
+}
+
+.fmt-btn:hover {
+	background-color: var(--btn-icon-hover-bg);
+	color: var(--text-color);
+}
+
+.fmt-btn.active {
+	color: var(--primary-color);
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+}
+
+.fmt-btn-danger:hover {
+	color: var(--danger-color);
+	background-color: rgb(from var(--danger-color) r g b / 0.12);
+}
+
+/* Small +/- badge overlaid on table op buttons */
+.fmt-badge {
+	position: absolute;
+	right: 0.05rem;
+	bottom: 0.05rem;
+	font-size: 0.5rem;
+	background-color: var(--navbar-bg);
+	border-radius: 50%;
+	line-height: 1;
+}
+
+/* ----------------------------------------------------------------------------
+ * ProseMirror document styling (the rendered memo content)
+ * -------------------------------------------------------------------------- */
+:where(.wt-memo) .ProseMirror {
+	max-width: 48rem;
+	margin: 0 auto;
+	padding: 2rem 2.5rem 6rem;
+	outline: none;
+	color: var(--body-color);
+	/* font-size: 0.95rem; */
+	line-height: 1.7;
+	-webkit-font-smoothing: antialiased;
+	/* Document text defaults to a normal weight. webtop-app.css resets
+	   `* { font-weight: inherit }`, which would otherwise flatten <strong>; the
+	   rule below restores bold (as `bolder`) for emphasized text. Scoped to
+	   :where(.wt-memo) .ProseMirror so it only affects the memo document, not app chrome. */
+	font-weight: normal;
+}
+
+:where(.wt-memo) .ProseMirror:focus {
+	outline: none;
+}
+
+:where(.wt-memo) .ProseMirror strong,
+:where(.wt-memo) .ProseMirror b {
+	font-weight: bolder;
+}
+
+:where(.wt-memo) .ProseMirror > * + * {
+	margin-top: 0.6em;
+}
+
+:where(.wt-memo) .ProseMirror h1 {
+	font-size: 1.9em;
+	font-weight: 700;
+	line-height: 1.25;
+	margin-top: 1.4em;
+}
+
+:where(.wt-memo) .ProseMirror h2 {
+	font-size: 1.5em;
+	font-weight: 700;
+	line-height: 1.3;
+	margin-top: 1.2em;
+}
+
+:where(.wt-memo) .ProseMirror h3 {
+	font-size: 1.2em;
+	font-weight: 600;
+	line-height: 1.35;
+	margin-top: 1em;
+}
+
+:where(.wt-memo) .ProseMirror p {
+	margin: 0;
+}
+
+:where(.wt-memo) .ProseMirror ul,
+:where(.wt-memo) .ProseMirror ol {
+	padding-left: 1.5rem;
+}
+
+:where(.wt-memo) .ProseMirror ul {
+	list-style: disc;
+}
+
+:where(.wt-memo) .ProseMirror ol {
+	list-style: decimal;
+}
+
+:where(.wt-memo) .ProseMirror li {
+	margin: 0.15em 0;
+}
+
+:where(.wt-memo) .ProseMirror li > p {
+	margin: 0;
+}
+
+/* Task lists (checkbox lists) */
+:where(.wt-memo) .ProseMirror ul[data-type="taskList"] {
+	list-style: none;
+	padding-left: 0.25rem;
+}
+
+:where(.wt-memo) .ProseMirror ul[data-type="taskList"] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5rem;
+}
+
+:where(.wt-memo) .ProseMirror ul[data-type="taskList"] li > label {
+	display: inline-flex;
+	align-items: center;
+	/* Occupy exactly one line box (font-size × line-height) so the checkbox,
+	   centered within it, lines up with the label's first text line. */
+	height: 1.6em;
+	user-select: none;
+}
+
+/* Checkbox: a touch larger than the UA default, and themed to match
+   class="wt" inputs (primary accent that follows light / dark mode). Scoped to
+   the memo document so app chrome is unaffected. */
+:where(.wt-memo) .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+	width: 1.2em;
+	height: 1.2em;
+	margin: 0;
+	accent-color: var(--primary-color);
+	cursor: pointer;
+}
+
+:where(.wt-memo) .ProseMirror ul[data-type="taskList"] li > div {
+	flex: 1;
+	min-width: 0;
+}
+
+:where(.wt-memo) .ProseMirror blockquote {
+	border-left: 0.25rem solid var(--body-color);
+	padding-left: 0.75rem;
+	margin-left: 0;
+	margin-right: 0;
+	color: var(--body-color);
+}
+
+:where(.wt-memo) .ProseMirror pre {
+	background-color: var(--list-header-bg);
+	border-radius: 0.5rem;
+	padding: 0.85rem 1rem;
+	overflow-x: auto;
+	line-height: 1.5;
+}
+
+:where(.wt-memo) .ProseMirror pre code {
+	background: none;
+	padding: 0;
+	font-size: inherit;
+	color: inherit;
+}
+
+:where(.wt-memo) .ProseMirror code {
+	background-color: var(--list-header-bg);
+	border-radius: 0.3rem;
+	padding: 0.1em 0.35em;
+}
+
+/* Highlights use the pale companion palette (theme-independent). Pin a dark
+   text colour so highlighted text stays readable on the light tint in both
+   light and dark themes — like a marker pen over black ink. */
+:where(.wt-memo) .ProseMirror mark {
+	background-color: #fff59d;
+	color: #202124;
+	border-radius: 0.2em;
+	padding: 0 0.1em;
+}
+
+:where(.wt-memo) .ProseMirror a {
+	color: var(--primary-color);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+:where(.wt-memo) .ProseMirror hr {
+	border: none;
+	border-top: 1px solid var(--memo-rule-color);
+	margin: 1.5em 0;
+}
+
+/* Page break (page-break.ts): a dashed line with its label in the middle.
+   The break itself is the element's inline style; on paper the line and
+   the label go (see the print rules below). */
+:where(.wt-memo) .ProseMirror .memo-page-break {
+	display: flex;
+	align-items: center;
+	gap: 0.75em;
+	margin: 1.5em 0;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+	cursor: default;
+	user-select: none;
+}
+
+:where(.wt-memo) .ProseMirror .memo-page-break::before,
+:where(.wt-memo) .ProseMirror .memo-page-break::after {
+	content: '';
+	flex: 1;
+	border-top: 1px dashed var(--memo-rule-color);
+}
+
+:where(.wt-memo) .ProseMirror .memo-page-break.ProseMirror-selectednode {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+/* Images (placed by dragging a Content Browser image onto the editor).
+ *
+ * Each image is rendered through Tiptap's ResizableNodeView, which wraps the
+ * <img> as `[data-resize-container] > [data-resize-wrapper] > img` and adds an
+ * absolutely-positioned grip at each corner. The container is shrink-wrapped to
+ * the image (width: fit-content) so the grips sit on its edges and hover /
+ * selection only react over the picture itself. */
+:where(.wt-memo) .ProseMirror [data-resize-container] {
+	margin: 0.5em 0;
+	width: fit-content;
+	max-width: 100%;
+}
+
+:where(.wt-memo) .ProseMirror img {
+	display: block;
+	max-width: 100%;
+	/* Derive height from the (possibly clamped) width so the aspect ratio is
+	   always preserved — even when a wide image is scaled down to fit a narrow
+	   editor. !important overrides the inline height the NodeView writes while
+	   dragging; because the resize is aspect-locked the computed height matches
+	   the grip's result, so the picture never distorts. */
+	height: auto !important;
+	border-radius: 0.4rem;
+}
+
+/* Selected image gets a primary-colour ring (ProseMirror adds the selected
+   class to the resize container). */
+:where(.wt-memo) .ProseMirror [data-resize-container].ProseMirror-selectednode img {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 2px;
+}
+
+/* Corner resize grips — hidden until the image is hovered or selected. */
+:where(.wt-memo) .ProseMirror [data-resize-handle] {
+	width: 12px;
+	height: 12px;
+	background-color: var(--primary-color);
+	border: 2px solid var(--body-bg);
+	border-radius: 50%;
+	box-sizing: border-box;
+	opacity: 0;
+	transition: opacity 0.12s;
+	z-index: 3;
+}
+
+:where(.wt-memo) .ProseMirror [data-resize-container]:hover [data-resize-handle],
+:where(.wt-memo) .ProseMirror [data-resize-container].ProseMirror-selectednode [data-resize-handle] {
+	opacity: 1;
+}
+
+/* Centre each grip on its corner and give it a matching diagonal cursor. */
+:where(.wt-memo) .ProseMirror [data-resize-handle="top-left"] { margin: -6px 0 0 -6px; cursor: nwse-resize; }
+:where(.wt-memo) .ProseMirror [data-resize-handle="top-right"] { margin: -6px -6px 0 0; cursor: nesw-resize; }
+:where(.wt-memo) .ProseMirror [data-resize-handle="bottom-left"] { margin: 0 0 -6px -6px; cursor: nesw-resize; }
+:where(.wt-memo) .ProseMirror [data-resize-handle="bottom-right"] { margin: 0 -6px -6px 0; cursor: nwse-resize; }
+
+/* Tables */
+:where(.wt-memo) .ProseMirror table {
+	border-collapse: collapse;
+	table-layout: fixed;
+	width: 100%;
+	margin: 0.5em 0;
+	overflow: hidden;
+}
+
+:where(.wt-memo) .ProseMirror td,
+:where(.wt-memo) .ProseMirror th {
+	border: 1px solid var(--memo-rule-color);
+	padding: 0.4rem 0.6rem;
+	vertical-align: top;
+	min-width: 3rem;
+	position: relative;
+}
+
+:where(.wt-memo) .ProseMirror th {
+	background-color: var(--list-header-bg);
+	font-weight: 600;
+	text-align: left;
+}
+
+/* Active cell selection highlight */
+:where(.wt-memo) .ProseMirror .selectedCell:after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background-color: rgb(from var(--primary-color) r g b / 0.12);
+	pointer-events: none;
+}
+
+/* Column resize handle */
+:where(.wt-memo) .ProseMirror .column-resize-handle {
+	position: absolute;
+	right: -2px;
+	top: 0;
+	bottom: -2px;
+	width: 4px;
+	background-color: var(--primary-color);
+	pointer-events: none;
+}
+
+:where(.wt-memo) .ProseMirror .tableWrapper {
+	overflow-x: auto;
+}
+
+/* Placeholder text for empty paragraphs (Tiptap Placeholder extension) */
+:where(.wt-memo) .ProseMirror p.is-editor-empty:first-child::before,
+:where(.wt-memo) .ProseMirror .is-empty::before {
+	content: attr(data-placeholder);
+	float: left;
+	color: var(--text-soft-color);
+	pointer-events: none;
+	height: 0;
+}
+
+/* ----------------------------------------------------------------------------
+ * The embeddable editor (wt-memo.esm.js): the same document in a box of its
+ * own, inside a form or a pane rather than a whole window.
+ * -------------------------------------------------------------------------- */
+.wt-memo-embedded {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--input-border-color);
+	border-radius: 0.375rem;
+	background-color: var(--body-bg);
+	overflow: hidden;
+}
+
+.wt-memo-embedded > .format-bar {
+	border-bottom: 1px solid var(--navbar-border-color);
+}
+
+.wt-memo-embedded > .wt-memo-body {
+	position: relative;
+	overflow: auto;
+	min-height: 6rem;
+}
+
+/* The memo's text column and generous page margins are for a window; in a
+   box the document uses the box. */
+:where(.wt-memo).wt-memo-embedded .ProseMirror {
+	max-width: none;
+	padding: 0.75rem 1rem 1rem;
+	min-height: 6rem;
+}
+
+.wt-memo-embedded.is-readonly {
+	background-color: var(--list-header-bg);
+}
+
+.wt-memo-embedded.is-readonly > .format-bar {
+	pointer-events: none;
+	opacity: 0.5;
+}
+
+/* A block only the Memo app draws (a dataset or a conversation): kept in the
+   document as it is, shown here as a note. */
+:where(.wt-memo) .ProseMirror .wt-memo-foreign-block {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.75rem;
+	border: 1px dashed var(--memo-rule-color);
+	border-radius: 0.375rem;
+	color: var(--text-muted-color);
+	font-size: 0.875em;
+	user-select: none;
+}
+
+:where(.wt-memo) .ProseMirror .wt-memo-foreign-block.ProseMirror-selectednode {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 2px;
+}
+
+/* The colour and link pickers of the embeddable editor: a small panel under
+   the toolbar button (the Memo app raises the shell's menus instead). */
+.wt-memo-popover {
+	position: absolute;
+	z-index: 20;
+	padding: 0.5rem;
+	border: 1px solid var(--dropdown-border-color, var(--input-border-color));
+	border-radius: 0.5rem;
+	background-color: var(--dropdown-bg, var(--body-bg));
+	box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.18);
+}
+
+.wt-memo-swatches {
+	display: grid;
+	grid-template-columns: repeat(6, 1.5rem);
+	gap: 0.375rem;
+}
+
+.wt-memo-swatch {
+	width: 1.5rem;
+	height: 1.5rem;
+	padding: 0;
+	border: 1px solid var(--memo-rule-color);
+	border-radius: 50%;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	color: var(--text-muted-color);
+	font-size: 0.75rem;
+}
+
+.wt-memo-swatch.is-selected {
+	outline: 2px solid var(--primary-color);
+	outline-offset: 1px;
+}
+
+.wt-memo-link-form {
+	display: flex;
+	gap: 0.375rem;
+	align-items: center;
+	min-width: 18rem;
+}
+
+.wt-memo-link-form > input {
+	flex: 1;
+	min-width: 0;
+}

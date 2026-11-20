@@ -21,16 +21,10 @@ import "../../components/wt-inspector.js";
 // Tiptap / ProseMirror
 import { Editor, Extension } from "@tiptap/core";
 import type { Range } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { TextStyle, Color } from "@tiptap/extension-text-style";
-import { Highlight } from "@tiptap/extension-highlight";
-import { TextAlign } from "@tiptap/extension-text-align";
-import { TaskList } from "@tiptap/extension-task-list";
-import { TaskItem } from "@tiptap/extension-task-item";
-import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
-import { Image } from "@tiptap/extension-image";
-import { Placeholder } from "@tiptap/extension-placeholder";
 import Suggestion from "@tiptap/suggestion";
+// The memo document itself (the extensions, the file format), shared with the
+// embeddable editor wt-memo.esm.js; see lib/memo-document.ts.
+import { memoDocumentExtensions, MEMO_MIME, MEMO_EXTENSION, MEMO_FORMAT_VERSION } from "../../lib/memo-document.js";
 import {
 	createSearchExtension,
 	setMemoSearch,
@@ -55,8 +49,6 @@ import { ChatServiceGraphQL } from "../../services/chat-service-graphql.js";
 import { loadChatThreadTemplate } from "../../components/wt-chat-thread.js";
 // Block drag handle (the grip in the left gutter); see drag-handle.ts.
 import { createDragHandleExtension } from "./drag-handle.js";
-// Page break block (Ctrl+Enter); see page-break.ts.
-import { createPageBreakExtension } from "./page-break.js";
 
 // ----------------------------------------------------------------------------
 // Native memo document format
@@ -67,9 +59,7 @@ import { createPageBreakExtension } from "./page-break.js";
 // files that are dragged in are round-tripped as HTML instead, preserving their
 // markup; the Text Editor stays the default editor for HTML.
 // ----------------------------------------------------------------------------
-const MEMO_MIME = 'application/vnd.mintjams.cms.memo+json';
-const MEMO_EXTENSION = 'memo';
-const MEMO_FORMAT_VERSION = 1;
+// MEMO_MIME, MEMO_EXTENSION and MEMO_FORMAT_VERSION come from lib/memo-document.ts.
 
 type MemoFormat = 'json' | 'html';
 
@@ -1200,45 +1190,16 @@ export const App = {
 			const vm = this;
 			const placeholder = vm.t('app.memo.hint.slash', undefined, "Type '/' for commands, or just start writing…");
 			return [
-				StarterKit.configure({
-					heading: { levels: [1, 2, 3] },
-					link: {
-						openOnClick: false,
-						autolink: true,
-						HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: '_blank' },
-					},
+				// The document (lib/memo-document.ts), the same in every editor of
+				// a memo. Images are placed by dragging a Content Browser image onto
+				// the editor (see handleDropEvent → insertImagesAtDrop); the node
+				// stores the source node's URL, so the image remains the
+				// repository-managed asset.
+				...memoDocumentExtensions({
+					placeholder,
+					pageBreakLabel: () => vm.t('app.memo.pageBreak', undefined, 'Page break'),
 				}),
-				TextStyle,
-				Color,
-				Highlight.configure({ multicolor: true }),
-				TextAlign.configure({ types: ['heading', 'paragraph'] }),
-				TaskList,
-				TaskItem.configure({ nested: true }),
-				Table.configure({ resizable: true }),
-				TableRow,
-				TableHeader,
-				TableCell,
-				// Images are placed by dragging a Content Browser image onto the
-				// editor (see handleDropEvent → insertImagesAtDrop). The node stores
-				// the source node's URL, so the memo stays lightweight and the image
-				// remains the repository-managed asset.
-				//
-				// `resize` turns on Tiptap's built-in ResizableNodeView: selecting an
-				// image reveals corner grips that resize it by dragging.
-				// `alwaysPreserveAspectRatio` locks the ratio so width and height
-				// scale together. The chosen size persists as the node's width /
-				// height attributes — lossless in the saved JSON, and emitted as
-				// <img width height> when a memo is round-tripped to HTML.
-				Image.configure({
-					inline: false,
-					resize: {
-						enabled: true,
-						alwaysPreserveAspectRatio: true,
-						minWidth: 48,
-						minHeight: 48,
-					},
-				}),
-				Placeholder.configure({ placeholder }),
+				// What only this app does with the document:
 				vm.buildSlashExtension(),
 				// Dataset block (see dataset-view.ts). The host callbacks read the
 				// component lazily so the node view never captures a reactive Proxy.
@@ -1274,10 +1235,6 @@ export const App = {
 						// Without an identifier the target falls back to the path, which names no conversation.
 						return id.startsWith('/') ? '' : id;
 					},
-				}),
-				// Where the printed memo moves on to the next page (see page-break.ts).
-				createPageBreakExtension({
-					label: () => vm.t('app.memo.pageBreak', undefined, 'Page break'),
 				}),
 				// The grip next to the hovered block that drags it elsewhere.
 				createDragHandleExtension({

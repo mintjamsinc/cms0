@@ -128,6 +128,75 @@ type Task {
   candidateGroups: [String!]!
   variables: [ProcessVariable!]!
   localVariables: [ProcessVariable!]!
+  """The Webtop app the process belongs to (the relPath of the app, from the process's `app` property); null when it names none."""
+  app: String
+  """The subject of the process (its `subject` property), with the values of the variables it names as they are now; null when it declares none."""
+  subject: ProcessText
+  """The latest record of the process: the last step somebody took, with the body written there; null when nothing is recorded."""
+  latestRecord: ProcessRecord
+  """The comments people wrote in the process, oldest first: at its tasks, and on the process itself. Select it for a single task, not for a list."""
+  comments: [ProcessComment!]!
+  """The latest comment written in the process; null when there is none."""
+  latestComment: ProcessComment
+}
+
+"""
+A subject or body of a process, as the reader's Webtop renders it: the
+template as the BPMN writes it (text with `{{variable}}` placeholders), the i18n
+key whose message replaces it in the reader's language when a bundle has one,
+and the values of the variables it names. Dates are formatted in the reader's
+time zone, so the text is never finished on the server.
+"""
+type ProcessText {
+  """`bpm.process.<key>.subject`, `bpm.process.<key>.task.<taskDefinitionKey>.body` or `bpm.process.<key>.event.<activityId>.body`."""
+  key: String!
+  template: String!
+  """`name -> { type, value }`; type is string, number, boolean or date (an ISO-8601 instant). A variable that is not set is left out."""
+  params: JSON!
+}
+
+"""
+A step somebody took in a process, as it was recorded: a start event that
+declares a body (the process started), a user task that declares one (it was
+completed), a throw or end event that declares one (it was reached: an outcome
+such as "Approved"), a message event or receive task (always), or another
+catch event that declares a body.
+"""
+type ProcessRecord {
+  id: ID!
+  time: DateTime
+  """Who took the step: the authenticated user, else the task's assignee; null when nobody was signed in (a route, a timer)."""
+  userId: String
+  """The display name of userId; null when the user has none or no longer exists."""
+  userDisplayName: String
+  """The user task the record belongs to; null for any other step."""
+  taskId: String
+  activityId: String
+  """startEvent, userTask, intermediateThrowEvent, endEvent, intermediateCatchEvent, boundaryEvent or receiveTask."""
+  activityType: String
+  """The step's name as the BPMN writes it (a task: the name it had)."""
+  activityName: String
+  """The body written at the step, with the values it showed then; null when the step declares none."""
+  body: ProcessText
+}
+
+"""
+A comment somebody wrote in a process (Camunda `TaskService.createComment`):
+at a task - given with its completion, or left for whoever takes it over -
+or on the process itself (`taskId` null), written by an app when it started
+the process or told it something. Comments are kept at every history level
+but `none` (see `processCommentsEnabled`).
+"""
+type ProcessComment {
+  id: ID!
+  time: DateTime
+  """The writer: the engine's authenticated user when it was written; null when nobody was signed in."""
+  userId: String
+  """The display name of userId; null when the user has none or no longer exists."""
+  userDisplayName: String
+  """The task it was written at; null when it was written on the process."""
+  taskId: String
+  message: String!
 }
 
 type TaskConnection {
@@ -254,7 +323,12 @@ extend type Mutation {
   """Set variables on a task (local or process-scoped)."""
   setTaskVariables(taskId: ID!, variables: [ProcessVariableInput!]!, local: Boolean = false): Task!
 
-  """Add a comment to a task; returns the created comment."""
+  """
+  Add a comment to a task, as the caller - a note for whoever takes it over;
+  returns the created comment. Written by the task's assignee (an Admin or a
+  Supervisor may write on any task). Refused when the workspace keeps no
+  comments (`processCommentsEnabled` false).
+  """
   addTaskComment(taskId: ID!, message: String!): TaskComment!
 }
 
@@ -263,6 +337,15 @@ input CompleteTaskInput {
   variables: [ProcessVariableInput!]
   """The `Task.revision` the caller last read; a task changed since is not completed (CONFLICT)."""
   expectedRevision: Int
+  """
+  A comment given with the completion, kept as a comment of the task written
+  by the caller, in the same transaction as the completion. A process that
+  needs the text (a script that passes it on) gets it as well as a variable
+  marked transient (`valueInfo: {transient: true}`), which is never stored.
+  Refused when the workspace keeps no comments (`processCommentsEnabled`
+  false); empty or blank, none is written.
+  """
+  comment: String
   """Reserved (handmade parity): mutation-response variables are always empty; clients re-query the task."""
   withVariablesInReturn: Boolean = false
 }
@@ -394,6 +477,12 @@ input ProcessVariableInput {
   name: String!
   type: String
   value: JSON!
+  """
+  `{transient: true}` sets a transient variable, as in Camunda's REST API:
+  the process sees it until it next waits, and it is never stored nor kept
+  in the history. A transient variable cannot take the name of a stored one
+  of the same scope (the engine refuses it).
+  """
   valueInfo: JSON
 }
 
@@ -417,6 +506,8 @@ type ProcessDefinition {
   suspended: Boolean!
   category: String
   startFormKey: String
+  """The Webtop app the process belongs to (its `app` property); null when it names none."""
+  app: String
 }
 
 type ProcessInstance {
@@ -485,13 +576,24 @@ extend type Query {
   processHistoryAccess: ProcessHistoryAccess!
 
   """
+  Whether comments can be written in this workspace's processes (TaskService
+  createComment): true at every history level but `none`, where the engine
+  keeps no comments. Apps hide their comment fields when it is false.
+  """
+  processCommentsEnabled: Boolean!
+
+  """
   Process instances, running and finished, newest first.
 
   The scope is enforced on the server from the caller's session. `MINE` (the
-  default) is limited to the instances the caller started or held a task in;
+  default) is limited to the instances the caller started or held a task in -
+  a task they claimed and released again, or passed on, included (below
+  history level `audit`, only a task they were the last assignee of);
   `ALL` is refused (FORBIDDEN) unless the caller is an Admin or a Supervisor.
   Process variables are deliberately not part of this view: they carry what
-  other participants entered. At most the 1000 newest instances are considered.
+  other participants entered. The only values shown are those the process
+  author chose to show, by naming them in the subject and the bodies of the
+  BPMN. At most the 1000 newest instances are considered.
   """
   processHistory(first: Int = 50, after: String, scope: ProcessHistoryScope = MINE, definitionKey: String, finished: Boolean, startedAfter: DateTime, startedBefore: DateTime): ProcessHistoryConnection!
 
@@ -510,9 +612,10 @@ type ProcessHistoryAccess {
   """Whether the caller may ask for `scope: ALL`."""
   all: Boolean!
   """
-  Whether the engine records who claimed, reassigned and completed each task
-  (history level `full`). When false, `ProcessHistoryStep.operations` is always
-  empty; when true it is still empty for what ran before the level was raised.
+  Whether the engine records who claimed, released, reassigned and completed
+  each task (history level `audit` or `full`). When false,
+  `ProcessHistoryStep.operations` is always empty; when true it is still empty
+  for what ran before the operations were recorded.
   """
   operationsRecorded: Boolean!
 }
@@ -534,6 +637,18 @@ type ProcessHistoryEntry {
   state: String!
   """The instance's user tasks, in start order. Resolved on demand: select it for a single entry, not for a list."""
   steps: [ProcessHistoryStep!]!
+  """The Webtop app the process belongs to (its `app` property); null when it names none."""
+  app: String
+  """The subject of the process, with the values as they are now (as they were at the end, once it ended); null when it declares none."""
+  subject: ProcessText
+  """The latest record of the process; null when nothing is recorded."""
+  latestRecord: ProcessRecord
+  """Every record of the process, oldest first. Resolved on demand: select it for a single entry, not for a list."""
+  records: [ProcessRecord!]!
+  """Every comment written in the process, oldest first: at its tasks and on the process itself. Select it for a single entry, not for a list."""
+  comments: [ProcessComment!]!
+  """The latest comment written in the process; null when there is none."""
+  latestComment: ProcessComment
 }
 
 """A user task of a process instance, as the history kept it."""
@@ -565,7 +680,7 @@ type ProcessHistoryOperation {
   userId: String
   """The display name of userId; null when the user has none or no longer exists."""
   userDisplayName: String
-  """The engine's operation type: Claim, Assign, Complete, Delegate, Resolve, SetOwner, SetPriority, …"""
+  """The engine's operation type: Claim (releasing a task is a Claim whose newValue is null), Assign, Complete, Delegate, Resolve, SetOwner, SetPriority, …"""
   type: String!
   property: String
   oldValue: String

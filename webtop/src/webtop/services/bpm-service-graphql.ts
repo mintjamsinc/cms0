@@ -5,7 +5,7 @@
  */
 
 import { GraphQLClient } from '../graphql/client.js';
-import { BPM_QUERIES, BPM_MUTATIONS } from '../graphql/queries/bpm.js';
+import { BPM_QUERIES, BPM_MUTATIONS, LIST_TASKS_WITH_SUMMARY } from '../graphql/queries/bpm.js';
 import { Dates } from '../utils/dates.js';
 import type {
   Task,
@@ -21,6 +21,7 @@ import type {
   ProcessVariableInput,
   ActivityInstance,
   ProcessHistoryAccess,
+  ProcessComment,
   ProcessHistoryConnection,
   ProcessHistoryEntry,
   ListProcessHistoryOptions,
@@ -80,6 +81,8 @@ export interface ListTasksOptions {
   priorityLowerThanOrEquals?: number;
   sortBy?: TaskSortField;
   sortOrder?: SortOrder;
+  /** Also select each task's app, subject and latest record (one lookup per process instance). */
+  withSummary?: boolean;
 }
 
 export interface ListProcessDefinitionsOptions {
@@ -134,7 +137,7 @@ export class BpmServiceGraphQL {
    */
   async listTasks(options: ListTasksOptions = {}): Promise<TaskConnection> {
     const data = await this.#client.query<{ tasks: TaskConnection }>(
-      BPM_QUERIES.LIST_TASKS,
+      options.withSummary ? LIST_TASKS_WITH_SUMMARY : BPM_QUERIES.LIST_TASKS,
       {
         first: options.first ?? 20,
         after: options.after,
@@ -278,6 +281,30 @@ export class BpmServiceGraphQL {
       { id }
     );
     return data.processInstance;
+  }
+
+  /**
+   * Whether comments can be written in the workspace's processes: false at
+   * history level none, where the engine keeps none (comment fields hide).
+   */
+  async getProcessCommentsEnabled(): Promise<boolean> {
+    const data = await this.#client.query<{ processCommentsEnabled: boolean }>(
+      BPM_QUERIES.GET_PROCESS_COMMENTS_ENABLED,
+      {}
+    );
+    return data.processCommentsEnabled === true;
+  }
+
+  /**
+   * The comments written in a task's process, oldest first: at its tasks and
+   * on the process itself. Empty when the task is gone.
+   */
+  async getTaskComments(taskId: string): Promise<ProcessComment[]> {
+    const data = await this.#client.query<{ task: { comments?: ProcessComment[] } | null }>(
+      BPM_QUERIES.GET_TASK_COMMENTS,
+      { id: taskId }
+    );
+    return data.task?.comments ?? [];
   }
 
   /**

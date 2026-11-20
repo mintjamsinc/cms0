@@ -62,8 +62,8 @@ into the `ACT_HI_*` tables. Supported values, in increasing order of detail:
 |------------|------------------|
 | `none`     | Nothing. History recording is disabled. |
 | `activity` | Process and activity instances. |
-| `audit`    | The above **+ user tasks and the current value of process variables** (`HistoricVariableInstance`). **This is the default.** |
-| `full`     | The above **+ the full change history of variables** (`HistoricDetail`), form properties, and complete user-operation logging. |
+| `audit`    | The above **+ user tasks and the current value of process variables** (`HistoricVariableInstance`) **+ who held each task**: the assignments of a task and the user-operation log (see below). **This is the default.** |
+| `full`     | The above **+ the full change history of variables** (`HistoricDetail`), form properties, incidents and job logs. |
 | `auto`     | The engine adopts the level already recorded in the database (see below). On a brand-new database this resolves to the engine default (`audit`). |
 
 > The deprecated `variable` level is intentionally not supported.
@@ -76,14 +76,20 @@ back) so that a typo can never quietly disable history recording.
 ### Choosing a level
 
 - `audit` (default) is sufficient for most monitoring/auditing needs: you can
-  see which process and task instances ran, who started each process, who each
-  task was assigned to when it was completed, and the final values of
-  variables. Through the GraphQL API (Webtop) only the assignee can complete a
-  task, so that assignee is the user who completed it; EIP routes and scripts
-  complete tasks without this check.
-- Choose `full` only when you need the **time series of variable changes** or
-  detailed user-operation logs — who claimed, reassigned or delegated a task
-  along the way. It produces substantially more data: a process that keeps
+  see which process and task instances ran, who started each process, who
+  claimed, released, reassigned, delegated and completed each task, and the
+  final values of variables. Through the GraphQL API (Webtop) only the
+  assignee can complete a task, so that assignee is the user who completed it;
+  EIP routes and scripts complete tasks without this check.
+- At `audit` a workspace keeps more than the engine's own level of that name,
+  which logs neither the assignments of a task (`ACT_HI_IDENTITYLINK`) nor the
+  user operations (`ACT_HI_OP_LOG`) and so forgets a user who claimed a task
+  and released it again. The workspace keeps both, which is what the Tasks
+  app's history shows and how it finds the processes a user was involved in.
+  The level's name and id are the engine's, so nothing has to be done to an
+  existing database; what ran before the workspace kept them has no such entries.
+- Choose `full` only when you need the **time series of variable changes**.
+  It produces substantially more data: a process that keeps
   large JSON values in variables, or rewrites variables in a loop, records
   every single write. Configure "History cleanup" below before choosing it.
 - The user-operation log only covers operations performed with an
@@ -174,6 +180,13 @@ historyCleanupBatchWindowEndTime: "05:00"
 - These settings are read at engine start; restart the workspace (in a
   cluster, on every node) after changing them. Unlike the history level they
   are not stored in the database, so there is no mismatch check.
+- What `audit` keeps about who held each task — the assignments of a task and
+  the user operations on a process instance and its tasks — is history of
+  that instance: it gets the instance's removal time when the instance ends
+  and is removed together with it, like its comments and records.
+- A user operation that belongs to no process instance (deploying a process
+  definition, for example) has no removal time and is never removed. There
+  are few of them: one entry for each such operation by a signed-in user.
 
 Caveats, as Camunda documents them — not verified against this build:
 

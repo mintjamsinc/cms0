@@ -38,6 +38,7 @@ public class ProcessStarter {
 	private String fBusinessKey;
 	private Map<String, Object> fVariables;
 	private String fUserId;
+	private String fComment;
 
 	protected ProcessStarter(ProcessAPI processAPI) {
 		fProcessAPI = processAPI;
@@ -93,42 +94,59 @@ public class ProcessStarter {
 		return this;
 	}
 
+	/**
+	 * A comment on the process, written by the user who starts it (the note
+	 * given with a request, say): kept with the process, not as a variable,
+	 * and shown in its history. Written in the same transaction as the start;
+	 * blank, or at history level {@code none}, none is written.
+	 */
+	public ProcessStarter setComment(String comment) {
+		fComment = comment;
+		return this;
+	}
+
 	public ProcessInstance start() {
-		return fProcessAPI.callAsUser(fUserId, () -> {
-			RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
+		return fProcessAPI.callAsUser(fUserId, () -> fProcessAPI.inOneCommand(() -> {
+			ProcessInstance instance = startInstance();
+			fProcessAPI.writeComment(null, instance.getId(), fComment);
+			return instance;
+		}));
+	}
 
-			// The message is checked first: with a definition id as well, it selects the
-			// message start event of that definition rather than its none start event.
-			if (!Strings.isEmpty(fMessageName)) {
-				if (!Strings.isEmpty(fProcessDefinitionId)) {
-					if (!Strings.isEmpty(fBusinessKey)) {
-						return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fBusinessKey, fVariables);
-					}
-					return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fVariables);
-				}
+	private ProcessInstance startInstance() {
+		RuntimeService runtime = fProcessAPI.getEngine().getRuntimeService();
 
-				if (!Strings.isEmpty(fBusinessKey)) {
-					return runtime.startProcessInstanceByMessage(fMessageName, fBusinessKey, fVariables);
-				}
-				return runtime.startProcessInstanceByMessage(fMessageName, fVariables);
-			}
-
+		// The message is checked first: with a definition id as well, it selects the
+		// message start event of that definition rather than its none start event.
+		if (!Strings.isEmpty(fMessageName)) {
 			if (!Strings.isEmpty(fProcessDefinitionId)) {
 				if (!Strings.isEmpty(fBusinessKey)) {
-					return runtime.startProcessInstanceById(fProcessDefinitionId, fBusinessKey, fVariables);
+					return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fBusinessKey, fVariables);
 				}
-				return runtime.startProcessInstanceById(fProcessDefinitionId, fVariables);
+				return runtime.startProcessInstanceByMessageAndProcessDefinitionId(fMessageName, fProcessDefinitionId, fVariables);
 			}
 
-			if (!Strings.isEmpty(fProcessDefinitionKey)) {
-				if (!Strings.isEmpty(fBusinessKey)) {
-					return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fBusinessKey, fVariables);
-				}
-				return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fVariables);
+			if (!Strings.isEmpty(fBusinessKey)) {
+				return runtime.startProcessInstanceByMessage(fMessageName, fBusinessKey, fVariables);
 			}
+			return runtime.startProcessInstanceByMessage(fMessageName, fVariables);
+		}
 
-			throw new IllegalStateException("Could not start BPM process");
-		});
+		if (!Strings.isEmpty(fProcessDefinitionId)) {
+			if (!Strings.isEmpty(fBusinessKey)) {
+				return runtime.startProcessInstanceById(fProcessDefinitionId, fBusinessKey, fVariables);
+			}
+			return runtime.startProcessInstanceById(fProcessDefinitionId, fVariables);
+		}
+
+		if (!Strings.isEmpty(fProcessDefinitionKey)) {
+			if (!Strings.isEmpty(fBusinessKey)) {
+				return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fBusinessKey, fVariables);
+			}
+			return runtime.startProcessInstanceByKey(fProcessDefinitionKey, fVariables);
+		}
+
+		throw new IllegalStateException("Could not start BPM process");
 	}
 
 }

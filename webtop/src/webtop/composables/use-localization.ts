@@ -271,6 +271,109 @@ export function bpmTaskName(
 }
 
 /**
+ * i18n key of the display name of a BPMN step other than a user task (a start
+ * event, a message event, a receive task):
+ * `bpm.process.<processKey>.event.<activityId>.name`.
+ */
+export function bpmEventNameKey(processKey: string, activityId: string): string {
+	return `bpm.process.${processKey}.event.${activityId}.name`;
+}
+
+/**
+ * Reactively localize the name of a step other than a user task: the bundle
+ * entry under {@link bpmEventNameKey}, else the BPMN `name`, else the id.
+ */
+export function bpmEventName(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	processKey: string | null | undefined,
+	activityId: string | null | undefined,
+	name?: string | null,
+): string {
+	const literal = name || activityId || '';
+	if (!processKey || !activityId) return literal;
+	return translateOrLiteral(snapshot, instance, bpmEventNameKey(processKey, activityId), literal);
+}
+
+/** A subject or body of a process as the server hands it out (see ProcessText in graphql/types.ts). */
+export interface ProcessTextLike {
+	key?: string | null;
+	template?: string | null;
+	params?: Record<string, { type?: string; value?: unknown } | null | undefined> | null;
+}
+
+/** `{{name}}`, the double braces the BPMN formKey tokens use (the engine's `${...}` never touches them). */
+const PROCESS_TEXT_PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+
+/**
+ * Reactively render a subject or body of a process in the reader's language:
+ * the message of `text.key` in the effective locale when a bundle has one (as
+ * written, not run through ICU, so its `{{name}}` placeholders survive), else
+ * the template as the BPMN writes it; each `{{name}}` is replaced by the value
+ * of the variable, a date in the reader's time zone and a number in their
+ * number format. A variable that was not set leaves nothing behind.
+ */
+export function bpmProcessText(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	text: ProcessTextLike | null | undefined,
+): string {
+	if (!text) return '';
+	const locale = snapshot.locale;
+	const revision = snapshot.revision;
+	void revision;
+	let template = text.template || '';
+	if (text.key) {
+		const i18n = resolveI18n(instance);
+		if (i18n && typeof i18n.getMessages === 'function') {
+			try {
+				const messages = i18n.getMessages(text.key, locale || undefined) as Record<string, string>;
+				const message = messages ? messages[text.key] : undefined;
+				if (typeof message === 'string' && message) template = message;
+			} catch {
+				// keep the template as written
+			}
+		}
+	}
+	if (template.indexOf('{{') < 0) return template;
+	const params = text.params || {};
+	return template.replace(PROCESS_TEXT_PLACEHOLDER, (_whole, name: string) => {
+		const p = params[name];
+		if (!p || p.value == null) return '';
+		switch (p.type) {
+			case 'date':
+				return formatDate(snapshot, String(p.value), { format: 'datetime' }) || String(p.value);
+			case 'number':
+				return formatNumber(snapshot, p.value as number | string);
+			default:
+				return String(p.value);
+		}
+	});
+}
+
+/**
+ * Reactively localize the title of a Webtop app named by its relPath (a
+ * process's `app`): `app.<relPath>.title` in the app's own bundle or a global
+ * one, else the title its app.yml gives, else the relPath itself.
+ */
+export function webtopAppTitle(
+	snapshot: LocalizationSnapshot,
+	instance: any,
+	relPath: string | null | undefined,
+): string {
+	if (!relPath) return '';
+	let literal = relPath;
+	try {
+		const apps = ((window.parent as any)?.Webtop?.apps || (window as any).Webtop?.apps || []) as Array<{ relPath?: string; title?: string }>;
+		const app = apps.find((a) => a && a.relPath === relPath);
+		if (app && app.title) literal = app.title;
+	} catch {
+		// Cross-origin — keep the relPath.
+	}
+	return translate(snapshot, instance, `app.${relPath}.title`, undefined, literal, relPath);
+}
+
+/**
  * Reactively format a number in the user's effective number-format locale.
  * Reads `snapshot.numberFormat` / `snapshot.locale` so it repaints on change.
  */

@@ -124,26 +124,26 @@ public class WorkspaceProcessEngineProvider implements Closeable {
 			String itemPath = item.getPath();
 			RepositoryService repositoryService = getProcessEngine().getRepositoryService();
 
-			// Skip deployment if an existing deployment is already up to date
+			// Whether a file is deployed again is decided by its content, not by
+			// jcr:lastModified: copying or re-saving a file moves the date without
+			// changing the process, and each deployment adds a definition version.
+			// Camunda compares the bytes with the latest deployment of the same name
+			// and, when they are equal, returns that deployment instead of a new one.
 			List<Deployment> existing = repositoryService.createDeploymentQuery()
 					.deploymentName(itemPath)
 					.orderByDeploymentTime().desc()
 					.listPage(0, 1);
-			if (!existing.isEmpty()) {
-				java.util.Date deploymentTime = existing.get(0).getDeploymentTime();
-				try {
-					java.util.Calendar lastModified = item.getNode(Node.JCR_CONTENT)
-							.getProperty(Property.JCR_LAST_MODIFIED).getDate();
-					if (!lastModified.getTime().after(deploymentTime)) {
-						return;
-					}
-				} catch (PathNotFoundException ignore) {
-					// jcr:lastModified not present — proceed with deployment
-				}
-			}
 
+			Deployment deployment;
 			try (InputStream in = new BufferedInputStream(item.getNode(Node.JCR_CONTENT).getProperty(Property.JCR_DATA).getBinary().getStream())) {
-				repositoryService.createDeployment().name(itemPath).addInputStream(itemPath, in).deploy();
+				deployment = repositoryService.createDeployment()
+						.name(itemPath)
+						.enableDuplicateFiltering(false)
+						.addInputStream(itemPath, in)
+						.deploy();
+			}
+			if (!existing.isEmpty() && existing.get(0).getId().equals(deployment.getId())) {
+				return;
 			}
 
 			CmsService.postEvent(Deployment.class.getName().replace(".", "/") + "/DEPLOYED", AdaptableMap.<String, Object>newBuilder()

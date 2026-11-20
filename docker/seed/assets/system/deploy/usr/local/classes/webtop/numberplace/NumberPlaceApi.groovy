@@ -124,6 +124,10 @@ class NumberPlaceApi {
 		if (opponent == userId) {
 			throw new IllegalArgumentException('Invite somebody else.');
 		}
+		// The anonymous user cannot sign in to answer an invitation.
+		if (opponent == 'anonymous') {
+			throw new IllegalArgumentException('No such user.');
+		}
 		String kind = (mode ?: '').trim();
 		if (!(kind in MODES)) {
 			throw new IllegalArgumentException("Unknown mode: ${mode}".toString());

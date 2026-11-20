@@ -1864,11 +1864,11 @@ const App = {
 
 		// --- the lobby's online sections: inviting, answering, resuming ---
 
-		/** Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself. */
+		/** Users matching the keyword, for <wt-autocomplete>: not groups, roles or service accounts, not anonymous (who cannot sign in to answer), not oneself. */
 		async findOpponents(keyword: string): Promise<WtAutocompleteItem[]> {
 			if (!this.instance) return [];
 			const found = await this.instance.api.content.searchPrincipals(keyword, 0, OPPONENT_SUGGESTIONS * 2);
-			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== this.userId)
+			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isRole && !p.isService && p.identifier !== 'anonymous' && p.identifier !== this.userId)
 				.slice(0, OPPONENT_SUGGESTIONS)
 				.map((p: PrincipalInfo) => ({ value: p, label: p.displayName || p.identifier, description: p.identifier, icon: 'bi bi-person' }));
 		},

@@ -1069,7 +1069,8 @@ defineComponent('wt-chat-thread', {
 				const found = await vm.api.content.searchPrincipals(query, 0, MENTION_SUGGESTIONS * 2);
 				if (seq !== vm._.mentionSeq || !vm.mention.open) return;
 				vm.mention.items = found
-					.filter((p: any) => !p.isGroup && !p.isService)
+					// Users only: not groups, roles or service accounts, and not anonymous, who cannot sign in to read.
+					.filter((p: any) => !p.isGroup && !p.isRole && !p.isService && p.identifier !== 'anonymous')
 					.slice(0, MENTION_SUGGESTIONS)
 					.map((p: any) => ({ id: p.identifier, name: p.displayName || p.identifier }));
 				vm.mention.index = 0;

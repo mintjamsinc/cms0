@@ -922,7 +922,8 @@ const App = {
 			}, DIRECT_BLUR_DELAY_MS);
 		},
 		/**
-		 * Users matching the keyword, for <wt-autocomplete>: not groups, not service accounts, not oneself.
+		 * Users matching the keyword, for <wt-autocomplete>: not groups, roles or service accounts, not anonymous
+		 * (who cannot sign in to answer), not oneself.
 		 * Those already in the direct messages say so; picking one opens that conversation.
 		 */
 		async findDirectPeers(keyword: string): Promise<WtAutocompleteItem[]> {
@@ -930,7 +931,7 @@ const App = {
 			const me = this.instance.currentUser?.id;
 			const found = await this.instance.api.content.searchPrincipals(keyword, 0, MEMBER_SUGGESTIONS * 2);
 			const open = new Set((this.directChannels as ChatChannel[]).map((c) => c.peerId));
-			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isService && p.identifier !== me)
+			return found.filter((p: PrincipalInfo) => !p.isGroup && !p.isRole && !p.isService && p.identifier !== 'anonymous' && p.identifier !== me)
 				.slice(0, MEMBER_SUGGESTIONS)
 				.map((p: PrincipalInfo) => open.has(p.identifier) ? {
 					...this.principalItem(p),
@@ -1042,7 +1043,7 @@ const App = {
 			if (m.id === 'everyone') return this.t('app.chat.members.everyone', undefined, 'Everyone');
 			return m.displayName || m.id;
 		},
-		/** Users and groups matching the keyword that are neither participants nor picked, for <wt-autocomplete>. */
+		/** Users and groups matching the keyword that are neither participants nor picked, for <wt-autocomplete>; not anonymous, who cannot sign in. */
 		async findNewMembers(keyword: string): Promise<WtAutocompleteItem[]> {
 			if (!this.instance) return [];
 			// Asked for a few more than are shown: participants are left out.
@@ -1051,7 +1052,7 @@ const App = {
 				...(this.members as ChatMember[]).map((m) => m.id),
 				...(this.membersDialog.staged as PrincipalInfo[]).map((p) => p.identifier),
 			]);
-			return found.filter((p: PrincipalInfo) => !p.isService && !taken.has(p.identifier))
+			return found.filter((p: PrincipalInfo) => !p.isService && p.identifier !== 'anonymous' && !taken.has(p.identifier))
 				.slice(0, MEMBER_SUGGESTIONS)
 				.map((p: PrincipalInfo) => this.principalItem(p));
 		},

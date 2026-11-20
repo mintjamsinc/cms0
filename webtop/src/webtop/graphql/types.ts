@@ -534,6 +534,64 @@ export interface ProcessDefinition {
   tenantId?: string;
   category?: string;
   startFormKey?: string;
+  /** The Webtop app the process belongs to (relPath); selected by the process lists. */
+  app?: string | null;
+}
+
+/** A value a subject or body shows: `date` is an ISO-8601 instant, `number` a number or its digits. */
+export interface ProcessTextParam {
+  type: 'string' | 'number' | 'boolean' | 'date';
+  value: string | number | boolean;
+}
+
+/**
+ * A subject or body of a process: the template the BPMN writes (`{{name}}`
+ * placeholders), the i18n key whose message replaces it in the reader's
+ * language, and the values of the variables it names.
+ */
+export interface ProcessText {
+  key: string;
+  template: string;
+  params: Record<string, ProcessTextParam>;
+}
+
+/** A step somebody took in a process, as recorded (ProcessRecords on the server). */
+export interface ProcessRecord {
+  id: string;
+  time?: string | null;
+  userId?: string | null;
+  userDisplayName?: string | null;
+  /** The user task it belongs to; null for any other step. */
+  taskId?: string | null;
+  activityId?: string | null;
+  /** startEvent | userTask | intermediateCatchEvent | boundaryEvent | receiveTask */
+  activityType?: string | null;
+  activityName?: string | null;
+  body?: ProcessText | null;
+}
+
+/**
+ * A comment somebody wrote in a process (TaskService.createComment): at a task
+ * (given with its completion, or left for whoever takes it over), or on the
+ * process itself (`taskId` null), written by an app when it started the
+ * process or told it something.
+ */
+export interface ProcessComment {
+  id: string;
+  time?: string | null;
+  userId?: string | null;
+  userDisplayName?: string | null;
+  /** The task it was written at; null when written on the process. */
+  taskId?: string | null;
+  message: string;
+}
+
+/** What an inbox shows of a process: selected only where it is shown. */
+export interface ProcessSummary {
+  app?: string | null;
+  subject?: ProcessText | null;
+  latestRecord?: ProcessRecord | null;
+  latestComment?: ProcessComment | null;
 }
 
 export interface ProcessDefinitionEdge {
@@ -574,7 +632,7 @@ export interface ProcessInstanceConnection {
   totalCount: number;
 }
 
-export interface Task {
+export interface Task extends ProcessSummary {
   id: string;
   name: string;
   description?: string;
@@ -724,7 +782,7 @@ export interface ProcessHistoryStep {
   operations: ProcessHistoryOperation[];
 }
 
-export interface ProcessHistoryEntry {
+export interface ProcessHistoryEntry extends ProcessSummary {
   id: string;
   definitionKey: string;
   definitionName?: string | null;
@@ -739,6 +797,10 @@ export interface ProcessHistoryEntry {
   state: string;
   /** Selected only for a single entry. */
   steps?: ProcessHistoryStep[];
+  /** Every record, oldest first. Selected only for a single entry. */
+  records?: ProcessRecord[];
+  /** Every comment, oldest first. Selected only for a single entry. */
+  comments?: ProcessComment[];
 }
 
 export interface ProcessHistoryEdge {
@@ -800,6 +862,8 @@ export interface CompleteTaskInput {
   variables?: ProcessVariableInput[];
   // The `Task.revision` last read; a task changed since is not completed.
   expectedRevision?: number | null;
+  // A comment given with the completion, kept as a comment of the task.
+  comment?: string | null;
   withVariablesInReturn?: boolean;
 }
 

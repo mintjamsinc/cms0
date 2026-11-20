@@ -38,6 +38,7 @@ import java.util.Map;
 import org.camunda.bpm.engine.ProcessEngine;
 import org.camunda.bpm.engine.ProcessEngineConfiguration;
 import org.camunda.bpm.engine.ProcessEngineException;
+import org.camunda.bpm.engine.impl.bpmn.parser.BpmnParseListener;
 import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.camunda.bpm.engine.impl.cfg.ProcessEnginePlugin;
 import org.camunda.bpm.engine.impl.scripting.ExecutableScript;
@@ -52,6 +53,7 @@ import org.mintjams.cms.config.ConfigValues;
 import org.mintjams.rt.cms.internal.CmsService;
 import org.mintjams.rt.cms.internal.WorkspaceDelegatingClassLoader;
 import org.mintjams.rt.cms.internal.bpm.event.EventAdminProcessEnginePlugin;
+import org.mintjams.rt.cms.internal.bpm.record.ProcessRecordParseListener;
 import org.mintjams.rt.cms.internal.util.ResourceLoader;
 import org.mintjams.tools.collections.AdaptableList;
 import org.mintjams.tools.collections.AdaptableMap;
@@ -258,6 +260,17 @@ public class WorkspaceProcessEngineProviderConfiguration {
 			config.setProcessEnginePlugins(plugins);
 		}
 		plugins.add(new EventAdminProcessEnginePlugin(getWorkspaceName()));
+		// audit also keeps who held each task (WorkspaceAuditHistoryLevel).
+		plugins.add(new WorkspaceHistoryLevelPlugin());
+		// The records of who did what in a process (ProcessRecords). A post-parse
+		// listener, so a step's own listeners have set their variables before its
+		// body is recorded.
+		List<BpmnParseListener> postParseListeners = config.getCustomPostBPMNParseListeners();
+		if (postParseListeners == null) {
+			postParseListeners = new ArrayList<>();
+			config.setCustomPostBPMNParseListeners(postParseListeners);
+		}
+		postParseListeners.add(new ProcessRecordParseListener());
 		return config.buildProcessEngine();
 	}
 
