@@ -118,6 +118,22 @@ class ReversiStore {
 
 	/** The room, with its moves, or null when there is no such room. */
 	static Map read(session, String id) {
+		Map room = readSettings(session, id);
+		return (room == null) ? null : withMoves(session, room);
+	}
+
+	/** The room as its settings were read, with its moves. */
+	static Map withMoves(session, Map room) {
+		return room + [moves: moves(session, room.path as String)];
+	}
+
+	/**
+	 * The room as its settings file tells it, without its moves, or null
+	 * when there is no such room. What is asked of every room (whose it is,
+	 * whether it is open, when it ended) is answered from here, so going
+	 * through the rooms does not read their moves.
+	 */
+	static Map readSettings(session, String id) {
 		String path = path(id);
 		def file = session.getResource("${path}/${SETTINGS}".toString());
 		if (!file.exists()) {
@@ -144,7 +160,6 @@ class ReversiStore {
 			whiteFace: text(WHITE_FACE),
 			theme: text(THEME),
 			guestReady: flag(GUEST_READY),
-			moves: moves(session, path),
 			// The settings file's identifier: the room's chat is its Chat conversation.
 			fileId: file.getIdentifier(),
 		];
@@ -248,28 +263,45 @@ class ReversiStore {
 	}
 
 	/**
-	 * Removes the rooms that ended before `endedBefore`, and the rooms still
-	 * waiting, getting ready or playing in which nothing happened since
-	 * `idleBefore`. Returns the rooms removed.
+	 * Whether the room is due to be removed: it ended before `endedBefore`,
+	 * or it is still waiting, getting ready or playing and nothing happened
+	 * in it since `idleBefore`.
 	 */
-	static List<Map> purge(session, Date endedBefore, Date idleBefore) {
-		List<Map> removed = [];
+	static boolean expired(session, Map room, Date endedBefore, Date idleBefore) {
+		boolean open = room.status in [WAITING, LOBBY, PLAYING];
+		Date since = open ? lastActivity(session, room) : ((room.finishedAt ?: room.createdAt) as Date);
+		return since != null && since.before(open ? idleBefore : endedBefore);
+	}
+
+	/**
+	 * Removes every room that is due (`expired`). Returns how many were
+	 * removed.
+	 *
+	 * Each room is removed and committed on its own. One that cannot be
+	 * removed now (held by a lock, ...) is left for the next purge, and the
+	 * purge goes on with the others. `beforeEach` is called before each room
+	 * is looked at, and `removed` with each room once it is gone; what
+	 * either throws stops the purge.
+	 */
+	static int purge(session, Date endedBefore, Date idleBefore, Closure beforeEach, Closure removed) {
+		int count = 0;
 		for (String id : ids(session)) {
-			Map room = read(session, id);
-			if (room == null) {
+			beforeEach?.call();
+			Map room = readSettings(session, id);
+			if (room == null || !expired(session, room, endedBefore, idleBefore)) {
 				continue;
 			}
-			boolean open = room.status in [WAITING, LOBBY, PLAYING];
-			Date since = open ? lastActivity(session, room) : ((room.finishedAt ?: room.createdAt) as Date);
-			if (since != null && since.before(open ? idleBefore : endedBefore)) {
+			try {
 				session.getResource(room.path as String).remove();
-				removed.add(room);
+				session.commit();
+			} catch (Throwable ignore) {
+				session.rollback();
+				continue;
 			}
+			count++;
+			removed?.call(room);
 		}
-		if (removed) {
-			session.commit();
-		}
-		return removed;
+		return count;
 	}
 
 	/** When something last happened in the room: a change of its settings or a move. */

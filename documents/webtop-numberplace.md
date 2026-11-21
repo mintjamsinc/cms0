@@ -95,10 +95,14 @@ board of one player (`host`, `guest`). A filled cell is a file whose content
 is the digit, named by the cell (`00` to `80`): two numbers cannot be
 written in one cell, which settles who was first when both fill it.
 
-Rooms are kept and removed as in Reversi: when a user next sends an
-invitation, rooms that ended more than seven days ago are removed, and so are
-open rooms with no change and no filled cell for 30 days (their players are
-told with an `expired` message). A user may have at most ten rooms open.
+Rooms are kept and removed as in Reversi: rooms that ended more than seven
+days ago are removed, with their boards and solution, and so are open rooms
+with no change and no filled cell for 30 days (their players are told with
+an `expired` message). The removal is the EIP route
+`webtop-numberplace-cleanup` (`etc/eip/routes/webtop/numberplace.xml`), set
+off when a room is created, under the lock
+`/var/lock/games/numberplace/queue.cleanup.lock`. A user may have at most ten
+rooms open; a room that is due to be removed is neither counted nor listed.
 
 ## The numbers are checked on the server
 

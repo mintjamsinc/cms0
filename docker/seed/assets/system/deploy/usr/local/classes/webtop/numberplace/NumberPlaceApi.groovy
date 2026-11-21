@@ -82,23 +82,27 @@ class NumberPlaceApi {
 
 	/**
 	 * The caller's rooms: those waiting, getting ready or playing, then the
-	 * ended ones, the newest first.
+	 * ended ones, the newest first. A room that is due to be removed is left
+	 * out: it goes with the next cleanup.
 	 */
 	List<Map> rooms() {
 		return asService { s ->
+			long now = System.currentTimeMillis();
+			Date ended = endedBefore(now);
+			Date idle = idleBefore(now);
 			List<Map> open = [];
-			List<Map> ended = [];
+			List<Map> closed = [];
 			for (String id : NumberPlaceStore.ids(s)) {
 				Map room = NumberPlaceStore.read(s, id);
-				if (room == null || !isPlayer(room)) {
+				if (room == null || !isPlayer(room) || NumberPlaceStore.expired(s, room, ended, idle)) {
 					continue;
 				}
-				(isOpen(room) ? open : ended).add(room);
+				(isOpen(room) ? open : closed).add(room);
 			}
 			Closure newest = { Map a, Map b -> ((b.createdAt as Date) ?: new Date(0)) <=> ((a.createdAt as Date) ?: new Date(0)); };
 			open.sort(newest);
-			ended.sort(newest);
-			return (open + ended.take(ENDED_SHOWN)).collect { Map room -> toRoom(s, room); };
+			closed.sort(newest);
+			return (open + closed.take(ENDED_SHOWN)).collect { Map room -> toRoom(s, room); };
 		} as List<Map>;
 	}
 
@@ -140,11 +144,16 @@ class NumberPlaceApi {
 			if (!NumberPlaceStore.userExists(s, opponent)) {
 				throw new IllegalArgumentException('No such user.');
 			}
-			purge(s);
+			// A room that is due to be removed is not counted: it goes with the
+			// next cleanup, which this invitation sets off.
+			long now = System.currentTimeMillis();
+			Date ended = endedBefore(now);
+			Date idle = idleBefore(now);
 			int open = 0;
 			for (String id : NumberPlaceStore.ids(s)) {
 				Map room = NumberPlaceStore.read(s, id);
-				if (room != null && isPlayer(room) && isOpen(room)) {
+				if (room != null && isPlayer(room) && isOpen(room) &&
+						!NumberPlaceStore.expired(s, room, ended, idle)) {
 					open++;
 				}
 			}
@@ -442,13 +451,34 @@ class NumberPlaceApi {
 
 	// --- helpers ------------------------------------------------------------------
 
-	/** Removes the ended rooms and the idle ones; the players of an idle room are told it is gone. */
-	private void purge(s) {
+	/**
+	 * Removes the ended rooms and the idle ones, every one that is due; the
+	 * players of an idle room are told it is gone. Returns how many rooms
+	 * were removed.
+	 *
+	 * Run by the route webtop-numberplace-cleanup
+	 * (etc/eip/routes/webtop/numberplace.xml) after a room was created, in a
+	 * context of the games service user and under the route's lock.
+	 * `beforeEach` is called before each room is looked at: the route renews
+	 * its lock there.
+	 */
+	static int purge(context, Closure beforeEach = null) {
 		long now = System.currentTimeMillis();
-		List<Map> removed = NumberPlaceStore.purge(s, new Date(now - KEEP_ENDED_DAYS * DAY_MS), new Date(now - KEEP_IDLE_DAYS * DAY_MS));
-		removed.findAll { Map room -> isOpen(room) }.each { Map room ->
-			NumberPlaceStore.publish(context, room, [type: 'expired', by: NumberPlaceStore.SERVICE_USER]);
+		return NumberPlaceStore.purge(context.session, endedBefore(now), idleBefore(now), beforeEach) { Map room ->
+			if (isOpen(room)) {
+				NumberPlaceStore.publish(context, room, [type: 'expired', by: NumberPlaceStore.SERVICE_USER]);
+			}
 		};
+	}
+
+	/** Rooms that ended before this are removed. */
+	private static Date endedBefore(long now) {
+		return new Date(now - KEEP_ENDED_DAYS * DAY_MS);
+	}
+
+	/** Rooms waiting, getting ready or playing with nothing done since this are removed. */
+	private static Date idleBefore(long now) {
+		return new Date(now - KEEP_IDLE_DAYS * DAY_MS);
 	}
 
 	/** The room, which must be one the caller plays in. */

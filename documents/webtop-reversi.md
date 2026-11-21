@@ -108,11 +108,22 @@ double click or a stale client from playing twice.
 
 The settings file also keeps the time of its last change
 (`reversi:updatedAt`), and each move the time it was played
-(`reversi:playedAt`). When a user next sends an invitation, rooms that ended
-more than seven days ago are removed, and so are rooms still waiting,
-getting ready or playing with no change and no move for 30 days; the
-players of such a room are told with an `expired` message. A user may have
-at most ten rooms waiting or playing at once.
+(`reversi:playedAt`). Rooms that ended more than seven days ago are
+removed, and so are rooms still waiting, getting ready or playing with no
+change and no move for 30 days; the players of such a room are told with an
+`expired` message. A user may have at most ten rooms waiting or playing at
+once; a room that is due to be removed is neither counted nor listed.
+
+The removal is the EIP route `webtop-reversi-cleanup`
+(`etc/eip/routes/webtop/reversi.xml`), set off when a room is created: it
+listens for `javax/jcr/Node/ADDED` on `rooms/*/.room`, and its aggregate
+turns a burst of them into one pass, two seconds after the last. The pass
+runs as `games-service-user` and goes through every room
+(`ReversiApi.purge`); a room it cannot remove now is left for the next
+pass. Every cluster node receives the event, so the pass first takes a
+session-scoped lock on `/var/lock/games/reversi/queue.cleanup.lock`, and a
+pass that finds it held steps back. The lock is taken for 60 seconds and
+renewed as the pass goes, so a pass that died lets it go within that time.
 
 ## The rules are applied on the server
 

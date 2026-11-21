@@ -9,10 +9,14 @@
 #   /var/lib/games                closed to everyone; the service group owns it
 #   /var/lib/games/reversi/rooms  one folder per room: the settings (.room)
 #                                 and one file per move under moves/
+#   /var/lock/games/reversi       the lock file of the route that removes the
+#                                 rooms that are due (etc/eip/routes/webtop/reversi.xml)
 #
 # The root of a workspace grants jcr:read to everyone, so the area is closed
 # with an explicit deny. The moves of a game are announced to its players as
-# topic messages (game/reversi/rooms/<room>), not read from the folder.
+# topic messages (game/reversi/rooms/<room>), not read from the folder. The
+# lock is kept out of the rooms, so that taking it raises no event where the
+# route listens.
 #
 # The reversi: namespace names the room and move properties.
 
@@ -42,4 +46,12 @@ nodes:
   - path: /var/lib/games/reversi
     primaryType: nt:folder
   - path: /var/lib/games/reversi/rooms
+    primaryType: nt:folder
+  - path: /var/lock/games
+    primaryType: nt:folder
+    acl:
+      - group: games-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lock/games/reversi
     primaryType: nt:folder

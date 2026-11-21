@@ -42,7 +42,7 @@ generate correct redirect URLs.
 ```yaml
 services:
   cms:
-    image: mintjams/cms:0.3.0
+    image: mintjams/cms:0.3.1
     restart: unless-stopped
     environment:
       CMS_PUBLIC_BASE_URL: "http://localhost:8080"

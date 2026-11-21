@@ -14,11 +14,16 @@
 #                                         player can read the other's numbers
 #   /var/lib/games/numberplace/solutions  the solution of each room's puzzle; granted
 #                                         to nobody
+#   /var/lock/games/numberplace           the lock file of the route that removes the
+#                                         rooms that are due
+#                                         (etc/eip/routes/webtop/numberplace.xml)
 #
 # The root of a workspace grants jcr:read to everyone, so the area is closed
-# with an explicit deny. The group, the service user and /var/lib/games are
-# also provisioned by reversi.yml; provisioning is idempotent, so each app's
-# descriptor stands on its own.
+# with an explicit deny. The lock is kept out of the rooms, so that taking it
+# raises no event where the route listens. The group, the service user,
+# /var/lib/games and /var/lock/games are also provisioned by reversi.yml and
+# minesweeper.yml; provisioning is idempotent, so each app's descriptor
+# stands on its own.
 #
 # The numberplace: namespace names the room and cell properties.
 
@@ -52,4 +57,12 @@ nodes:
   - path: /var/lib/games/numberplace/boards
     primaryType: nt:folder
   - path: /var/lib/games/numberplace/solutions
+    primaryType: nt:folder
+  - path: /var/lock/games
+    primaryType: nt:folder
+    acl:
+      - group: games-service-group
+        privileges: jcr:all
+        effect: allow
+  - path: /var/lock/games/numberplace
     primaryType: nt:folder

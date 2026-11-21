@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<camel>
+
+    <!--
+        Removes the Number Place rooms that are due: those that ended more than
+        KEEP_ENDED_DAYS ago, and those still waiting, getting ready or playing
+        in which nothing happened for KEEP_IDLE_DAYS (webtop.numberplace.NumberPlaceApi).
+        The players of an idle room are told it is gone.
+
+        A pass runs after a room was created: the repository posts
+        javax/jcr/Node/ADDED for the room's settings file, rooms/<room>/.room.
+        The aggregate turns a burst of them into one pass, two seconds after
+        the last. Every cluster node receives the event, so a pass takes the
+        lock file first, and a pass that finds it held - on this node or
+        another - steps back: the pass holding it is already at work.
+
+        The lock is scoped to the pass's session and released when its context
+        closes. It is taken for a short lease and renewed as the pass goes
+        through the rooms, so a pass that died lets it go within one lease; a
+        pass whose lease passed to another stops.
+    -->
+    <route id="webtop-numberplace-cleanup">
+        <routeProperty key="mi:history" value="failure"/>
+        <from id="webtop-numberplace-cleanup-events" uri="eventadmin:javax/jcr/Node/ADDED?filter=(path=/var/lib/games/numberplace/rooms/*/.room)&amp;maxQueueSize=1000&amp;rejectedPolicy=Discard"/>
+
+        <aggregate id="webtop-numberplace-cleanup-once" aggregationStrategy="#class:org.apache.camel.processor.aggregate.UseLatestAggregationStrategy" completionTimeout="2000">
+            <correlationExpression><constant>all</constant></correlationExpression>
+
+            <setProperty id="webtop-numberplace-cleanup-run-as" name="runAs">
+                <constant>games-service-user</constant>
+            </setProperty>
+            <setProperty id="webtop-numberplace-cleanup-lock-file-path" name="lockFilePath">
+                <constant>/var/lock/games/numberplace/queue.cleanup.lock</constant>
+            </setProperty>
+            <!-- The lease, in seconds: sized for looking at a few rooms, as the
+                 pass renews it while it goes. -->
+            <setProperty id="webtop-numberplace-cleanup-lock-timeout" name="lockTimeoutSeconds">
+                <constant>60</constant>
+            </setProperty>
+
+            <doTry id="webtop-numberplace-cleanup-try">
+                <script id="webtop-numberplace-cleanup-login">
+                    <groovy>
+                    <![CDATA[
+                        def context = ScriptAPI.createServiceUserContext(exchange.getProperty('runAs'));
+                        exchange.setProperty('mi:cms.context', context);
+                    ]]>
+                    </groovy>
+                </script>
+
+                <doTry id="webtop-numberplace-cleanup-claim">
+                    <script id="webtop-numberplace-cleanup-lock">
+                        <groovy>
+                        <![CDATA[
+                            def lockFilePath = exchange.getProperty('lockFilePath') as String;
+                            def lockFile = context.session.getResource(lockFilePath);
+                            if (!lockFile.exists()) {
+                                // Two nodes may create it at once; the one whose commit
+                                // fails finds it there and goes on to lock it.
+                                try {
+                                    lockFile.createFile();
+                                    context.session.commit();
+                                } catch (Throwable ignore) {
+                                    context.session.rollback();
+                                }
+                            }
+                            lockFile.lock(false, true, exchange.getProperty('lockTimeoutSeconds') as long);
+                            exchange.setProperty('passLock', lockFile.getLock());
+                        ]]>
+                        </groovy>
+                    </script>
+                    <doCatch id="webtop-numberplace-cleanup-held">
+                        <exception>javax.jcr.lock.LockException</exception>
+                        <log id="webtop-numberplace-cleanup-skip" loggingLevel="DEBUG" message="Pass skipped, the lock at ${exchangeProperty.lockFilePath} is held by another pass"/>
+                        <stop id="webtop-numberplace-cleanup-skip-stop"/>
+                    </doCatch>
+                    <doCatch id="webtop-numberplace-cleanup-claim-failed">
+                        <exception>java.lang.Exception</exception>
+                        <log id="webtop-numberplace-cleanup-claim-log" loggingLevel="ERROR" message="${exception.message} ${exception.stacktrace}"/>
+                        <stop id="webtop-numberplace-cleanup-claim-stop"/>
+                    </doCatch>
+                </doTry>
+
+                <script id="webtop-numberplace-cleanup-purge">
+                    <groovy>
+                    <![CDATA[
+                        def passLock = exchange.getProperty('passLock');
+                        long leaseMillis = (exchange.getProperty('lockTimeoutSeconds') as long) * 1000L;
+                        long renewedAt = System.currentTimeMillis();
+                        int removed = webtop.numberplace.NumberPlaceApi.purge(context) {
+                            // Renewed once a third of the lease has gone by. A lease
+                            // that passed to another pass throws, and this pass stops.
+                            long now = System.currentTimeMillis();
+                            if ((now - renewedAt) >= leaseMillis.intdiv(3)) {
+                                passLock.refresh();
+                                renewedAt = now;
+                            }
+                        };
+                        if (removed > 0) {
+                            log.info("Removed ${removed} Number Place room(s) that were due".toString());
+                        }
+                    ]]>
+                    </groovy>
+                </script>
+
+                <doCatch id="webtop-numberplace-cleanup-catch">
+                    <exception>java.lang.Exception</exception>
+                    <log id="webtop-numberplace-cleanup-log" loggingLevel="ERROR" message="${exception.message} ${exception.stacktrace}"/>
+                    <script id="webtop-numberplace-cleanup-rollback">
+                        <groovy>
+                        <![CDATA[
+                            try {
+                                context.session.rollback();
+                            } catch (Throwable ignore) {}
+                        ]]>
+                        </groovy>
+                    </script>
+                    <throwException id="webtop-numberplace-cleanup-rethrow" exceptionType="java.lang.IllegalStateException" message="${exception.message}"/>
+                </doCatch>
+
+                <doFinally id="webtop-numberplace-cleanup-finally">
+                    <script id="webtop-numberplace-cleanup-logout">
+                        <groovy>
+                        <![CDATA[
+                            // Closing the context releases the lock. The property goes
+                            // first: a closed context left on it has no bindings for a
+                            // script that runs after this one.
+                            def cmsContext = exchange.getProperty('mi:cms.context');
+                            exchange.removeProperty('mi:cms.context');
+                            cmsContext?.close();
+                        ]]>
+                        </groovy>
+                    </script>
+                </doFinally>
+            </doTry>
+        </aggregate>
+    </route>
+
+</camel>

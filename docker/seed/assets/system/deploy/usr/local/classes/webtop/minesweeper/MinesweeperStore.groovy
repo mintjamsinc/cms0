@@ -349,33 +349,50 @@ class MinesweeperStore {
 	}
 
 	/**
-	 * Removes the rooms that ended before `endedBefore`, and the rooms still
-	 * waiting, getting ready or playing in which nothing happened since
-	 * `idleBefore`, with their boards and mines. Returns the rooms removed.
+	 * Whether the room is due to be removed: it ended before `endedBefore`,
+	 * or it is still waiting, getting ready or playing and nothing happened
+	 * in it since `idleBefore`.
 	 */
-	static List<Map> purge(session, Date endedBefore, Date idleBefore) {
-		List<Map> removed = [];
+	static boolean expired(session, Map room, Date endedBefore, Date idleBefore) {
+		boolean open = room.status in [WAITING, LOBBY, PLAYING];
+		Date since = open ? lastActivity(session, room) : ((room.finishedAt ?: room.createdAt) as Date);
+		return since != null && since.before(open ? idleBefore : endedBefore);
+	}
+
+	/**
+	 * Removes every room that is due (`expired`), with its boards and mines.
+	 * Returns how many were removed.
+	 *
+	 * Each room is removed and committed on its own. One that cannot be
+	 * removed now (held by a lock, ...) is left for the next purge, and the
+	 * purge goes on with the others. `beforeEach` is called before each room
+	 * is looked at, and `removed` with each room once it is gone; what
+	 * either throws stops the purge.
+	 */
+	static int purge(session, Date endedBefore, Date idleBefore, Closure beforeEach, Closure removed) {
+		int count = 0;
 		for (String id : ids(session)) {
+			beforeEach?.call();
 			Map room = read(session, id);
-			if (room == null) {
+			if (room == null || !expired(session, room, endedBefore, idleBefore)) {
 				continue;
 			}
-			boolean open = room.status in [WAITING, LOBBY, PLAYING];
-			Date since = open ? lastActivity(session, room) : ((room.finishedAt ?: room.createdAt) as Date);
-			if (since != null && since.before(open ? idleBefore : endedBefore)) {
+			try {
 				for (String p : [room.path as String, "${BOARDS}/${id}".toString(), "${MINES}/${id}".toString()]) {
 					def r = session.getResource(p);
 					if (r.exists()) {
 						r.remove();
 					}
 				}
-				removed.add(room);
+				session.commit();
+			} catch (Throwable ignore) {
+				session.rollback();
+				continue;
 			}
+			count++;
+			removed?.call(room);
 		}
-		if (removed) {
-			session.commit();
-		}
-		return removed;
+		return count;
 	}
 
 	/** When something last happened in the room: a change of its settings, a cell opened or a flag put down. */

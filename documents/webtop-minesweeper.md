@@ -120,10 +120,14 @@ player opened are those its own opening uncovered first. A cell is opened,
 or a mine taken, only once: the second finds the file there, which settles
 who was first when both take the same mine.
 
-Rooms are kept and removed as in Reversi: when a user next sends an
-invitation, rooms that ended more than seven days ago are removed, and so are
-open rooms with no change and no move for 30 days (their players are told
-with an `expired` message). A user may have at most ten rooms open.
+Rooms are kept and removed as in Reversi: rooms that ended more than seven
+days ago are removed, with their boards and mines, and so are open rooms
+with no change and no move for 30 days (their players are told with an
+`expired` message). The removal is the EIP route `webtop-minesweeper-cleanup`
+(`etc/eip/routes/webtop/minesweeper.xml`), set off when a room is created,
+under the lock `/var/lock/games/minesweeper/queue.cleanup.lock`. A user may
+have at most ten rooms open; a room that is due to be removed is neither
+counted nor listed.
 
 ## The board is made and played on the server
 
