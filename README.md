@@ -4,7 +4,7 @@
 
 Manage your website, documents, inventory, and daily workflows in a familiar OS-like browser desktop—or simply ask your AI assistant (like Claude Desktop) to update your site for you via the built-in **MCP (Model Context Protocol) server**.
 
-![MintJams Webtop Screenshot](documents/images/webtop-preview.jpg)
+![MintJams Webtop Screenshot](documents/images/webtop-preview.jpg?1)
 
 ## ✨ Why MintJams?
 
